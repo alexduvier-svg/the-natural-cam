@@ -147,3 +147,11 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   ombro longo (branco da cena = 243, não estoura), acabamento leve. RawIspTest: 5 testes.
 - NÃO testado no aparelho: troca para a tele em 3,5× (log confirma "câmera 4 a partir de
   3,45×"), RAW+ (cor, exposição, sombreamento nas bordas, tempo) — comparar com Foto.
+
+## Feito na 1.17.2 (2026-11-10) — tele perto demais
+- Vídeo: a 3,5× com a tele a ~40 cm (limite dela) o foco não firmava. Agora, na tele, se o foco
+  ficar sem firmar com a lente no limite de perto por 0,7 s, o app troca sozinho para a principal
+  (3,5×); volta para a tele quando a principal foca além de ~55 cm por 1,5 s.
+- Na principal recortada, a foto usa super-resolução de vários quadros (detalhe real).
+- A nativa usa recorte do sensor de 200 MP, que não é acessível a apps; nosso recorte parte do
+  modo 12 MP. NÃO testado ainda na mão: a troca automática e a qualidade de perto.

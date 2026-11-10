@@ -125,6 +125,60 @@ final class CameraController {
     private CameraCaps logicalCaps, teleCaps;
     private boolean onTele;
 
+    /**
+     * Objeto perto demais para a tele (ela só foca a partir de ~40 cm): no zoom da tele usa a
+     * principal, que foca de perto — como a câmera nativa. Volta à tele quando o objeto se afasta.
+     */
+    private boolean nearMode;
+    private long nearSince, farSince;
+
+    /** Troca de lente física: fecha e abre a outra (≈ meio segundo), sem travar a tela. */
+    private void switchLens(boolean tele) {
+        if (tele == onTele && device != null) return; // troca já feita (pedidos repetidos)
+        onTele = tele;
+        caps = tele ? teleCaps : logicalCaps;
+        regions = null;
+        tapHold = -1f;
+        nearSince = farSince = 0;
+        Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
+        closeAll();
+        if (wanted) openCamera();
+    }
+
+    private void checkNearFar(Integer af, Float fd) {
+        if (capturing || logicalCaps == null || teleCaps == null) return;
+        long now = SystemClock.elapsedRealtime();
+        if (onTele) {
+            // tele sem foco com a lente no limite de perto → objeto está perto demais
+            boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+                    || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
+            boolean nearLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.85f;
+            if (unfocused && nearLimit) {
+                if (nearSince == 0) nearSince = now;
+                else if (now - nearSince > 700) {
+                    nearMode = true;
+                    handler.post(() -> switchLens(false));
+                }
+            } else {
+                nearSince = 0;
+            }
+        } else if (nearMode && zoom >= logicalCaps.teleRatio * 0.97f) {
+            // na principal: objeto além de ~55 cm por 1,5 s → a tele já foca, volta para ela
+            float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
+            boolean focused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                    || af == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED);
+            if (focused && fd != null && fd > 0 && fd < teleMin * 0.72f) {
+                if (farSince == 0) farSince = now;
+                else if (now - farSince > 1500) {
+                    nearMode = false;
+                    handler.post(() -> switchLens(true));
+                }
+            } else {
+                farSince = 0;
+            }
+        }
+    }
+
     /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
     private float deviceZoom() {
         if (!onTele || teleCaps == null || logicalCaps == null) return zoom;
@@ -297,15 +351,10 @@ final class CameraController {
         handler.post(() -> {
             if (caps == null || logicalCaps == null) return;
             zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
-            boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+            if (zoom < logicalCaps.teleRatio * 0.97f) nearMode = false; // saiu do zoom da tele
+            boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
             if (wantTele != onTele && !capturing) {
-                // troca de lente física: fecha e abre a outra (≈ meio segundo), sem travar a tela
-                onTele = wantTele;
-                caps = wantTele ? teleCaps : logicalCaps;
-                regions = null;
-                tapHold = -1f;
-                closeAll();
-                if (wanted) openCamera();
+                switchLens(wantTele);
                 return;
             }
             // enquadramento mudou: o ponto tocado antes não corresponde mais ao mesmo objeto
@@ -985,6 +1034,7 @@ final class CameraController {
             if (af != null && af != lastAfState) onTapAf(af);
             if (af != null) lastAfState = af;
             // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
+            checkNearFar(af, lfd);
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
                 android.hardware.camera2.params.Face best = null;
@@ -1530,7 +1580,10 @@ final class CameraController {
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
             j.sheet.put("quadros_pedidos", burstTarget);
-            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && stackPolicy == STACK_MAX;
+            // super-resolução também no recorte da principal (objeto perto demais para a tele):
+            // vários quadros deslocados pelo tremor recuperam detalhe real em vez de só ampliar
+            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && (stackPolicy == STACK_MAX || teleFallback());
+            if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal + super-resolução");
             if (mode == Mode.LONGA) {
                 j.longExp = new LongExposure(longTrails);
                 j.longExp.setProtectStops(longProtect);
