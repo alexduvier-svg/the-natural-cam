@@ -32,6 +32,8 @@ public final class CaptureDirector {
         public boolean face;
         public Kind kind = Kind.FOTO;
         public boolean maxPolicy, stackOff, manual;
+        /** Tremor medido pelo giroscópio (rad/s, RMS do último meio segundo); negativo = desconhecido. */
+        public float shakeRadS = -1f;
     }
 
     /** O plano decidido. */
@@ -82,8 +84,13 @@ public final class CaptureDirector {
             // regra 1/focal, folgada 4× porque o alinhamento corrige parte do tremor
             // regra 1/focal folgada 6×: a tele tem estabilizador óptico e a fusão alinha o tremor
             // (com 4× a 8× ficava em 1/46 s e o ISO subia a 6000 em interiores)
-            long shake = (long) (6e9 / eq);
-            long cap = s.kind == Kind.NOITE ? 66_666_666L : 33_333_333L;
+            // tremor REAL (giroscópio): firme/apoiado → quadros até 2× mais longos (menos ISO, menos
+            // ruído em pouca luz); tremendo → mais curtos. Sem medida, a regra 1/focal folgada 6×.
+            double k = 6e9;
+            if (s.shakeRadS >= 0) k = s.shakeRadS < 0.01f ? 12e9 : s.shakeRadS < 0.03f ? 9e9 : s.shakeRadS > 0.12f ? 3.5e9 : 6e9;
+            long shake = (long) (k / eq);
+            boolean steady = s.shakeRadS >= 0 && s.shakeRadS < 0.01f; // apoiado / tripé
+            long cap = s.kind == Kind.NOITE ? (steady ? 125_000_000L : 66_666_666L) : (steady ? 66_666_666L : 33_333_333L);
             if (s.kind == Kind.RUA) cap = 4_000_000L;
             if (s.face) cap = Math.min(cap, 16_666_666L); // pessoa se mexe: 1/60 s no máximo
             p.maxFrameExposureNs = Math.max(1_000_000L, Math.min(cap, shake));

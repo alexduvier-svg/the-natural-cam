@@ -269,3 +269,9 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - 1.23.2: faixa nítida atrás do sujeito nas cópias de óptica (sharpBand 0,05 da profundidade relativa):
   o desfoque só começa alguns centímetros atrás; objetos vazados tratados pixel a pixel. Teste
   PortraitEngineTest.faixaNitidaAtrasEFrenteSuave (logo atrás 0, frente 15 % da lente real).
+
+## Feito na 1.24.0 (2026-11-10) — pouca luz
+- GyroMeter (giroscópio, ideia do Codex): tremor real entra na diretriz. 8×: sem medida 1/31 s,
+  apoiado 1/15 s (Foto até 1/15, Noite até 1/8 quando firme), tremendo 1/53, rosto 1/60.
+  Ficha: tremor_rad_s. Objetivo: menos ISO em fim de tarde/sem luz artificial.
+- Usuário: textura do boné boa; em pouca luz o ponto é o ruído. Testar 8× apoiado vs na mão.

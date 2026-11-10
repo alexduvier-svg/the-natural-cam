@@ -311,6 +311,7 @@ final class CameraController {
         this.listener = listener;
         this.saver = new MediaSaver(context);
         this.ambient = new AmbientColor(context);
+        this.gyro = new GyroMeter(context);
         thread = new HandlerThread("TheNaturalCam-camera");
         thread.start();
         handler = new Handler(thread.getLooper());
@@ -1313,6 +1314,8 @@ final class CameraController {
 
     /** Sensor de cor da luz ambiente (temperatura de cor), lido junto com a foto. */
     final AmbientColor ambient;
+    /** Tremor da mão (giroscópio), para o tempo de cada quadro. */
+    final GyroMeter gyro;
 
     private Job newJob(String pipeline) {
         Job j = new Job();
@@ -1699,6 +1702,8 @@ final class CameraController {
                 sc.maxPolicy = stackPolicy == STACK_MAX;
                 sc.stackOff = stackPolicy == STACK_OFF && mode != Mode.NOITE;
                 sc.manual = isManual();
+                sc.shakeRadS = gyro.rms();
+                j.sheet.put("tremor_rad_s", round2(Math.max(0, sc.shakeRadS)));
                 plan = CaptureDirector.decide(sc);
                 burstTarget = plan.frames;
                 j.superRes = plan.srScale > 1f;

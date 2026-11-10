@@ -78,4 +78,26 @@ public class CaptureDirectorTest {
             }
         }
     }
+
+    @Test
+    public void tremorRealDecideOTempoDoQuadro() {
+        CaptureDirector.Scene s = new CaptureDirector.Scene();
+        s.iso = 3200;
+        s.zoom = 8f;
+        s.tele = true;
+        s.lensCrop = 2.32f;
+        long unknown = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.005f; // apoiado
+        long steady = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.2f; // tremendo
+        long shaky = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.005f;
+        s.face = true;
+        long face = CaptureDirector.decide(s).maxFrameExposureNs;
+        System.out.println("8×: sem medida 1/" + Math.round(1e9 / unknown) + " · apoiado 1/" + Math.round(1e9 / steady)
+                + " · tremendo 1/" + Math.round(1e9 / shaky) + " · rosto 1/" + Math.round(1e9 / face));
+        assertTrue("apoiado permite quadro mais longo (menos ISO)", steady > unknown * 1.5);
+        assertTrue("tremendo encurta o quadro", shaky < unknown);
+        assertTrue("rosto continua no máximo 1/60 s", face <= 16_666_666L);
+    }
 }
