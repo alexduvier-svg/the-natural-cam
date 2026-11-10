@@ -1043,9 +1043,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
             // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
             // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
-            // original fica. 8× → f/5,6 simulado; 6–7× → f/8 (mais leve).
+            // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
+            // 8× ou mais → f/8 simulado; 6–7× → f/11 (mais leve).
             float z = camera.lastShotZoom();
-            makePortrait(uri, z >= 7.5f ? 5.6f : 8f, "_OPTICA_LONGA", "óptica de lente longa");
+            makePortrait(uri, z >= 7.5f ? 8f : 11f, "_OPTICA_LONGA", "óptica de lente longa");
         }
         lastUri = uri;
         busy = false;

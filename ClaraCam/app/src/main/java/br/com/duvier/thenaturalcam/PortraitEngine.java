@@ -35,7 +35,7 @@ final class PortraitEngine {
     /** Aberturas do editor (e do Ajuste fino). */
     static final float[] APERTURES = {2.8f, 4f, 5.6f, 8f, 11f, 16f};
     /** Aberturas no modo Retrato da câmera: bokeh suave, de lente real (pedido do usuário). */
-    static final float[] PORTRAIT_APERTURES = {5.6f, 8f, 11f, 16f};
+    static final float[] PORTRAIT_APERTURES = {8f, 11f, 16f}; // regra: sempre acima de f/5,6
     static final float DEFAULT_APERTURE = 8f;
     /** f/5,6: fundo mais distante com raio ≈ 1,6 % do lado; f/8 ≈ 1,1 %; f/16 ≈ 0,6 % (moderado). */
     static final float BOKEH_SCALE = 26f;
