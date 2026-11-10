@@ -181,6 +181,15 @@ public final class MainActivity extends Activity implements CameraController.Lis
         overlay = new Overlay(this);
         stage.addView(texture, new FrameLayout.LayoutParams(-1, -1));
         stage.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        // aviso no visor: distância de foco, tele trocada por recorte (some sozinho)
+        hintBanner = Ui.text(this, "", 13, Ui.TEXT);
+        hintBanner.setGravity(Gravity.CENTER);
+        hintBanner.setPadding(dp(14), dp(8), dp(14), dp(8));
+        hintBanner.setBackground(Ui.rounded(this, 0xCC1A1206, dp(14)));
+        hintBanner.setVisibility(View.GONE);
+        FrameLayout.LayoutParams hb = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        hb.setMargins(dp(16), dp(16), dp(16), 0);
+        stage.addView(hintBanner, hb);
         // seletor de abertura simulada (só no modo Retrato), na base do visor
         apertureRow = Ui.row(this);
         apertureRow.setGravity(Gravity.CENTER);
@@ -1407,6 +1416,25 @@ public final class MainActivity extends Activity implements CameraController.Lis
         lastUri = null;
         thumb.setImageBitmap(preview);
         thumbBusy.setVisibility(View.VISIBLE);
+    }
+
+    private TextView hintBanner;
+
+    @Override
+    public void onHint(String text) {
+        if (hintBanner == null) return;
+        if (text == null) {
+            hintBanner.setVisibility(View.GONE);
+        } else {
+            hintBanner.setText("⚠  " + text);
+            hintBanner.setTextColor(Ui.ACCENT);
+            hintBanner.setVisibility(View.VISIBLE);
+        }
+    }
+
+    @Override
+    public void onNotice(String text) {
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show();
     }
 
     @Override

@@ -76,6 +76,12 @@ final class CameraController {
         void onQuickPreview(Bitmap preview);
 
         void onError(String text);
+
+        /** Aviso persistente no visor (null = some): distância de foco, lente trocada etc. */
+        void onHint(String text);
+
+        /** Aviso rápido que não interrompe o processamento. */
+        void onNotice(String text);
     }
 
     static final int FLASH_OFF = 0, FLASH_AUTO = 1, FLASH_ON = 2;
@@ -498,6 +504,10 @@ final class CameraController {
                 // Não volta ao foco contínuo (é ele que fica "indo e voltando"): o AF AUTO
                 // mantém a lente onde a última varredura parou até um novo toque.
                 Log.w(TAG, "foco não confirmado após 3 tentativas; mantendo a lente parada");
+                int cm = caps.minFocusCm(lastPhys);
+                focusWarnUntil = SystemClock.elapsedRealtime() + 4000;
+                postHint(cm > 0 ? "Não focou. Afaste-se: esta lente foca a partir de " + cm + " cm."
+                        : "Não focou. Afaste-se um pouco ou toque numa borda com contraste.");
             }
         }
     }
@@ -936,8 +946,11 @@ final class CameraController {
                 String phys = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
                 Log.w(TAG, "AF estado " + lastAfState + "->" + af + " foco(dpt)=" + fd + " lente=" + phys + " iso=" + lastIso);
             }
+            String physNow = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
+            if (physNow != null) lastPhys = physNow;
             if (af != null && af != lastAfState) onTapAf(af);
             if (af != null) lastAfState = af;
+            updateLensHint();
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
                 android.hardware.camera2.params.Face best = null;
@@ -961,6 +974,37 @@ final class CameraController {
             stepPrecapture(result.get(CaptureResult.CONTROL_AE_STATE));
         }
     };
+
+    /** Lente física em uso agora (a câmera lógica troca sozinha conforme zoom, luz e distância). */
+    private volatile String lastPhys;
+    private String lastHint;
+    private long focusWarnUntil;
+
+    /**
+     * No zoom da tele, se o sistema estiver usando OUTRA lente, a foto seria um recorte ampliado
+     * (degradado) da principal — quase sempre porque o objeto está mais perto que o foco mínimo
+     * da tele. Avisa na hora, antes de fotografar.
+     */
+    private boolean teleFallback() {
+        return caps != null && caps.teleId != null && caps.teleRatio > 1.5f && lastPhys != null
+                && zoom >= caps.teleRatio * 0.97f && !lastPhys.equals(caps.teleId);
+    }
+
+    private void updateLensHint() {
+        if (SystemClock.elapsedRealtime() < focusWarnUntil) return; // aviso de foco ainda na tela
+        String h = null;
+        if (teleFallback()) {
+            h = "Perto demais para a tele (foca a partir de " + Math.round(100f / Math.max(.1f, caps.teleMinFocus))
+                    + " cm). Afaste-se — agora seria recorte ampliado da principal.";
+        }
+        postHint(h);
+    }
+
+    private void postHint(String h) {
+        if (h == null ? lastHint == null : h.equals(lastHint)) return;
+        lastHint = h;
+        main.post(() -> listener.onHint(h));
+    }
 
     /** Rosto visto há menos de 1 s (evita piscar quando a detecção falha um quadro). */
     private MeteringRectangle[] currentFaces() {
@@ -1331,7 +1375,11 @@ final class CameraController {
                 } else if (caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_FAST)) {
                     b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_FAST);
                 }
-                if (caps.supportsEdge(CameraMetadata.EDGE_MODE_FAST)) {
+                if (teleFallback() && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
+                    // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
+                    // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
+                    b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
+                } else if (caps.supportsEdge(CameraMetadata.EDGE_MODE_FAST)) {
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_FAST);
                 }
                 list.add(b.build());
@@ -1538,6 +1586,30 @@ final class CameraController {
                     j.sheet.put("super_resolucao", "1,5× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
                     j.sheet.put("tempo_super_resolucao_ms", fr.superResMs);
                 }
+                // Verificador de qualidade: a fusão só vira a foto final se mantiver o detalhe
+                // e a forma das bordas do quadro mais nítido; senão salva esse quadro limpo.
+                busy("Verificando qualidade…", 0.92f);
+                YuvFrame refFrame = frames.get(Math.max(0, Math.min(frames.size() - 1, fr.reference)));
+                QualityCheck.Report q = QualityCheck.compare(refFrame, fr.frame, fr.noiseBefore);
+                org.json.JSONObject qj = new org.json.JSONObject();
+                qj.put("detalhe_vs_referencia", round2(q.detailRatio));
+                qj.put("forma_das_bordas", round2(q.edgeCorrelation));
+                qj.put("pixels_de_borda", q.edgePixels);
+                qj.put("aprovada", q.passed);
+                qj.put("motivo", q.reason);
+                YuvFrame finalFrame = fr.frame;
+                if (!q.passed && fr.framesIn > 1) {
+                    finalFrame = QualityCheck.copy(refFrame);
+                    float[] model = BurstFusion.noiseModel(finalFrame);
+                    BurstFusion.lumaDenoise(finalFrame, model, 0.3f);
+                    BurstFusion.chromaFilter(finalFrame, model[8]);
+                    qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
+                    final String why = q.reason;
+                    main.post(() -> listener.onNotice("Qualidade: " + why + " — salvo o quadro mais nítido."));
+                } else {
+                    qj.put("decisao", "fusao");
+                }
+                j.sheet.put("verificador_qualidade", qj);
                 frames.clear();
                 j.sheet.put("quadros_recebidos", fr.framesIn);
                 j.sheet.put("quadro_referencia", fr.reference);
@@ -1552,7 +1624,7 @@ final class CameraController {
                 j.sheet.put("tempo_fusao_ms", fr.millis);
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 busy("Gravando…", 0.95f);
-                saveYuv(j, fr.frame);
+                saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
                 YuvFrame keep = frames.isEmpty() ? null : frames.get(0);
@@ -1793,6 +1865,14 @@ final class CameraController {
             if (zr != null) sheet.put("zoom_observado", zr);
             String phys = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             if (phys != null) sheet.put("lente_fisica_ativa", phys);
+            if (phys != null && caps.teleId != null && caps.teleRatio > 1.5f && zoom >= caps.teleRatio * 0.97f && !phys.equals(caps.teleId)) {
+                sheet.put("aviso_lente", "zoom da tele feito como recorte ampliado da lente " + phys
+                        + " (tele foca a partir de " + Math.round(100f / Math.max(.1f, caps.teleMinFocus)) + " cm)");
+            }
+            Integer afCap = r.get(CaptureResult.CONTROL_AF_STATE);
+            if (afCap != null && afCap == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {
+                sheet.put("aviso_foco", "foco não confirmado na captura");
+            }
             Float fdist = r.get(CaptureResult.LENS_FOCUS_DISTANCE);
             if (fdist != null) sheet.put("foco_dioptrias", fdist);
             if (fdist != null && fdist > 0) sheet.put("foco_distancia_cm", Math.round(100f / fdist));

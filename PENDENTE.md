@@ -120,3 +120,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Títulos principais em laranja e centralizados (editor, Ui.sheet). Ajustes da câmera em seções:
   Captura · Visor · Sobre o Aparelho.
 - Instalada e aberta no Reno. NÃO testado na tela: voltar por gesto, novas ferramentas, Ajustes.
+
+## Feito na 1.16.0 (2026-11-10) — qualidade nas lentes
+- Causa do 3× destruído: a tele (lente 4) só foca a partir de 40 cm; a 38 cm o sistema trocou em
+  silêncio para recorte 3,5× ampliado da principal (lente 2). Ficha: lente_fisica_ativa=2, zoom 3,5.
+- Aviso no visor (laranja, no topo): "Perto demais para a tele… afaste-se" quando o zoom é da tele e
+  a lente ativa não é a tele; "Não focou. Afaste-se: esta lente foca a partir de X cm" após 3
+  tentativas de foco. Ficha ganha aviso_lente e aviso_foco.
+- Recorte ampliado: nitidez do ISP desligada (EDGE_MODE OFF) para não "aquarelar" letras.
+- Verificador de qualidade (QualityCheck): compara a fusão com o quadro mais nítido nas bordas
+  (detalhe ≥ 0,7 e forma ≥ 0,9); se reprovar, salva o quadro mais nítido limpo. Ficha:
+  verificador_qualidade. Testes: fiel passa, borrão e fantasma reprovam.
+- Fluidez medida no visor parado: 0,9 % de quadros lentos, 99 % abaixo de 13 ms.
+- Falta testar na mão: aviso da tele perto/longe, foco em cada lente, troca de lentes e edição.
+- Próximo grande: ISP próprio a partir do RAW (fusão RAW, revelação tipo Hasselblad).

@@ -59,6 +59,20 @@ final class CameraCaps {
     final boolean raw;
     final Size rawSize;
     final float minFocus;
+    /** Lentes físicas: id → {focal mm, foco mínimo em dioptrias}. */
+    final java.util.Map<String, float[]> physLens = new java.util.HashMap<>();
+    /** Tele (maior focal) e principal; null se a câmera não for multi-lente. */
+    final String teleId, mainId;
+    /** Foco mínimo da tele em dioptrias (2,5 = 40 cm) e zoom em que ela assume (focal tele/principal). */
+    final float teleMinFocus, teleRatio;
+
+    /** Distância mínima de foco (cm) da lente física, ou 0 se desconhecida. */
+    int minFocusCm(String physId) {
+        float[] v = physId != null ? physLens.get(physId) : null;
+        float d = v != null ? v[1] : minFocus;
+        return d > 0 ? Math.round(100f / d) : 0;
+    }
+
     final boolean awbLock;
     final boolean aeLock;
     final int faceDetectMode;
@@ -115,6 +129,49 @@ final class CameraCaps {
         rawSize = rs;
         Float mf = ch.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
         minFocus = mf != null ? mf : 0f;
+        // Lentes físicas da câmera lógica: focal e distância mínima de foco de cada uma. A tele
+        // (maior focal) do Reno16 Pro só foca a partir de ~40 cm; mais perto que isso o sistema
+        // troca em silêncio para um RECORTE ampliado da principal — a foto se degrada.
+        String tId = null, mId = null;
+        float tFocal = 0, tMin = 0;
+        if (logicalMultiCamera) {
+            for (String pid : ch.getPhysicalCameraIds()) {
+                try {
+                    CameraCharacteristics pc = manager.getCameraCharacteristics(pid);
+                    float[] fl = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                    Float pm = pc.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                    float focal = fl != null && fl.length > 0 ? fl[0] : 0;
+                    float minD = pm != null ? pm : 0;
+                    physLens.put(pid, new float[]{focal, minD});
+                    if (focal > tFocal) {
+                        tFocal = focal;
+                        tId = pid;
+                        tMin = minD;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            // principal = a de focal intermediária (nem a tele, nem a ultra-angular)
+            float best = Float.MAX_VALUE;
+            float[] sorted = new float[physLens.size()];
+            int k = 0;
+            for (float[] v : physLens.values()) sorted[k++] = v[0];
+            java.util.Arrays.sort(sorted);
+            float median = sorted.length == 0 ? 0 : sorted[sorted.length / 2];
+            for (java.util.Map.Entry<String, float[]> e : physLens.entrySet()) {
+                float d = Math.abs(e.getValue()[0] - median);
+                if (d < best) {
+                    best = d;
+                    mId = e.getKey();
+                }
+            }
+        }
+        teleId = physLens.size() >= 2 ? tId : null;
+        mainId = mId;
+        teleMinFocus = tMin;
+        float mainFocal = mId != null ? physLens.get(mId)[0] : 0;
+        // zoom em que a tele assume (3,5× no Reno16 Pro)
+        teleRatio = teleId != null && mainFocal > 0 ? tFocal / mainFocal : 0;
         Boolean awl = ch.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE);
         awbLock = awl != null && awl;
         Boolean ael = ch.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE);
