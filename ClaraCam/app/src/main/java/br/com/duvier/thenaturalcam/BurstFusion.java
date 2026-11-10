@@ -943,7 +943,7 @@ public final class BurstFusion {
                 // PELE (qualquer tom, também em meia-luz): a limpeza forte alisaria e daria aspecto de
                 // plástico — ali fica só a limpeza leve geral (regra do usuário: pele natural)
                 int ci = (yy >> 1) * cwm + (xx >> 1);
-                float sk = skinCbCr(m1[i], c.u[ci] & 0xFF, c.v[ci] & 0xFF);
+                float sk = skinProtect ? skinCbCr(m1[i], c.u[ci] & 0xFF, c.v[ci] & 0xFF) : 0f;
                 // escuro e liso: força total; claro e liso: um terço; textura: quase nada; pele: pouco
                 mask[i] = flat * (0.33f + 0.67f * dark) * (1 - 0.85f * sk);
             }
@@ -967,6 +967,9 @@ public final class BurstFusion {
         }
         return (float) (sum / n);
     }
+
+    /** Proteção de pele na limpeza das sombras (desligável só para comparação em teste). */
+    static boolean skinProtect = true;
 
     /** Probabilidade de pele pela cor (Cb/Cr, faixa cheia), do mais claro ao mais escuro. */
     static float skinCbCr(float y, int cb, int cr) {
