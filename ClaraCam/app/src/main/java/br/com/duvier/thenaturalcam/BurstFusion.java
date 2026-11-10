@@ -903,6 +903,30 @@ public final class BurstFusion {
     }
 
     /** Nitidez 3×3 só no brilho, com "coring" suave abaixo do limiar (não realça ruído). */
+    /**
+     * Nitidez para imagem AMPLIADA pelo ISP (recorte digital da principal): o detalhe ocupa
+     * vários pixels, então o realce usa raio proporcional à ampliação. Só no brilho, com limiar
+     * acima do ruído e reforço limitado (sem halo/contorno) — natural, como pede o usuário.
+     */
+    static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise) {
+        final int w = f.width, h = f.height, n = w * h;
+        int r = Math.max(1, Math.round(upscale * 0.55f));
+        float[] y = new float[n];
+        for (int i = 0; i < n; i++) y[i] = f.y[i] & 0xFF;
+        final float[] bl = PortraitEngine.box(PortraitEngine.box(y, w, h, r), w, h, r);
+        final float thr = Math.max(1.5f, noise * 1.2f), lim = 14f;
+        IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
+            int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
+            for (int i = i0; i < i1; i++) {
+                float d = y[i] - bl[i], ad = Math.abs(d);
+                if (ad < thr) d *= ad / thr; // ruído/grão: quase não realça
+                float s = amount * d;
+                s = s > lim ? lim : (s < -lim ? -lim : s); // borda forte: sem halo
+                f.y[i] = (byte) clamp(Math.round(y[i] + s), 0, 255);
+            }
+        });
+    }
+
     static void sharpenLuma(YuvFrame f, float amount, float threshold) {
         final int w = f.width, h = f.height;
         final byte[] src = f.y.clone();

@@ -254,6 +254,8 @@ final class CameraController {
         List<RawIsp.Frame> rawFrames;
         int rawTarget;
         boolean superRes;
+        /** Ampliação do recorte digital da principal (1 = sem recorte). */
+        float cropUpscale = 1f;
         LongExposure longExp;
         int longCount;
         /** Quadros entregues pela câmera (somados ou pulados) e somas ainda na fila. */
@@ -1591,11 +1593,12 @@ final class CameraController {
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
             j.sheet.put("quadros_pedidos", burstTarget);
-            // super-resolução também no recorte da principal (objeto perto demais para a tele):
-            // vários quadros deslocados pelo tremor recuperam detalhe real em vez de só ampliar
-            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && (stackPolicy == STACK_MAX || teleFallback());
+            // super-resolução só na Máxima: sobre o recorte já ampliado pelo ISP ela custava ~25 s
+            // e quase não somava detalhe; o recorte ganha nitidez na escala da ampliação (abaixo)
+            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && stackPolicy == STACK_MAX && !teleFallback();
+            j.cropUpscale = teleFallback() ? zoom : 1f;
             lastShotCrop = mode == Mode.FOTO && teleFallback();
-            if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal + super-resolução");
+            if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal recortada + nitidez na escala da ampliação");
             if (mode == Mode.LONGA) {
                 j.longExp = new LongExposure(longTrails);
                 j.longExp.setProtectStops(longProtect);
@@ -1913,6 +1916,12 @@ final class CameraController {
                 j.sheet.put("tempo_fusao_ms", fr.millis);
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 busy("Gravando…", 0.95f);
+                if (j.cropUpscale > 1.5f) {
+                    // recorte ampliado da principal: nitidez na escala da ampliação
+                    busy("Nitidez do recorte…", 0.94f);
+                    BurstFusion.sharpenScaled(finalFrame, j.cropUpscale, 0.9f, (float) fr.noiseAfter);
+                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(j.cropUpscale * 0.55f)) + " px, força 0,9");
+                }
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
