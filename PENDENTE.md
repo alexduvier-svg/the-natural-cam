@@ -221,3 +221,10 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Verificação da proteção de pele com 3 retratos reais (DemoPeleTest + testes_comparacao/): sem e
   com proteção davam quase o mesmo — quem limpa a pele é a limpeza leve geral (cor 5,0→1,2; brilho
   9→5–6). Pele agora: ruído de cor sai inteiro, brilho pela metade (SKIN_LUMA_CLEAN 0,5).
+
+## Feito na 1.20.3 (2026-11-10)
+- "Falha ao combinar quadros": no escuro (ISO 9000) a tele não firmava foco → ia para a principal →
+  a principal media longe → voltava para a tele → pingue-pongue a cada 2–3 s; a câmera ficava
+  fechada nas trocas. Agora a volta automática só ocorre se foi a principal que mediu perto, e a
+  troca por falha da tele só uma vez por escolha de zoom. Se o acabamento falhar (memória), salva
+  a fusão já aprovada. Teste: 8× no escuro salvou normalmente.

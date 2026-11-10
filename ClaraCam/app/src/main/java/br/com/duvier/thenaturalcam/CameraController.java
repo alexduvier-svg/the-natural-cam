@@ -130,6 +130,10 @@ final class CameraController {
      * principal, que foca de perto — como a câmera nativa. Volta à tele quando o objeto se afasta.
      */
     private boolean nearMode;
+    /** Por que está na principal: 1 = a principal mediu perto; 2 = a tele não focou. Troca automática
+     *  por falha da tele só uma vez por escolha de zoom (evita o pingue-pongue de lentes no escuro). */
+    private int nearReason;
+    private boolean teleFailUsed;
     private long nearSince, farSince;
     /** Quando o dispositivo atual abriu (para não trocar de lente durante a primeira procura de foco). */
     private volatile long openedAt;
@@ -177,7 +181,9 @@ final class CameraController {
             mainFd = fd;
             mainFdAt = now;
         }
-        if (!onTele && nearMode && zoom >= logicalCaps.teleRatio * 0.97f) {
+        // volta automática para a tele só quando a PRINCIPAL tinha medido perto (motivo 1); se foi a
+        // tele que não focou (escuro, pouca textura), fica na principal até escolher o zoom de novo
+        if (!onTele && nearMode && nearReason == 1 && zoom >= logicalCaps.teleRatio * 0.97f) {
             // na principal por estar perto: objeto além de ~55 cm por 1,5 s → a tele já foca
             float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
             if (focused && fd != null && fd > 0 && fd < teleMin * 0.72f) {
@@ -196,10 +202,12 @@ final class CameraController {
             // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
             boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
                     || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
-            if (unfocused) {
+            if (unfocused && !teleFailUsed) {
                 if (nearSince == 0) nearSince = now;
                 else if (now - nearSince > 2500) {
-                    nearMode = true; // tele não consegue focar: objeto perto demais para ela
+                    nearMode = true; // tele não consegue focar: tenta a principal (uma vez só)
+                    nearReason = 2;
+                    teleFailUsed = true;
                     handler.post(() -> switchLens(false));
                 }
             } else {
@@ -390,11 +398,18 @@ final class CameraController {
             float before = zoom;
             zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
             // escolher um zoom de novo sempre tenta a tele outra vez (antes ficava presa na principal)
-            if (Math.abs(zoom - before) > 0.01f || zoom < logicalCaps.teleRatio * 0.97f) nearMode = false;
+            if (Math.abs(zoom - before) > 0.01f || zoom < logicalCaps.teleRatio * 0.97f) {
+                nearMode = false;
+                nearReason = 0;
+                teleFailUsed = false;
+            }
             // A tele deste aparelho diz "foco travado" (e distâncias falsas) mesmo com o objeto mais
             // perto que o mínimo dela — a foto sai toda desfocada. A PRINCIPAL mede a distância de forma
             // coerente: se ela acabou de medir o objeto perto (< ~46 cm), fica na principal.
-            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && mainNearNow()) nearMode = true;
+            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && mainNearNow()) {
+                nearMode = true;
+                nearReason = 1;
+            }
             boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
             if (wantTele != onTele && !capturing) {
                 switchLens(wantTele);
@@ -1972,6 +1987,7 @@ final class CameraController {
             for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropCenter(frames.get(i), j.srCrop));
         }
         if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
+        final YuvFrame[] safe = new YuvFrame[1]; // fusão aprovada, antes do acabamento
         worker.execute(() -> {
             try {
                 boolean superRes = j.superRes;
@@ -2038,6 +2054,7 @@ final class CameraController {
                     qj.put("decisao", "fusao");
                 }
                 j.sheet.put("verificador_qualidade", qj);
+                safe[0] = finalFrame;
                 frames.clear();
                 j.sheet.put("quadros_recebidos", fr.framesIn);
                 j.sheet.put("quadros_usados", fr.framesUsed);
@@ -2097,6 +2114,19 @@ final class CameraController {
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
+                Log.w(TAG, "fusão/acabamento falhou", t);
+                if (safe[0] != null) {
+                    // falhou só o acabamento (ex.: memória): salva a fusão já aprovada, sem alarme
+                    frames.clear();
+                    try {
+                        j.sheet.put("acabamento", "falhou: " + t.getClass().getSimpleName() + " — salva a fusão sem acabamento");
+                        saveYuv(j, safe[0]);
+                    } catch (Throwable t3) {
+                        error("Não foi possível salvar: " + t3.getMessage());
+                        idle();
+                    }
+                    return;
+                }
                 YuvFrame keep = frames.isEmpty() ? null : frames.get(0);
                 frames.clear();
                 if (keep == null) {
