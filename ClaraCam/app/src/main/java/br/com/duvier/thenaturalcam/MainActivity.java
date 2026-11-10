@@ -203,6 +203,18 @@ public final class MainActivity extends Activity implements CameraController.Lis
         apertureScroll = apScroll;
         stage.addView(apScroll, new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM));
         buildApertureRow();
+        // ícone pequeno à direita do quadro: mostra a abertura e abre/fecha o dial (não ocupa espaço)
+        blurIcon = Ui.text(this, "", 11, Ui.TEXT);
+        blurIcon.setGravity(Gravity.CENTER);
+        blurIcon.setBackground(Ui.rounded(this, 0x9908090B, dp(26)));
+        blurIcon.setVisibility(View.GONE);
+        blurIcon.setOnClickListener(v -> {
+            blurOpen = !blurOpen;
+            refreshBlurUi();
+        });
+        FrameLayout.LayoutParams bi = new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.END | Gravity.CENTER_VERTICAL);
+        bi.setMargins(0, 0, dp(10), 0);
+        stage.addView(blurIcon, bi);
         longRow = Ui.row(this);
         longRow.setGravity(Gravity.CENTER);
         HorizontalScrollView lgScroll = Ui.horizontal(this, longRow);
@@ -418,7 +430,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             t.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
         hdr.setTextColor(mode == CameraController.Mode.HDR ? Ui.ACCENT : Ui.TEXT);
-        apertureScroll.setVisibility(blurDialVisible() ? View.VISIBLE : View.GONE);
+        refreshBlurUi();
         longScroll.setVisibility(mode == CameraController.Mode.LONGA ? View.VISIBLE : View.GONE);
         astroScroll.setVisibility(mode == CameraController.Mode.ASTRO ? View.VISIBLE : View.GONE);
         boolean resAllowed = mode == CameraController.Mode.FOTO || mode == CameraController.Mode.PRO;
@@ -602,7 +614,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
         camera.setZoom(zoom);
         if (apertureScroll != null) {
-            apertureScroll.setVisibility(blurDialVisible() ? View.VISIBLE : View.GONE);
+            refreshBlurUi();
             buildApertureRow(); // texto "desligado" só faz sentido fora do Retrato
         }
         updateZoomSelection();
@@ -1394,6 +1406,24 @@ public final class MainActivity extends Activity implements CameraController.Lis
         return blurLevel < 0.02f ? 0f : apertureOf(blurLevel);
     }
 
+    private TextView blurIcon;
+    /** Dial aberto pelo ícone (fechado por padrão: não ocupa o visor). */
+    private boolean blurOpen;
+
+    private String blurLabel() {
+        if (mode != CameraController.Mode.RETRATO && blurLevel < 0.02f) return "◎\noff";
+        return "◎\n" + PortraitEngine.label(Math.round(apertureOf(blurLevel) * 10) / 10f);
+    }
+
+    private void refreshBlurUi() {
+        if (apertureScroll == null || blurIcon == null) return;
+        boolean vis = blurDialVisible();
+        blurIcon.setVisibility(vis ? View.VISIBLE : View.GONE);
+        blurIcon.setText(blurLabel());
+        blurIcon.setTextColor(blurOpen ? Ui.ACCENT : Ui.TEXT);
+        apertureScroll.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
+    }
+
     private boolean blurDialVisible() {
         return mode == CameraController.Mode.RETRATO || (mode == CameraController.Mode.FOTO && zoom >= 5.5f);
     }
@@ -1408,6 +1438,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         s.setListener((v, drag) -> {
             blurLevel = v;
             aperture = apertureOf(v);
+            if (blurIcon != null) blurIcon.setText(blurLabel());
             if (!busy && !drag) status.setText(statusHint());
         });
         int width = getResources().getDisplayMetrics().widthPixels - dp(32);

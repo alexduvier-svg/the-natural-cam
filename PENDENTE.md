@@ -275,3 +275,8 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   apoiado 1/15 s (Foto até 1/15, Noite até 1/8 quando firme), tremendo 1/53, rosto 1/60.
   Ficha: tremor_rad_s. Objetivo: menos ISO em fim de tarde/sem luz artificial.
 - Usuário: textura do boné boa; em pouca luz o ponto é o ruído. Testar 8× apoiado vs na mão.
+- 1.24.1: dial de desfoque recolhido num ícone pequeno à direita do quadro (◎ + abertura); toque
+  abre/fecha. Aparece no Retrato e em 6×+. Não conferido na tela: a bateria do celular acabou (1 %).
+- Pouca luz medida: quarto quase escuro, AE da câmera já em 1/11 s e ISO 14.664 → a regra do
+  giroscópio não alonga mais (ISO máx 19.200). Fusão tira ~70 % do ruído (20 → 6). Próximas opções:
+  Noite apoiado (até 1/8 s) e Ruído IA (NAFNet) automático no Noite acima de ISO ~8000 (~50 s).
