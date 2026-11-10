@@ -100,4 +100,31 @@ public class CaptureDirectorTest {
         assertTrue("tremendo encurta o quadro", shaky < unknown);
         assertTrue("rosto continua no máximo 1/60 s", face <= 16_666_666L);
     }
+
+    @Test
+    public void noiteNaMaoComoNightSight() {
+        CaptureDirector.Scene s = new CaptureDirector.Scene();
+        s.iso = 12000;
+        s.zoom = 1f;
+        s.kind = CaptureDirector.Kind.NOITE;
+        float[] shakes = {-1f, 0.005f, 0.02f, 0.045f, 0.09f, 0.2f};
+        long prev = Long.MAX_VALUE;
+        StringBuilder out = new StringBuilder("Noite 1×:");
+        for (int i = 1; i < shakes.length; i++) {
+            s.shakeRadS = shakes[i];
+            long t = CaptureDirector.decide(s).maxFrameExposureNs;
+            out.append(String.format(java.util.Locale.ROOT, " tremor %.3f → 1/%d s;", shakes[i], Math.round(1e9 / t)));
+            assertTrue("mais tremor nunca alonga o quadro", t <= prev);
+            prev = t;
+        }
+        System.out.println(out);
+        s.shakeRadS = 0.005f;
+        CaptureDirector.Plan p = CaptureDirector.decide(s);
+        assertTrue("apoiado: até 1/3 s por quadro", p.maxFrameExposureNs >= 300_000_000L);
+        assertTrue("luz total apoiado ≥ 3 s", p.frames * p.maxFrameExposureNs >= 3_000_000_000L);
+        s.shakeRadS = 0.045f;
+        assertTrue("mão comum: 1/8 s", CaptureDirector.decide(s).maxFrameExposureNs >= 120_000_000L);
+        s.shakeRadS = 0.2f;
+        assertTrue("tremendo: ≤ 1/30 s", CaptureDirector.decide(s).maxFrameExposureNs <= 33_333_333L);
+    }
 }

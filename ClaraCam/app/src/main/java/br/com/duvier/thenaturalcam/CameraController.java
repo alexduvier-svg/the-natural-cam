@@ -1764,7 +1764,11 @@ final class CameraController {
                 long cap = plan != null && plan.maxFrameExposureNs > 0 ? plan.maxFrameExposureNs
                         : mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
                 // pouca luz: alonga até o limite (menos ISO); zoom longo/rosto: encurta até o limite
-                long target = Math.min(lastIso >= 400 ? lastExposure * 4 : lastExposure, cap);
+                // Noite: até 8× o tempo da medição (Night Sight: quadros de até 1/3 s com o celular firme)
+                long stretch = mode == Mode.NOITE ? 8 : 4;
+                long target = Math.min(lastIso >= 400 ? lastExposure * stretch : lastExposure, cap);
+                // nunca abaixo do ISO mínimo (senão a foto clareia além da medição e as luzes estouram)
+                target = Math.min(target, Math.round((double) lastIso * lastExposure / Math.max(1, caps.isoRange.getLower())));
                 target = Math.max(caps.exposureRange.getLower(), Math.min(target, caps.exposureRange.getUpper()));
                 boolean change = target > lastExposure * 1.2 || target < lastExposure * 0.83;
                 if (change && (long) Math.round((double) lastIso * lastExposure / target) > caps.isoRange.getUpper()) change = false;
@@ -1819,7 +1823,7 @@ final class CameraController {
                 if (j.longExp != null && j.longCount >= 2) finishLong(j);
                 else if (burstFrames.size() >= 2) finishBurst(j);
                 else fail("A câmera não entregou os quadros.");
-            }, mode == Mode.LONGA ? longSeconds * 1000L + 6000 : 6000);
+            }, mode == Mode.LONGA ? longSeconds * 1000L + 6000 : 6000 + burstTarget * nightExp / 1_000_000L);
         } catch (Exception e) {
             fail("Falha no modo Noite: " + e.getMessage());
         }

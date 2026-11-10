@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.15.0** (versionCode 28),
-APK: `The_Natural_Cam_1.15.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.25.0** (versionCode 60),
+APK: `The_Natural_Cam_1.25.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -280,3 +280,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Pouca luz medida: quarto quase escuro, AE da câmera já em 1/11 s e ISO 14.664 → a regra do
   giroscópio não alonga mais (ISO máx 19.200). Fusão tira ~70 % do ruído (20 → 6). Próximas opções:
   Noite apoiado (até 1/8 s) e Ruído IA (NAFNet) automático no Noite acima de ISO ~8000 (~50 s).
+
+## Feito na 1.25.0 (2026-11-10) — Noite na mão (inspirado no Night Sight / Huawei)
+- CaptureDirector.nightCap: o tremor do giroscópio ANTES do disparo decide o tempo de cada quadro
+  no Noite: apoiado 1/3 s · mão muito firme 1/4 s · mão comum 1/8 s · inquieta 1/15 s · tremendo
+  1/30 s · sem giroscópio 1/10 s. Rosto continua ≤ 1/60 s. Regra 1/focal continua valendo no zoom.
+- CameraController: Noite alonga até 8× a medição (Foto 4×), nunca abaixo do ISO mínimo (luzes não
+  estouram); prazo da rajada = 6 s + quadros × tempo.
+- Teste noiteNaMaoComoNightSight (CaptureDirectorTest, 4/4 ok).
+- Lab no aparelho (mesma cena do frasco, apoiado): antes 12 × 1/8 s ISO 1416 → agora 12 × 1/4 s
+  ISO 456; ruído da fusão 2,74 → 2,41; mesa (ruído/brilho) −11%; 12/12 quadros usados (sem
+  tremido); rótulo com a mesma nitidez. Ganho maior esperado em cenas mais escuras.
+- Falta: fusão incremental (memória constante) para passar de 12 quadros (Night Sight usa até 15);
+  testar na mão de verdade em cena bem escura; NAFNet (só regressivo) para ISO > 8000 no Noite.
+- Pergunta em aberto: 6×+ com objeto < 40 cm (recorte da principal) — indicador / 3,5× / deixar.
