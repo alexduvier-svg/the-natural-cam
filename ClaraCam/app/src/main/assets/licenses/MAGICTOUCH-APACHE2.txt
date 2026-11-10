@@ -1,0 +1,3 @@
+MediaPipe MagicTouch (interactive segmenter) - Google LLC
+https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite
+Licenciado sob a Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0

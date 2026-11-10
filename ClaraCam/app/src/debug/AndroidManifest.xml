@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Só na versão de testes (debug): tela que roda o Ruído IA em fotos de teste via adb. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".TesteRuidoActivity"
+            android:exported="true" />
+        <activity
+            android:name=".TesteRecorteActivity"
+            android:exported="true" />
+    </application>
+</manifest>

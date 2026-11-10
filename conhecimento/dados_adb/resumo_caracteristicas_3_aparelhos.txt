@@ -1,0 +1,321 @@
+######## 7
+### id 0 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, CONSTRAINED_HIGH_SPEED_VIDEO, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES, LOGICAL_MULTI_CAMERA
+- physicalIds: 3,2,4,5
+- focal(mm): 8.67000008 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 5.00000000
+- sensor physical(mm): 13.10719967,9.83040047 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: RGGB | white: 1023 | black: 64,64,64,64
+- ISO: 100,6400 (analog max 6400) | exp(ns): 78125,30000000000 | maxFrameDur: 36307691392 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 0.60000002,20.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 14 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- RAW10: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- 0x36: 4096x3072, 3840x2160, 3280x2464
+- RAW_PRIVATE: 4096x3072
+- YUV: 4096x3072, 3840x2160, 3280x2464
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 3840x2160 (8.3 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 81
+
+### id 1 — Front
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES
+- focal(mm): 3.23000002 | f/: 2.40000010 | OIS: 0 | minFocusDist(dpt): 7.04225349
+- sensor physical(mm): 5.24800014,3.94239998 | pixelArray: 3280,2464 | active: 0,0,3280,2464 | CFA: BGGR | white: 1023 | black: 64,64,64,64
+- ISO: 100,3200 (analog max 3200) | exp(ns): 42779,17112008502 | maxFrameDur: 17112221041 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1 | flash: FALSE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 3280x2464 (8.1 MP); 10 tamanhos; top: 3280x2464, 3280x1856, 2560x1440, 2580x1080
+- RAW_SENSOR: max 3280x2464 (8.1 MP); 1 tamanhos; top: 3280x2464
+- RAW10: max 3280x2464 (8.1 MP); 1 tamanhos; top: 3280x2464
+- PRIVATE: max 3280x2464 (8.1 MP); 33 tamanhos; top: 3280x2464, 3280x1856, 2560x1440, 2580x1080
+- YUV: 3280x2464, 3280x1856, 2560x1440
+- 0x36: 3280x2464, 3280x1856, 2560x1440
+- RAW_PRIVATE: 3280x2464
+- JPEG_R (Ultra HDR) map: 3280x2464 (8.1 MP), 3280x1856 (6.1 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 87
+
+### id 2 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, CONSTRAINED_HIGH_SPEED_VIDEO, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES
+- focal(mm): 8.67000008 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 5.00000000
+- sensor physical(mm): 13.10719967,9.83040047 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: RGGB | white: 1023 | black: 64,64,64,64
+- ISO: 100,6400 (analog max 6400) | exp(ns): 60533,30000000000 | maxFrameDur: 36307691392 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- RAW10: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- YUV: 4096x3072, 3840x2160, 3280x2464
+- 0x36: 4096x3072, 3840x2160, 3280x2464
+- RAW_PRIVATE: 4096x3072
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 3840x2160 (8.3 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 91
+
+### id 3 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, CONSTRAINED_HIGH_SPEED_VIDEO, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES
+- focal(mm): 2.29999995 | f/: 2.04999995 | OIS: 0 | minFocusDist(dpt): 25.00000000
+- sensor physical(mm): 5.24287987,3.93215990 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GBRG | white: 1023 | black: 64,64,64,64
+- ISO: 100,16000 (analog max 16000) | exp(ns): 41528,30000000000 | maxFrameDur: 63564849100 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- RAW10: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- YUV: 4096x3072, 3840x2160, 3280x2464
+- 0x36: 4096x3072, 3840x2160, 3280x2464
+- RAW_PRIVATE: 4096x3072
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 3840x2160 (8.3 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 92
+
+### id 4 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, CONSTRAINED_HIGH_SPEED_VIDEO, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES
+- focal(mm): 16.53000069 | f/: 2.09999990 | OIS: 0 | minFocusDist(dpt): 10.00000000
+- sensor physical(mm): 8.19200039,6.14400005 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,6400 (analog max 6400) | exp(ns): 78125,30000000000 | maxFrameDur: 74354131243 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- RAW10: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- YUV: 4096x3072, 3840x2160, 3280x2464
+- 0x36: 4096x3072, 3840x2160, 3280x2464
+- RAW_PRIVATE: 4096x3072
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 3840x2160 (8.3 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 92
+
+### id 5 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, CONSTRAINED_HIGH_SPEED_VIDEO, RAW, YUV_REPROCESSING, PRIVATE_REPROCESSING, READ_SENSOR_SETTINGS, MANUAL_SENSOR, BURST_CAPTURE, MANUAL_POST_PROCESSING, STREAM_USE_CASE, DYNAMIC_RANGE_TEN_BIT, COLOR_SPACE_PROFILES
+- focal(mm): 24.85000038 | f/: 3.09999990 | OIS: 0 | minFocusDist(dpt): 1.00000000
+- sensor physical(mm): 6.55359983,4.91520023 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,6400 (analog max 6400) | exp(ns): 51282,30000000000 | maxFrameDur: 104969707492 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4,5 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- RAW10: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 37 tamanhos; top: 4096x3072, 3840x2160, 3280x2464, 3840x1644
+- YUV: 4096x3072, 3840x2160, 3280x2464
+- 0x36: 4096x3072, 3840x2160, 3280x2464
+- RAW_PRIVATE: 4096x3072
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 3840x2160 (8.3 MP)
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 91
+
+### id 6 — Back
+- hw level: LEVEL_3 | caps: DEPTH_OUTPUT, SYSTEM_CAMERA
+- focal(mm): 1.93400002 | f/: 2.40000010 | OIS: 0 | minFocusDist(dpt): 0.00000000
+- sensor physical(mm): 2.79999995,2.09999990 | pixelArray: 1600,1200 | active: 0,0,1600,1200 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,1550 (analog max 1550) | exp(ns): 27300,228198859 | maxFrameDur: 228850856 | AEcomp: -990,990 step (1,/,330)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: FAST,HIGH_QUALITY,OFF,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 512 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,18 | extScene: undefined
+- AF modes: 0 | AE modes: 0,1 | flash: FALSE | partialResults: 2 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- dynamicRangeProfiles: 4 0 0 2 0 0 8 0 1 64 0 0
+- vendor tags expostos nas características: 81
+
+######## 27
+### id 0 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, YUV_REPROCESSING, LOGICAL_MULTI_CAMERA, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- physicalIds: 2,3,4
+- focal(mm): 5.55999994 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 10.00000000
+- sensor physical(mm): 8.25699997,6.19299984 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GBRG | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 19200) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 0.60000002,20.00000000 | maxDigitalZoom: 20.00000000 | videoStab: 0,1,2 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 45 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2176
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 45 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2176
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 3 0
+- vendor tags expostos nas características: 94
+
+### id 1 — Front
+- hw level: FULL | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 2.75000000 | f/: 2.00000000 | OIS: 0 | minFocusDist(dpt): 6.66666651
+- sensor physical(mm): 5.24200010,3.93199992 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 12800) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -12,12 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL | EDGE: OFF,FAST,HIGH_QUALITY | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,4.00000000 | maxDigitalZoom: 4.00000000 | videoStab: 0,1,2 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,5 | flash: FALSE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 51 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 51 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 3 0
+- vendor tags expostos nas características: 68
+
+### id 2 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, YUV_REPROCESSING, CONSTRAINED_HIGH_SPEED_VIDEO, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 5.55999994 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 10.00000000
+- sensor physical(mm): 8.25699997,6.19299984 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GBRG | white: 1023 | black: 64,64,64,64
+- ISO: 100,25600 (analog max 25600) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 49 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 2 tamanhos; top: 4096x3072, 2048x1536
+- PRIVATE: max 4096x3072 (12.6 MP); 49 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 3 0
+- vendor tags expostos nas características: 90
+
+### id 3 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, YUV_REPROCESSING, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 2.30999994 | f/: 2.00000000 | OIS: 0 | minFocusDist(dpt): 25.00000000
+- sensor physical(mm): 5.01300001,3.75999999 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 3200) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 46 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 2 tamanhos; top: 4096x3072, 2048x1536
+- PRIVATE: max 4096x3072 (12.6 MP); 46 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 3 0
+- vendor tags expostos nas características: 84
+
+### id 4 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, YUV_REPROCESSING, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 12.18999958 | f/: 2.79999995 | OIS: 0 | minFocusDist(dpt): 2.50000000
+- sensor physical(mm): 5.24200010,3.93199992 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: BGGR | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 12800) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1,2 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2176
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2176
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 3 0
+- vendor tags expostos nas características: 88
+
+######## 1
+### id 0 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, PRIVATE_REPROCESSING, YUV_REPROCESSING, LOGICAL_MULTI_CAMERA, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- physicalIds: 2,3,4
+- focal(mm): 4.84000015 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 10.00000000
+- sensor physical(mm): 6.55359983,4.91520023 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: BGGR | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 6400) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 0.60000002,20.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 67 0 4 13 0 8 13 0 64 67 0
+- vendor tags expostos nas características: 91
+
+### id 1 — Front
+- hw level: FULL | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 3.20000005 | f/: 2.00000000 | OIS: 0 | minFocusDist(dpt): 6.66666651
+- sensor physical(mm): 5.24300003,3.93199992 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: GRBG | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 6480) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -12,12 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL | EDGE: OFF,FAST,HIGH_QUALITY | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,4.00000000 | maxDigitalZoom: 4.00000000 | videoStab: 0,1 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,5 | flash: FALSE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 44 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 44 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 67 0 4 13 0 8 13 0 64 67 0
+- vendor tags expostos nas características: 65
+
+### id 2 — Back
+- hw level: LEVEL_3 | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, PRIVATE_REPROCESSING, YUV_REPROCESSING, CONSTRAINED_HIGH_SPEED_VIDEO, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 4.84000015 | f/: 1.79999995 | OIS: 0 | minFocusDist(dpt): 10.00000000
+- sensor physical(mm): 6.55359983,4.91520023 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: BGGR | white: 1023 | black: 64,64,64,64
+- ISO: 100,6400 (analog max 6400) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0,1 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 3 tamanhos; top: 4096x3072, 4096x2304, 4096x1864
+- PRIVATE: max 4096x3072 (12.6 MP); 43 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 4096x2048
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 67 0 4 13 0 8 13 0 64 67 0
+- vendor tags expostos nas características: 84
+
+### id 3 — Back
+- hw level: FULL | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 1.60000002 | f/: 2.20000005 | OIS: 0 | minFocusDist(dpt): 28.57142830
+- sensor physical(mm): 3.66000009,2.74000001 | pixelArray: 3264,2448 | active: 0,0,3264,2448 | CFA: RGGB | white: 1023 | black: 64,64,64,64
+- ISO: 100,15500 (analog max 1550) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL | EDGE: OFF,FAST,HIGH_QUALITY | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 3264x2448 (8.0 MP); 40 tamanhos; top: 3264x2448, 3264x1836, 2448x2448, 2560x1920
+- RAW_SENSOR: max 3264x2448 (8.0 MP); 2 tamanhos; top: 3264x2448, 1632x1224
+- PRIVATE: max 3264x2448 (8.0 MP); 40 tamanhos; top: 3264x2448, 3264x1836, 2448x2448, 2560x1920
+- YUV: 3264x2448, 3264x1836, 2448x2448
+- 0x32315659: 3264x2448, 3264x1836, 2448x2448
+- 0x36: 3264x2448, 3264x1836, 2448x2448
+- HEIC map: 3264x2448 (8.0 MP), 3264x1836 (6.0 MP)
+- JPEG_R (Ultra HDR) map: 3264x2448 (8.0 MP), 3264x1836 (6.0 MP)
+- dynamicRangeProfiles: 2 67 0 4 13 0 8 13 0 64 67 0
+- vendor tags expostos nas características: 65
+
+### id 4 — Back
+- hw level: FULL | caps: BACKWARD_COMPATIBLE, MANUAL_SENSOR, MANUAL_POST_PROCESSING, READ_SENSOR_SETTINGS, RAW, BURST_CAPTURE, PRIVATE_REPROCESSING, DYNAMIC_RANGE_TEN_BIT, STREAM_USE_CASE, COLOR_SPACE_PROFILES
+- focal(mm): 12.18999958 | f/: 2.79999995 | OIS: 0 | minFocusDist(dpt): 2.50000000
+- sensor physical(mm): 5.24287987,3.93215990 | pixelArray: 4096,3072 | active: 0,0,4096,3072 | CFA: BGGR | white: 1023 | black: 64,64,64,64
+- ISO: 100,19200 (analog max 6480) | exp(ns): 100000,32000000000 | maxFrameDur: 32000000000 | AEcomp: -18,18 step (1,/,6)
+- NR: OFF,FAST,HIGH_QUALITY,MINIMAL,ZERO_SHUTTER_LAG | EDGE: OFF,FAST,HIGH_QUALITY,ZERO_SHUTTER_LAG | tonemap modes: 0,1,2 maxCurve 101 | hotPixel: 0,1,2 | shading: 0,1,2
+- zoomRatio: 1.00000000,10.00000000 | maxDigitalZoom: 10.00000000 | videoStab: 0 | sceneModes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,18 | extScene: undefined
+- AF modes: 0,1,2,3,4 | AE modes: 0,1,2,3 | flash: TRUE | partialResults: 10 | syncLatency: PER_FRAME_CONTROL | pipelineDepth: 8
+- JPEG: max 4096x3072 (12.6 MP); 41 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- RAW_SENSOR: max 4096x3072 (12.6 MP); 1 tamanhos; top: 4096x3072
+- PRIVATE: max 4096x3072 (12.6 MP); 41 tamanhos; top: 4096x3072, 4096x2304, 3072x3072, 3840x2160
+- YUV: 4096x3072, 4096x2304, 3072x3072
+- 0x32315659: 4096x3072, 4096x2304, 3072x3072
+- 0x36: 4096x3072, 4096x2304, 3072x3072
+- HEIC map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- JPEG_R (Ultra HDR) map: 4096x3072 (12.6 MP), 4096x2304 (9.4 MP)
+- dynamicRangeProfiles: 2 67 0 4 13 0 8 13 0 64 67 0
+- vendor tags expostos nas características: 82
+

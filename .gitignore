@@ -1,0 +1,27 @@
+# compilação
+.gradle/
+build/
+**/build/
+local.properties
+*.keystore
+*.jks
+# pacotes e dependências
+*.apk
+node_modules/
+ia-ponte/dist/
+.wrangler/
+.dev.vars
+# fotos, vídeos e referências (ficam só no PC)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.avif
+*.mp4
+*.pdf
+testes_reno16/
+# configuração local do Claude
+.claude/
+
+# projeto antigo (já tem o seu próprio git)
+natural-cam-android/
