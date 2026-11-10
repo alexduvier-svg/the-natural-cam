@@ -918,25 +918,36 @@ public final class BurstFusion {
      * Retorna a fração média da imagem tratada com força (para a ficha).
      */
     static float shadowDenoise(YuvFrame f, float[] model, float strong) {
-        final int w = f.width, h = f.height, n = w * h;
+        final int w = f.width, h = f.height;
         YuvFrame c = QualityCheck.copy(f);
         lumaDenoise(c, model, strong);
         lumaDenoiseCoarse(c, model, strong);
         chromaFilter(c, model[8] * 2f);
-        // textura: desvio local (raio 2) medido na versão limpa
-        float[] y = new float[n], y2 = new float[n];
-        for (int i = 0; i < n; i++) {
-            float v = c.y[i] & 0xFF;
-            y[i] = v;
-            y2[i] = v * v;
+        // Máscaras em MEIA resolução (a grade do croma): elas são suaves de qualquer forma e assim a
+        // memória cai ~4× — em 12 MP a versão em resolução cheia passava de 400 MB e o acabamento
+        // falhava por falta de memória (visto no aparelho a 8×, ISO 11000).
+        final int w2 = c.chromaWidth, h2 = c.chromaHeight, n2 = w2 * h2;
+        float[] y = new float[n2], y2 = new float[n2];
+        for (int yy = 0; yy < h2; yy++) {
+            int r0 = Math.min(h - 1, 2 * yy) * w, r1 = Math.min(h - 1, 2 * yy + 1) * w;
+            for (int xx = 0; xx < w2; xx++) {
+                int x0 = Math.min(w - 1, 2 * xx), x1 = Math.min(w - 1, 2 * xx + 1);
+                float v = ((c.y[r0 + x0] & 0xFF) + (c.y[r0 + x1] & 0xFF) + (c.y[r1 + x0] & 0xFF) + (c.y[r1 + x1] & 0xFF)) / 4f;
+                // desvio local do bloco 2×2 entra no quadrado médio (textura fina não some na redução)
+                float q = ((c.y[r0 + x0] & 0xFF) * (c.y[r0 + x0] & 0xFF) + (c.y[r0 + x1] & 0xFF) * (c.y[r0 + x1] & 0xFF)
+                        + (c.y[r1 + x0] & 0xFF) * (c.y[r1 + x0] & 0xFF) + (c.y[r1 + x1] & 0xFF) * (c.y[r1 + x1] & 0xFF)) / 4f;
+                y[yy * w2 + xx] = v;
+                y2[yy * w2 + xx] = q;
+            }
         }
-        float[] m1 = PortraitEngine.box(y, w, h, 2), m2 = PortraitEngine.box(y2, w, h, 2);
+        final float[] m1 = PortraitEngine.box(y, w2, h2, 1), m2 = PortraitEngine.box(y2, w2, h2, 1);
+        y = null;
+        y2 = null;
         final float sig = Math.max(1f, model[8]);
-        final float[] maskL = new float[n], maskC = new float[n];
-        final int cwm = c.chromaWidth;
-        IntStream.range(0, h).parallel().forEach(yy -> {
-            for (int xx = 0; xx < w; xx++) {
-                int i = yy * w + xx;
+        final float[] maskL = new float[n2], maskC = new float[n2];
+        IntStream.range(0, h2).parallel().forEach(yy -> {
+            for (int xx = 0; xx < w2; xx++) {
+                int i = yy * w2 + xx;
                 float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
                 float flat = 1 - smooth01((sd - 1.5f * sig) / (5f * sig));      // liso → 1, textura → 0
                 float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
@@ -944,33 +955,42 @@ public final class BurstFusion {
                 float base = flat * (0.33f + 0.67f * dark);
                 // PELE (qualquer tom, também em meia-luz), tratada como os retratistas: o ruído de COR
                 // sai inteiro (manchinhas coloridas não são textura) e o de BRILHO sai pela metade —
-                // poros e sardas ficam, sem aspecto de plástico. Antes a pele ficava quase intocada.
-                int ci = (yy >> 1) * cwm + (xx >> 1);
-                float sk = skinProtect ? skinCbCr(m1[i], c.u[ci] & 0xFF, c.v[ci] & 0xFF) : 0f;
+                // poros e sardas ficam, sem aspecto de plástico.
+                float sk = skinProtect ? skinCbCr(m1[i], c.u[i] & 0xFF, c.v[i] & 0xFF) : 0f;
                 maskL[i] = (1 - sk) * base + sk * SKIN_LUMA_CLEAN;
                 maskC[i] = (1 - sk) * base + sk;
                 if (!skinProtect) maskL[i] = maskC[i] = Math.max(base, 0.9f * flatOrSkinUnprotected(sd, sig));
             }
         });
-        // suaviza as máscaras (transição gradual, sem contorno)
-        final float[] ms = PortraitEngine.box(PortraitEngine.box(maskL, w, h, 3), w, h, 3);
-        final float[] msC = PortraitEngine.box(PortraitEngine.box(maskC, w, h, 3), w, h, 3);
-        double sum = 0;
-        for (int i = 0; i < n; i++) {
-            float k = ms[i];
-            sum += k;
-            f.y[i] = (byte) Math.round((f.y[i] & 0xFF) * (1 - k) + (c.y[i] & 0xFF) * k);
-        }
-        final int cw = f.chromaWidth, ch = f.chromaHeight;
-        for (int yy = 0; yy < ch; yy++) {
-            for (int xx = 0; xx < cw; xx++) {
-                float k = msC[Math.min(h - 1, 2 * yy) * w + Math.min(w - 1, 2 * xx)];
-                int ci = yy * cw + xx;
-                f.u[ci] = (byte) Math.round((f.u[ci] & 0xFF) * (1 - k) + (c.u[ci] & 0xFF) * k);
-                f.v[ci] = (byte) Math.round((f.v[ci] & 0xFF) * (1 - k) + (c.v[ci] & 0xFF) * k);
+        // suaviza as máscaras (transição gradual, sem contorno) — raio 2 na meia resolução ≈ 4 px
+        final float[] ms = PortraitEngine.box(PortraitEngine.box(maskL, w2, h2, 2), w2, h2, 2);
+        final float[] msC = PortraitEngine.box(PortraitEngine.box(maskC, w2, h2, 2), w2, h2, 2);
+        final double[] rowSum = new double[h];
+        IntStream.range(0, h).parallel().forEach(yy -> {
+            float fy = Math.max(0, Math.min(h2 - 1.001f, (yy - .5f) / 2f));
+            int y0 = (int) fy;
+            float ty = fy - y0;
+            double s = 0;
+            for (int xx = 0; xx < w; xx++) {
+                float fx = Math.max(0, Math.min(w2 - 1.001f, (xx - .5f) / 2f));
+                int x0 = (int) fx;
+                float tx = fx - x0;
+                int o = y0 * w2 + x0;
+                float k = (ms[o] * (1 - tx) + ms[o + 1] * tx) * (1 - ty) + (ms[o + w2] * (1 - tx) + ms[o + w2 + 1] * tx) * ty;
+                s += k;
+                int i = yy * w + xx;
+                f.y[i] = (byte) Math.round((f.y[i] & 0xFF) * (1 - k) + (c.y[i] & 0xFF) * k);
             }
+            rowSum[yy] = s;
+        });
+        for (int i = 0; i < n2; i++) {
+            float k = msC[i];
+            f.u[i] = (byte) Math.round((f.u[i] & 0xFF) * (1 - k) + (c.u[i] & 0xFF) * k);
+            f.v[i] = (byte) Math.round((f.v[i] & 0xFF) * (1 - k) + (c.v[i] & 0xFF) * k);
         }
-        return (float) (sum / n);
+        double sum = 0;
+        for (double v : rowSum) sum += v;
+        return (float) (sum / ((double) w * h));
     }
 
     /** Proteção de pele na limpeza das sombras (desligável só para comparação em teste). */
