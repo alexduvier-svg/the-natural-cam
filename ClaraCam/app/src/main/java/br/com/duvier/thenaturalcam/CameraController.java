@@ -1590,6 +1590,13 @@ final class CameraController {
                 j.sheet.put("tempo_acabamento_ms", res.finishMs);
                 j.sheet.put("tempo_total_ms", res.millis);
                 j.sheet.put("tamanho", res.frame.width + "x" + res.frame.height);
+                // memória das sombras também no RAW+ (pedido: manter em todas as lentes e modos)
+                float[] rawModel = BurstFusion.noiseModel(res.frame);
+                if (rawModel[8] > 1.5f) {
+                    busy("RAW+: limpando sombras…", 0.95f);
+                    float part = BurstFusion.shadowDenoise(res.frame, rawModel, 0.9f);
+                    j.sheet.put("limpeza_sombras", "forte em áreas escuras/lisas · " + Math.round(part * 100) + "% da imagem");
+                }
                 quickPreview(res.frame, j.orientation);
                 busy("Gravando…", 0.97f);
                 saveYuv(j, res.frame);
@@ -1680,6 +1687,9 @@ final class CameraController {
                 j.sheet.put("quadros_pedidos", burstTarget);
                 j.sheet.put("diretriz", plan.reason);
                 j.denoise = plan.denoise;
+            } else if (mode == Mode.RUA) {
+                // Rua também ganha a limpeza leve geral + memória das sombras (todas as lentes)
+                j.denoise = lastIso > 1600 ? 0.42f : lastIso > 400 ? 0.3f : 0.2f;
             }
             lastShotCrop = mode == Mode.FOTO && teleFallback();
             if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal recortada + nitidez na escala da ampliação");

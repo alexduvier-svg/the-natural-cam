@@ -212,3 +212,12 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   recebe só a limpeza leve geral — teste: pele mantém 90% da textura, sombra cinza −67% de ruído.
 - Rosto hoje: detector da câmera guia foco/exposição sem toque; diretriz limita 1/60 s; fusão
   recusa movimento. Falta: detecção de olho; testar com rosto real.
+
+## Feito na 1.20.2 (2026-11-10)
+- Usuário comparou 7× e 8× com a câmera da OPPO: o nosso app saiu melhor (boné natural, "como
+  câmera, sem traços de IA"). A limpeza das sombras foi aprovada ("ótimo").
+- Limpeza das sombras agora também no Rua e no RAW+ (já valia em Foto/Retrato/Noite em todas as
+  lentes, 0,6× a 8×).
+- Verificação da proteção de pele com 3 retratos reais (DemoPeleTest + testes_comparacao/): sem e
+  com proteção davam quase o mesmo — quem limpa a pele é a limpeza leve geral (cor 5,0→1,2; brilho
+  9→5–6). Pele agora: ruído de cor sai inteiro, brilho pela metade (SKIN_LUMA_CLEAN 0,5).

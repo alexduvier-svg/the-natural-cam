@@ -932,7 +932,7 @@ public final class BurstFusion {
         }
         float[] m1 = PortraitEngine.box(y, w, h, 2), m2 = PortraitEngine.box(y2, w, h, 2);
         final float sig = Math.max(1f, model[8]);
-        final float[] mask = new float[n];
+        final float[] maskL = new float[n], maskC = new float[n];
         final int cwm = c.chromaWidth;
         IntStream.range(0, h).parallel().forEach(yy -> {
             for (int xx = 0; xx < w; xx++) {
@@ -940,16 +940,21 @@ public final class BurstFusion {
                 float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
                 float flat = 1 - smooth01((sd - 1.5f * sig) / (5f * sig));      // liso → 1, textura → 0
                 float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
-                // PELE (qualquer tom, também em meia-luz): a limpeza forte alisaria e daria aspecto de
-                // plástico — ali fica só a limpeza leve geral (regra do usuário: pele natural)
+                // escuro e liso: força total; claro e liso: um terço; textura: quase nada
+                float base = flat * (0.33f + 0.67f * dark);
+                // PELE (qualquer tom, também em meia-luz), tratada como os retratistas: o ruído de COR
+                // sai inteiro (manchinhas coloridas não são textura) e o de BRILHO sai pela metade —
+                // poros e sardas ficam, sem aspecto de plástico. Antes a pele ficava quase intocada.
                 int ci = (yy >> 1) * cwm + (xx >> 1);
                 float sk = skinProtect ? skinCbCr(m1[i], c.u[ci] & 0xFF, c.v[ci] & 0xFF) : 0f;
-                // escuro e liso: força total; claro e liso: um terço; textura: quase nada; pele: pouco
-                mask[i] = flat * (0.33f + 0.67f * dark) * (1 - 0.85f * sk);
+                maskL[i] = (1 - sk) * base + sk * SKIN_LUMA_CLEAN;
+                maskC[i] = (1 - sk) * base + sk;
+                if (!skinProtect) maskL[i] = maskC[i] = Math.max(base, 0.9f * flatOrSkinUnprotected(sd, sig));
             }
         });
-        // suaviza a máscara (transição gradual, sem contorno)
-        final float[] ms = PortraitEngine.box(PortraitEngine.box(mask, w, h, 3), w, h, 3);
+        // suaviza as máscaras (transição gradual, sem contorno)
+        final float[] ms = PortraitEngine.box(PortraitEngine.box(maskL, w, h, 3), w, h, 3);
+        final float[] msC = PortraitEngine.box(PortraitEngine.box(maskC, w, h, 3), w, h, 3);
         double sum = 0;
         for (int i = 0; i < n; i++) {
             float k = ms[i];
@@ -959,7 +964,7 @@ public final class BurstFusion {
         final int cw = f.chromaWidth, ch = f.chromaHeight;
         for (int yy = 0; yy < ch; yy++) {
             for (int xx = 0; xx < cw; xx++) {
-                float k = ms[Math.min(h - 1, 2 * yy) * w + Math.min(w - 1, 2 * xx)];
+                float k = msC[Math.min(h - 1, 2 * yy) * w + Math.min(w - 1, 2 * xx)];
                 int ci = yy * cw + xx;
                 f.u[ci] = (byte) Math.round((f.u[ci] & 0xFF) * (1 - k) + (c.u[ci] & 0xFF) * k);
                 f.v[ci] = (byte) Math.round((f.v[ci] & 0xFF) * (1 - k) + (c.v[ci] & 0xFF) * k);
@@ -970,6 +975,13 @@ public final class BurstFusion {
 
     /** Proteção de pele na limpeza das sombras (desligável só para comparação em teste). */
     static boolean skinProtect = true;
+    /** Na pele, fração da limpeza de brilho aplicada (o resto do ruído de brilho fica: textura). */
+    static final float SKIN_LUMA_CLEAN = 0.5f;
+
+    /** Só para a comparação "sem proteção": limpeza forte também em pele/meia-textura (o que alisa). */
+    private static float flatOrSkinUnprotected(float sd, float sig) {
+        return 1 - smooth01((sd - 3f * sig) / (6f * sig));
+    }
 
     /** Probabilidade de pele pela cor (Cb/Cr, faixa cheia), do mais claro ao mais escuro. */
     static float skinCbCr(float y, int cb, int cr) {
