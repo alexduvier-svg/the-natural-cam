@@ -101,11 +101,24 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void zoomSuperResolucao25xNaoEReprovadoInjustamente() {
+        // visto no aparelho: a 2,5× a comparação em escalas diferentes reprovava uma fusão boa
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (int i = 0; i < 8; i++) frames.add(label(400, 300, 60 + i, 0));
+        BurstFusion.Result r = new BurstFusion(0.3f, true, 2.5f).fuse(frames, null);
+        QualityCheck.Report q = QualityCheck.compare(r.referenceFrame, r.frame, 3);
+        System.out.println("2,5×: " + r.frame.width + "x" + r.frame.height + " detalhe " + q.detailRatio + " forma " + q.edgeCorrelation);
+        assertTrue(q.reason, q.passed);
+        YuvFrame big = QualityCheck.upscale(r.referenceFrame, 2.5f);
+        assertTrue("reserva ampliada no tamanho da fusão", big.width == r.frame.width && big.height == r.frame.height);
+    }
+
+    @Test
     public void superResolucaoFielPassa() {
-        // fusão 1,5× maior: amostrada nas coordenadas correspondentes
+        // fusão 2× maior e fiel (cada pixel vira um bloco 2×2): reduzida de volta, é a mesma imagem
         YuvFrame ref = label(600, 450, 1, 0);
-        YuvFrame big = new YuvFrame(900, 675);
-        for (int y = 0; y < 675; y++) for (int x = 0; x < 900; x++) big.y[y * 900 + x] = ref.y[(y * 2 / 3) * 600 + x * 2 / 3];
+        YuvFrame big = new YuvFrame(1200, 900);
+        for (int y = 0; y < 900; y++) for (int x = 0; x < 1200; x++) big.y[y * 1200 + x] = ref.y[(y / 2) * 600 + x / 2];
         QualityCheck.Report r = QualityCheck.compare(ref, big, 3);
         System.out.println("super-res: detalhe " + r.detailRatio + " forma " + r.edgeCorrelation);
         assertTrue(r.reason, r.passed);

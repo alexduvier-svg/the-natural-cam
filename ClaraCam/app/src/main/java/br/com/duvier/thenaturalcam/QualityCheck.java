@@ -37,6 +37,16 @@ public final class QualityCheck {
      * coordenadas correspondentes. noise = ruído estimado da referência (desvio, 0..255).
      */
     public static Report compare(YuvFrame ref, YuvFrame fused, double noise) {
+        return compare(ref, fused, noise, noise);
+    }
+
+    /** noiseFused = ruído que sobrou na fusão (já na grade da referência). */
+    public static Report compare(YuvFrame ref, YuvFrame fused, double noise, double noiseFused) {
+        if (fused.width > ref.width * 1.05f) {
+            // super-resolução: reduz a fusão para a grade da referência (média de área) e compara
+            // na MESMA escala — antes a 2,5× a comparação era injusta e reprovava fusões boas
+            fused = downTo(fused, ref.width, ref.height);
+        }
         Report r = new Report();
         int w = ref.width, h = ref.height;
         float sx = fused.width / (float) w, sy = fused.height / (float) h;
@@ -75,7 +85,13 @@ public final class QualityCheck {
             r.reason = "cena sem bordas suficientes para medir";
             return r;
         }
-        r.detailRatio = lapRef > 0 ? lapFus / lapRef : 1;
+        // O laplaciano da referência inclui o RUÍDO dela (|lap| médio do ruído branco ≈ 3,6σ): sem
+        // descontar, a fusão — que limpa o ruído — parecia "perder detalhe" e era reprovada (visto
+        // no aparelho: 0,67 a 3,5× → salvava um quadro único, ruidoso). Desconta o ruído dos dois lados.
+        double meanRef = lapRef / count, meanFus = lapFus / count;
+        double nRef = 3.6 * noise, nFus = 3.6 * noiseFused;
+        double sigRef = Math.max(1e-3, meanRef - nRef), sigFus = Math.max(0, meanFus - nFus);
+        r.detailRatio = meanRef > nRef * 1.2 ? sigFus / sigRef : (meanRef > 0 ? meanFus / meanRef : 1);
         r.edgeCorrelation = gxx > 0 && gyy > 0 ? gxy / Math.sqrt(gxx * gyy) : 1;
         if (r.detailRatio < MIN_DETAIL) {
             r.passed = false;
@@ -85,6 +101,69 @@ public final class QualityCheck {
             r.reason = "bordas duplicadas ou fantasma (movimento entre quadros)";
         }
         return r;
+    }
+
+    /** Redução por média de área (só o brilho, que é o que se compara). */
+    static YuvFrame downTo(YuvFrame f, int w, int h) {
+        YuvFrame o = new YuvFrame(w, h);
+        float sx = f.width / (float) w, sy = f.height / (float) h;
+        for (int y = 0; y < h; y++) {
+            int ya = (int) (y * sy), yb = Math.max(ya + 1, Math.min(f.height, (int) ((y + 1) * sy)));
+            for (int x = 0; x < w; x++) {
+                int xa = (int) (x * sx), xb = Math.max(xa + 1, Math.min(f.width, (int) ((x + 1) * sx)));
+                int s = 0, n = 0;
+                for (int yy = ya; yy < yb; yy++) for (int xx = xa; xx < xb; xx++) {
+                    s += f.y[yy * f.width + xx] & 0xFF;
+                    n++;
+                }
+                o.y[y * w + x] = (byte) (s / n);
+            }
+        }
+        return o;
+    }
+
+    /** Ampliação bicúbica (Catmull-Rom) — reserva quando a fusão é reprovada no zoom por recorte. */
+    public static YuvFrame upscale(YuvFrame f, float k) {
+        int W = Math.round(f.width * k) & ~1, H = Math.round(f.height * k) & ~1;
+        YuvFrame o = new YuvFrame(W, H);
+        resample(f.y, f.width, f.height, o.y, W, H);
+        resample(f.u, f.chromaWidth, f.chromaHeight, o.u, o.chromaWidth, o.chromaHeight);
+        resample(f.v, f.chromaWidth, f.chromaHeight, o.v, o.chromaWidth, o.chromaHeight);
+        o.iso = f.iso;
+        o.exposureNs = f.exposureNs;
+        o.timestampNs = f.timestampNs;
+        return o;
+    }
+
+    private static void resample(byte[] s, int w, int h, byte[] d, int W, int H) {
+        float sx = w / (float) W, sy = h / (float) H;
+        java.util.stream.IntStream.range(0, H).parallel().forEach(Y -> {
+            float yr = (Y + .5f) * sy - .5f;
+            int y0 = (int) Math.floor(yr);
+            float ty = yr - y0;
+            float[] wy = cub(ty);
+            for (int X = 0; X < W; X++) {
+                float xr = (X + .5f) * sx - .5f;
+                int x0 = (int) Math.floor(xr);
+                float[] wx = cub(xr - x0);
+                float acc = 0;
+                for (int j = 0; j < 4; j++) {
+                    int yy = Math.max(0, Math.min(h - 1, y0 - 1 + j));
+                    float row = 0;
+                    for (int i = 0; i < 4; i++) {
+                        int xx = Math.max(0, Math.min(w - 1, x0 - 1 + i));
+                        row += wx[i] * (s[yy * w + xx] & 0xFF);
+                    }
+                    acc += wy[j] * row;
+                }
+                d[Y * W + X] = (byte) Math.max(0, Math.min(255, Math.round(acc)));
+            }
+        });
+    }
+
+    private static float[] cub(float t) {
+        float t2 = t * t, t3 = t2 * t;
+        return new float[]{(-t3 + 2 * t2 - t) / 2, (3 * t3 - 5 * t2 + 2) / 2, (-3 * t3 + 4 * t2 + t) / 2, (t3 - t2) / 2};
     }
 
     /** Cópia profunda (a referência é guardada antes de a fusão liberar os quadros). */

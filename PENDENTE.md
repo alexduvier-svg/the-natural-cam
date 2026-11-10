@@ -172,3 +172,15 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   rua ≤ 1/250), super-resolução e acabamento. CaptureDirectorTest verifica 1.075.200 cenários.
 - Corrigidos: falha "Index 0" com super-resolução; barra de EV mudando sem querer.
 - NÃO testado na mão: 3,5/6/7/8× com o zoom por super-resolução (tempo e nitidez de rótulo).
+
+## Feito na 1.19.1–1.19.3 (2026-11-10)
+- Verificador compara super-resolução na MESMA escala (reduz por área) e desconta o ruído dos dois
+  lados (antes reprovava fusões boas a 2,5× e salvava quadro único ruidoso/pequeno).
+- Reserva do zoom: quadro mais nítido ampliado (bicúbico) + nitidez na escala, no tamanho da fusão.
+- Diretriz aplica a limpeza de ruído por luz (fundo sem grão) e nitidez na escala do zoom super-res.
+- Aviso "os quadros variaram" saiu da tela (fica na ficha).
+- Sensor de cor TCS3720 (AmbientColor): luz_ambiente_cct_k e wb_ganhos_camera na ficha (passo 1;
+  passo 2 = corrigir o WB com ele após calibrar).
+- Troca tele/principal só depois de 1,5 s aberta e com o AF assentado (foco "agarrava" ao abrir).
+- Integrados os arquivos do Codex (PhotoKnowledge/PhotoScenarioSpace): keySet() → keys() (Android).
+- Usuário: 3,5× com boa nitidez; ruído vinha do quadro único (fusão reprovada) — corrigido.

@@ -114,6 +114,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         super.onResume();
         resumed = true;
         if (orientationListener.canDetectOrientation()) orientationListener.enable();
+        camera.ambient.start(); // sensor de cor da luz ambiente (registro na ficha)
         if (peaking) startPeaking();
         maybeStart();
     }
@@ -123,6 +124,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         resumed = false;
         orientationListener.disable();
         camera.stop();
+        camera.ambient.stop();
         super.onPause();
     }
 
