@@ -258,3 +258,11 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Teste inválido: o celular foi movido (estava no WhatsApp) e o toque de foco caiu na parede, então a
   versão longa desfocou o boné. Refazer com o celular parado e o boné tocado. Cuidado: não dirigir o
   celular sem checar se o usuário está usando (aconteceu aqui).
+
+## Feito na 1.22.1–1.23.1 (2026-11-10)
+- Regra: desfoque sempre acima de f/5,6 (Retrato da câmera f/8–f/16; lente longa pelo dial).
+- Dial de desfoque no visor (PillSlider, como o EV): Retrato e Foto em 6×+; f/16 → f/8, à esquerda
+  "desligado" na lente longa (sem cópia). Aviso da Máxima removido.
+- Desfoque inteligente nas cópias de óptica (tele de perto e lente longa): frente do plano de foco com
+  só 15% do desfoque (PortraitEngine.bokeh frontScale) — como a X8 Ultra: atrás suave, frente nítida.
+- Pedido: tratamento para pouca luz de fim de tarde (talvez no Noite) — próximo passo.

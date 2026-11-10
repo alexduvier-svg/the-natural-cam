@@ -416,7 +416,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             t.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
         hdr.setTextColor(mode == CameraController.Mode.HDR ? Ui.ACCENT : Ui.TEXT);
-        apertureScroll.setVisibility(mode == CameraController.Mode.RETRATO ? View.VISIBLE : View.GONE);
+        apertureScroll.setVisibility(blurDialVisible() ? View.VISIBLE : View.GONE);
         longScroll.setVisibility(mode == CameraController.Mode.LONGA ? View.VISIBLE : View.GONE);
         astroScroll.setVisibility(mode == CameraController.Mode.ASTRO ? View.VISIBLE : View.GONE);
         boolean resAllowed = mode == CameraController.Mode.FOTO || mode == CameraController.Mode.PRO;
@@ -471,11 +471,6 @@ public final class MainActivity extends Activity implements CameraController.Lis
         stackPolicy = stackPolicy == CameraController.STACK_MAX ? CameraController.STACK_AUTO : CameraController.STACK_MAX;
         camera.setStackPolicy(stackPolicy);
         refreshModes();
-        Toast.makeText(this, stackPolicy == CameraController.STACK_MAX
-                ? ((mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO)
-                    ? "Máxima: 10–12 quadros + super-resolução (28 MP computacional). Segure firme; demora mais."
-                    : "Qualidade máxima: 10–12 quadros por foto. Segure firme; a captura demora mais.")
-                : "Qualidade automática: 3–8 quadros conforme a luz.", Toast.LENGTH_LONG).show();
     }
 
     private void setResolution(int index) {
@@ -604,6 +599,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (caps == null) return;
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
         camera.setZoom(zoom);
+        if (apertureScroll != null) {
+            apertureScroll.setVisibility(blurDialVisible() ? View.VISIBLE : View.GONE);
+            buildApertureRow(); // texto "desligado" só faz sentido fora do Retrato
+        }
         updateZoomSelection();
     }
 
@@ -1038,15 +1037,15 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // de perto no zoom da tele a foto vem da principal (profundidade de campo de grande-
             // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
             // de uma tele de verdade — gradual, sem contorno
-            makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele");
+            makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele", 0.15f);
         } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
             // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
             // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
             // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
             // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
-            // 8× ou mais → f/8 simulado; 6–7× → f/11 (mais leve).
-            float z = camera.lastShotZoom();
-            makePortrait(uri, z >= 7.5f ? 8f : 11f, "_OPTICA_LONGA", "óptica de lente longa");
+            // a abertura vem do dial de desfoque no visor (f/16…f/8).
+            float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
+            if (ap > 0) makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f);
         }
         lastUri = uri;
         busy = false;
@@ -1372,22 +1371,47 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     // ---- Retrato --------------------------------------------------------------------------
 
-    private float aperture = PortraitEngine.DEFAULT_APERTURE;
+    private float aperture = apertureOf(0.5f); // ≈ f/11, mesmo ponto inicial do dial
     private LinearLayout apertureRow;
     private View apertureScroll;
     private final java.util.concurrent.ExecutorService portraitWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    /**
+     * Dial de desfoque (como o de EV): 0 = desligado (lente longa) / f/16 (Retrato), 1 = f/8.
+     * Regra do usuário: nunca mais aberto que f/8 — sem bokeh exagerado (sempre acima de f/5,6).
+     */
+    private float blurLevel = 0.5f;
+
+    /** Abertura simulada do nível (f/16 → f/8, contínuo). */
+    private static float apertureOf(float level) {
+        return (float) (16.0 * Math.pow(8.0 / 16.0, Math.max(0, Math.min(1, level))));
+    }
+
+    /** Abertura da versão de lente longa (6×–8×), ou 0 se o dial estiver desligado. */
+    private float longLensAperture() {
+        return blurLevel < 0.02f ? 0f : apertureOf(blurLevel);
+    }
+
+    private boolean blurDialVisible() {
+        return mode == CameraController.Mode.RETRATO || (mode == CameraController.Mode.FOTO && zoom >= 5.5f);
+    }
+
     private void buildApertureRow() {
         apertureRow.removeAllViews();
-        for (float f : PortraitEngine.PORTRAIT_APERTURES) {
-            TextView t = Ui.pill(this, PortraitEngine.label(f), f == aperture);
-            t.setOnClickListener(v -> {
-                aperture = f;
-                buildApertureRow();
-                if (!busy) status.setText(statusHint());
-            });
-            apertureRow.addView(t, Ui.pillParams(this));
-        }
+        PillSlider s = new PillSlider(this, "Desfoque", blurLevel, 0f, 1f);
+        s.setFormat(v -> {
+            if (mode != CameraController.Mode.RETRATO && v < 0.02f) return "desligado";
+            return PortraitEngine.label(Math.round(apertureOf(v) * 10) / 10f);
+        });
+        s.setListener((v, drag) -> {
+            blurLevel = v;
+            aperture = apertureOf(v);
+            if (!busy && !drag) status.setText(statusHint());
+        });
+        int width = getResources().getDisplayMetrics().widthPixels - dp(32);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(width, dp(40));
+        lp.setMargins(dp(16), dp(4), dp(16), dp(4));
+        apertureRow.addView(s, lp);
     }
 
     /**
@@ -1395,6 +1419,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * Plano em foco = último toque no visor (ou o centro, um pouco acima, onde costuma estar o rosto).
      */
     private void makePortrait(Uri original, float apIn, String suffix, String kind) {
+        makePortrait(original, apIn, suffix, kind, 1f);
+    }
+
+    /** frontScale abaixo de 1: desfoque inteligente — atrás do sujeito suave, a frente quase intacta. */
+    private void makePortrait(Uri original, float apIn, String suffix, String kind, float frontScale) {
         final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
         final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
         final float ap = apIn;
@@ -1418,7 +1447,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 long tDepth = System.currentTimeMillis();
                 // recorte do sujeito tocado + profundidade (objetivo: recorte perfeito em qualquer zoom)
                 float[] alpha = PortraitEngine.subjectAlpha(this, depth, fx, fy);
-                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha);
+                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha, frontScale);
                 long tLayers = System.currentTimeMillis();
                 int w = full.getWidth(), h = full.getHeight();
                 int[] px = new int[w * h];

@@ -321,10 +321,18 @@ final class PortraitEngine {
      * baixa resolução perde; a profundidade gradua o desfoque do resto da cena.
      */
     static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha) {
+        return bokeh(dp, focus, aperture, alpha, 1f);
+    }
+
+    /**
+     * frontScale: fração do desfoque aplicada ao que está À FRENTE do plano de foco (1 = lente real;
+     * 0,15 na lente longa: como a X8 Ultra no boné — atrás desfoca suave, a frente da mesa quase não).
+     */
+    static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha, float frontScale) {
         final int w = dp.w, h = dp.h, n = w * h;
         final float side = Math.max(w, h);
         final float[] raw = new float[n];
-        for (int i = 0; i < n; i++) raw[i] = rawCoc(dp.d[i] - focus, aperture, side);
+        for (int i = 0; i < n; i++) raw[i] = rawCoc(dp.d[i] - focus, aperture, side) * (dp.d[i] > focus ? frontScale : 1f);
         int rs = Math.max(2, Math.round(side * .01f));
         float[] smooth = box(box(raw, w, h, rs), w, h, rs);
         final float[] coc = new float[n];
