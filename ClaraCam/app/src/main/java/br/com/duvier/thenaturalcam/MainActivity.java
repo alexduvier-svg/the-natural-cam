@@ -1594,7 +1594,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     downX = e.getX();
                     downY = e.getY();
                     startFraction = fraction(ev);
-                    if (evAvailable && onBar(downX, downY)) {
+                    // a barra só responde ao toque se já estiver ativa (aberta por um arraste lateral):
+                    // antes, encostar nela sem querer (perto dos botões de zoom) mudava o EV
+                    if (evAvailable && onBar(downX, downY) && SystemClock.uptimeMillis() < evShownUntil) {
                         long now = SystemClock.uptimeMillis();
                         if (now - lastBarTap < 350) {
                             // toque duplo na barra: exposição volta a 0
@@ -1616,7 +1618,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 case MotionEvent.ACTION_MOVE:
                     if (drag == UNDECIDED && evAvailable) {
                         float dx = e.getX() - downX, dy = e.getY() - downY;
-                        if (Math.abs(dx) > dp(14) && Math.abs(dx) > Math.abs(dy) * 1.3f) {
+                        if (Math.abs(dx) > dp(32) && Math.abs(dx) > Math.abs(dy) * 2f) {
                             drag = EV_DRAG;
                             downX = e.getX();
                             cancelGestures(e);

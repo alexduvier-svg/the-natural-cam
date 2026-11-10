@@ -1877,7 +1877,7 @@ final class CameraController {
                 // Verificador de qualidade: a fusão só vira a foto final se mantiver o detalhe
                 // e a forma das bordas do quadro mais nítido; senão salva esse quadro limpo.
                 busy("Verificando qualidade…", 0.92f);
-                YuvFrame refFrame = frames.get(Math.max(0, Math.min(frames.size() - 1, fr.reference)));
+                YuvFrame refFrame = fr.referenceFrame != null ? fr.referenceFrame : frames.get(Math.max(0, Math.min(frames.size() - 1, fr.reference)));
                 QualityCheck.Report q = QualityCheck.compare(refFrame, fr.frame, fr.noiseBefore);
                 org.json.JSONObject qj = new org.json.JSONObject();
                 qj.put("detalhe_vs_referencia", round2(q.detailRatio));

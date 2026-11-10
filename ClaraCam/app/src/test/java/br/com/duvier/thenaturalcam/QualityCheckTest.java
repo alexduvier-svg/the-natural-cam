@@ -89,6 +89,18 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void superResolucaoNaoQuebraOVerificador() {
+        // erro visto no aparelho: "Index 0 out of bounds" — a super-resolução libera a lista
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) frames.add(label(400, 300, 40 + i, 0));
+        BurstFusion.Result r = new BurstFusion(0f, false, 1.5f).fuse(frames, null);
+        assertTrue("referência guardada", r.referenceFrame != null);
+        QualityCheck.Report q = QualityCheck.compare(r.referenceFrame, r.frame, 3);
+        System.out.println("super-res + verificador: " + r.frame.width + "x" + r.frame.height + " detalhe " + q.detailRatio);
+        assertTrue(q.reason, q.passed);
+    }
+
+    @Test
     public void superResolucaoFielPassa() {
         // fusão 1,5× maior: amostrada nas coordenadas correspondentes
         YuvFrame ref = label(600, 450, 1, 0);

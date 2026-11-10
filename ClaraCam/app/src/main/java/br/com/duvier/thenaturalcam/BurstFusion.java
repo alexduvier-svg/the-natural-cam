@@ -41,6 +41,8 @@ public final class BurstFusion {
         public long millis;
         public float scale = 1f;
         public long superResMs;
+        /** Quadro de referência (sobrevive à liberação da lista na super-resolução). */
+        public YuvFrame referenceFrame;
     }
 
     static final int TILE = 128;
@@ -246,7 +248,7 @@ public final class BurstFusion {
                 Result rr = fuse(keep, progress);
                 rr.framesIn = n;
                 rr.framesUsed = keep.size();
-                rr.reference = map.get(rr.reference);
+                rr.reference = map.get(rr.reference); // referenceFrame já vem da chamada interna
                 rr.millis = System.currentTimeMillis() - t0;
                 return rr;
             }
@@ -383,11 +385,13 @@ public final class BurstFusion {
 
         // ---- Super-resolução (Máxima): reamostra os quadros alinhados numa grade maior ----------
         YuvFrame fin = out;
+        final YuvFrame refKeep = r;
         long tSr = 0;
         if (scale > 1.01f && n >= 4) {
             p.step("Super-resolução " + scale + "×", 0.64f);
             long ts = System.currentTimeMillis();
             fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
+            // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
             frames.clear(); // libera ~230 MB de quadros antes do acabamento em 28 MP
             tSr = System.currentTimeMillis() - ts;
         }
@@ -423,6 +427,7 @@ public final class BurstFusion {
         res.framesIn = n;
         res.framesUsed = n;
         res.reference = ref;
+        res.referenceFrame = refKeep;
         res.noiseBefore = noiseBefore;
         res.noiseAfter = noiseAfter;
         res.meanWeight = meanWeight;
