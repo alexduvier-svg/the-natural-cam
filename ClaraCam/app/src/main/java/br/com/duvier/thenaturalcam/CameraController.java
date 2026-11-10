@@ -1113,6 +1113,10 @@ final class CameraController {
             Long exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
             if (iso != null) lastIso = iso;
             if (exp != null) lastExposure = exp;
+            // ganho digital do ISP depois do RAW (a prévia em AE automático usa; com ISO/tempo fixos ele
+            // voltava a 1× e a foto saía 0,5–1 EV mais escura que a tela)
+            Integer boost = result.get(CaptureResult.CONTROL_POST_RAW_SENSITIVITY_BOOST);
+            if (boost != null) lastBoost = boost;
             Rect crop = result.get(CaptureResult.SCALER_CROP_REGION);
             if (crop != null) lastCrop = crop;
             Float lfd = result.get(CaptureResult.LENS_FOCUS_DISTANCE);
@@ -1713,6 +1717,7 @@ final class CameraController {
             burstTarget = burstCount();
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
+            j.sheet.put("ganho_pos_raw_previa", lastBoost);
             j.sheet.put("quadros_pedidos", burstTarget);
             // super-resolução só na Máxima: sobre o recorte já ampliado pelo ISP ela custava ~25 s
             // e quase não somava detalhe; o recorte ganha nitidez na escala da ampliação (abaixo)
@@ -1823,6 +1828,7 @@ final class CameraController {
                     b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
                     b.set(CaptureRequest.SENSOR_SENSITIVITY, nightIso);
                     b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, nightExp);
+                    if (lastBoost > 100) b.set(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST, lastBoost); // mesma claridade da tela
                     b.set(CaptureRequest.SENSOR_FRAME_DURATION, mode == Mode.LONGA ? Math.max(nightExp, Math.min(lastExposure, 33_333_333L)) : nightExp);
                 }
                 // A fusão limpa o ruído; pedir pouca redução por quadro preserva o detalhe fino.
@@ -1861,6 +1867,9 @@ final class CameraController {
             fail("Falha no modo Noite: " + e.getMessage());
         }
     }
+
+    /** Último ganho pós-RAW medido na prévia (100 = 1×). */
+    private volatile int lastBoost = 100;
 
     private void onYuvImage(ImageReader reader) {
         Image img = reader.acquireNextImage();

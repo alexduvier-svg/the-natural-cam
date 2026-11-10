@@ -293,6 +293,7 @@ public final class EditorActivity extends Activity {
     private static final String[][] TOOLS_FOCUS = {
             {"desfoque", "◉", "Desfoque"}, {"miniatura", "▤", "Miniatura"}, {"mascaras", "◐", "Máscaras"},
             {"vinheta", "◯", "Vinheta"},
+            {"primeiro", "◒", "Primeiro Plano"},
     };
 
     private static String toolName(String id) {
@@ -320,6 +321,7 @@ public final class EditorActivity extends Activity {
             case "vinheta": return r.vignette != 0;
             case "granulado": return r.grain != 0;
             case "desfoque": return portraitOn;
+            case "primeiro": return fgAmount > 0;
             case "mascaras":
                 for (MaskEngine.Local m : masks) if (m != null && m.active()) return true;
                 return false;
@@ -366,6 +368,10 @@ public final class EditorActivity extends Activity {
             case "vinheta": r.vignette = 0; break;
             case "granulado": r.grain = 0; break;
             case "desfoque": if (portraitOn) togglePortrait(); break;
+            case "primeiro":
+                fgAmount = 0;
+                fgReach = .5f;
+                break;
             case "mascaras":
                 for (int k = 0; k < masks.length; k++) masks[k] = null;
                 buildMaskRow();
@@ -417,6 +423,11 @@ public final class EditorActivity extends Activity {
             render();
         }
         if ("desfoque".equals(id)) tiltAmount = 0;
+        if ("primeiro".equals(id)) ensureDepth(() -> {
+            if (fgAmount == 0) fgAmount = .5f; // abre já mostrando o efeito
+            buildSliders();
+            render();
+        });
         buildSliders();
         sliderScroll.scrollTo(0, 0);
         updateMarker();
@@ -536,6 +547,15 @@ public final class EditorActivity extends Activity {
                     addSlider(blurMode == 0 ? "Desfoque (bokeh)" : blurMode == 1 ? "Movimento" : "Zoom", v0, 0f, 1f, v -> aperture = (float) (16.0 * Math.exp(v * span)));
                 }
                 addHint("Toque na foto para escolher o ponto nítido.");
+                break;
+            case "primeiro":
+                if (depth == null) {
+                    addHint("Separando primeiro e segundo plano…");
+                    break;
+                }
+                addSlider("Clarear", fgAmount, 0f, 1f, v -> fgAmount = v);
+                addSlider("Alcance", fgReach, 0f, 1f, v -> fgReach = v);
+                addHint("Clareia só o que está perto (mesa, objeto, chão à frente), como um rebatedor. O fundo fica como estava; o branco não estoura.");
                 break;
             case "mascaras":
                 attach(maskScroll, 48);
@@ -1239,6 +1259,8 @@ public final class EditorActivity extends Activity {
     private PortraitEngine.Depth depth;
     private PortraitEngine.Bokeh layers;
 
+    /** Luz no Primeiro Plano: quanto clarear (0..1) e até onde vai o primeiro plano (0..1). */
+    private float fgAmount = 0, fgReach = .5f;
     private boolean portraitOn;
     private float aperture = PortraitEngine.DEFAULT_APERTURE;
     private float focusX = 0.5f, focusY = 0.45f;
@@ -1465,6 +1487,7 @@ public final class EditorActivity extends Activity {
         final PortraitEngine.Depth dp = depth;
         final int[] ai = light ? null : aiPixels;
         final float aiK = aiNoise;
+        final float fgA = fgAmount, fgR = fgReach;
         final float tA = tiltAmount, tY = tiltY, tB = tiltBand;
         worker.execute(() -> {
             if (id != renderId.get()) return;
@@ -1474,6 +1497,7 @@ public final class EditorActivity extends Activity {
             }
             if (tA > 0) PortraitEngine.apply(px, w, h, tiltFor(tY, tB, tA));
             else if (portrait) applyBlur(px, w, h, fx, fy, ap, bm);
+            if (fgA > 0 && dp != null) ForegroundLight.apply(px, w, h, dp, fgA, fgR);
             StylePipeline.process(px, r);
             if (!ml.isEmpty()) MaskEngine.apply(px, w, h, ml, dp, dp != null ? dp.focusAt(fx, fy) : 0);
             StylePipeline.processLocal(px, w, h, r);
@@ -1499,8 +1523,9 @@ public final class EditorActivity extends Activity {
         final boolean portrait = portraitOn && depth != null;
         final List<MaskEngine.Local> ml = activeMasks();
         final float aiK = aiNoise;
+        final float fgA = depth != null ? fgAmount : 0, fgR = fgReach;
         final float tA = tiltAmount, tY = tiltY, tB = tiltBand;
-        if (recipe.isIdentity() && !portrait && ml.isEmpty() && aiK <= 0 && tA <= 0) {
+        if (recipe.isIdentity() && !portrait && ml.isEmpty() && aiK <= 0 && tA <= 0 && fgA <= 0) {
             Toast.makeText(this, "Nenhum ajuste aplicado.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1537,6 +1562,7 @@ public final class EditorActivity extends Activity {
                 }
                 if (tA > 0) PortraitEngine.apply(px, w, h, tiltFor(tY, tB, tA));
                 else if (portrait) applyBlur(px, w, h, fx, fy, ap, bm);
+                if (fgA > 0) ForegroundLight.apply(px, w, h, dp, fgA, fgR);
                 StylePipeline.process(px, r);
                 if (!ml.isEmpty()) MaskEngine.apply(px, w, h, ml, dp, dp != null ? dp.focusAt(fx, fy) : 0);
                 StylePipeline.processLocal(px, w, h, r);
@@ -1563,6 +1589,7 @@ public final class EditorActivity extends Activity {
                     sheet.put("retrato_foco", fx + "," + fy);
                     sheet.put("retrato_modelo", "Depth Anything V2 Small (Apache-2.0)");
                 }
+                if (fgA > 0) sheet.put("primeiro_plano", "clarear " + fgA + " · alcance " + fgR + " (profundidade, sem estourar o branco)");
                 if (r.hue != 0) sheet.put("matiz", r.hue);
                 if (r.hasCurve()) sheet.put("curva", r.toJson().get("curva"));
                 if (r.hasPointCurve()) sheet.put("curva_pontos", r.toJson().get("curva_pontos"));

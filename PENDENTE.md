@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.26.0** (versionCode 61),
-APK: `The_Natural_Cam_1.26.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.27.0** (versionCode 62),
+APK: `The_Natural_Cam_1.27.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -308,3 +308,16 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Bug 6× perto: a medida de distância da principal "vencia" (10 s) durante a fusão longa do 3,5× e
   o 6× abria a tele desfocada (ISO 15602, fusão reprovada). Agora vale enquanto a principal segue
   aberta. Teste 3,5×/6×/7×/8× no frasco: todos na principal, fusão aprovada, ruído 1,4–1,56.
+
+## Feito na 1.27.0 (2026-11-10) — Primeiro Plano no editor e claridade da tela na foto
+- Editor › Foco e Seleção › "Primeiro Plano" (ForegroundLight): clareia só o que está perto pela
+  profundidade (Depth Anything), transição suave, curva x(1+g)/(1+g·x) (branco não estoura, cor
+  preservada). Sliders Clarear e Alcance. Teste PC: fundo 40→40, mesa +0,98 EV (Clarear 0,6),
+  frasco 245→247, degrau no ganho ≤ 1. Falta validar no aparelho numa foto Noite.
+- Usuário: "na tela está claro, mas ao processar não vai". Medido: foto final 0,5–1 EV mais escura
+  que a prévia (mesa 127→82, piso 107→76); o acabamento não escurece (43,3→42,9 no DBG_PRE vs final).
+  Hipótese: ganho pós-RAW (CONTROL_POST_RAW_SENSITIVITY_BOOST) da prévia volta a 1× com ISO/tempo
+  fixos. Correção: rajada repete o ganho da prévia; ficha grava "ganho_pos_raw_previa".
+  NÃO VERIFICADO no aparelho: se o ganho for 100, a causa é outra (curva de tom da captura do ISP).
+- Referência do usuário: app nativo do Reno ilumina e foca, mas "inventa detalhe e parece pintura"
+  — queremos a claridade e o foco SEM isso.
