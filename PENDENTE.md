@@ -206,3 +206,9 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Resolução: a tele só lista 4096×3072 em getHighResolutionOutputSizes — agora incluído (antes
   3264×2448). Saída mínima 4096×3072 (ampliação final bicúbica + nitidez na escala). JPEG 97.
 - Resultado: 3,5× e 8× em 4096×3072, ~2,5 MB em interior escuro (ISO 5000–7000).
+
+## Feito na 1.20.1 (2026-11-10)
+- Pele protegida na memória das sombras (BurstFusion.skinCbCr, todos os tons): rosto em meia-luz
+  recebe só a limpeza leve geral — teste: pele mantém 90% da textura, sombra cinza −67% de ruído.
+- Rosto hoje: detector da câmera guia foco/exposição sem toque; diretriz limita 1/60 s; fusão
+  recusa movimento. Falta: detecção de olho; testar com rosto real.

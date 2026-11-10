@@ -933,14 +933,19 @@ public final class BurstFusion {
         float[] m1 = PortraitEngine.box(y, w, h, 2), m2 = PortraitEngine.box(y2, w, h, 2);
         final float sig = Math.max(1f, model[8]);
         final float[] mask = new float[n];
-        IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
-            int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
-            for (int i = i0; i < i1; i++) {
+        final int cwm = c.chromaWidth;
+        IntStream.range(0, h).parallel().forEach(yy -> {
+            for (int xx = 0; xx < w; xx++) {
+                int i = yy * w + xx;
                 float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
                 float flat = 1 - smooth01((sd - 1.5f * sig) / (5f * sig));      // liso → 1, textura → 0
                 float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
-                // escuro e liso: força total; claro e liso: um terço; textura: quase nada
-                mask[i] = flat * (0.33f + 0.67f * dark);
+                // PELE (qualquer tom, também em meia-luz): a limpeza forte alisaria e daria aspecto de
+                // plástico — ali fica só a limpeza leve geral (regra do usuário: pele natural)
+                int ci = (yy >> 1) * cwm + (xx >> 1);
+                float sk = skinCbCr(m1[i], c.u[ci] & 0xFF, c.v[ci] & 0xFF);
+                // escuro e liso: força total; claro e liso: um terço; textura: quase nada; pele: pouco
+                mask[i] = flat * (0.33f + 0.67f * dark) * (1 - 0.85f * sk);
             }
         });
         // suaviza a máscara (transição gradual, sem contorno)
@@ -961,6 +966,14 @@ public final class BurstFusion {
             }
         }
         return (float) (sum / n);
+    }
+
+    /** Probabilidade de pele pela cor (Cb/Cr, faixa cheia), do mais claro ao mais escuro. */
+    static float skinCbCr(float y, int cb, int cr) {
+        if (y < 18 || y > 250) return 0;
+        float a = smooth01((cr - 131f) / 7f) * (1 - smooth01((cr - 172f) / 8f));
+        float b = smooth01((cb - 74f) / 8f) * (1 - smooth01((cb - 126f) / 8f));
+        return a * b;
     }
 
     private static float smooth01(float t) {

@@ -36,6 +36,50 @@ public class ShadowDenoiseTest {
         assertTrue("rótulo mantém ≥ 85% do detalhe", texAfter > texBefore * 0.85);
     }
 
+    @Test
+    public void peleEmMeiaLuzNaoEAlisada() {
+        // rosto de pele escura à meia-luz (Y≈52, Cb≈119, Cr≈141) com poros, ao lado de sombra cinza lisa
+        int w = 800, h = 600;
+        Random rnd = new Random(9);
+        YuvFrame f = new YuvFrame(w, h);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                boolean skin = x >= w / 2;
+                int pore = skin ? (int) Math.round(Math.sin(x * 1.7) * Math.cos(y * 2.3) * 5) : 0;
+                int v = (skin ? 52 : 40) + pore + (int) Math.round(rnd.nextGaussian() * 8);
+                f.y[y * w + x] = (byte) Math.max(0, Math.min(255, v));
+            }
+        }
+        for (int y = 0; y < f.chromaHeight; y++) {
+            for (int x = 0; x < f.chromaWidth; x++) {
+                boolean skin = 2 * x >= w / 2;
+                f.u[y * f.chromaWidth + x] = (byte) (skin ? 119 : 128);
+                f.v[y * f.chromaWidth + x] = (byte) (skin ? 141 : 128);
+            }
+        }
+        double skinBefore = sd(f, w / 2 + 20, w - 20), grayBefore = sd(f, 20, w / 2 - 20);
+        BurstFusion.shadowDenoise(f, BurstFusion.noiseModel(f), 0.9f);
+        double skinAfter = sd(f, w / 2 + 20, w - 20), grayAfter = sd(f, 20, w / 2 - 20);
+        System.out.println("pele: textura " + skinBefore + " → " + skinAfter + " · sombra cinza " + grayBefore + " → " + grayAfter);
+        assertTrue("pele mantém a textura (sem plástico)", skinAfter > skinBefore * 0.75);
+        assertTrue("sombra cinza continua sendo limpa", grayAfter < grayBefore * 0.5);
+    }
+
+    private static double sd(YuvFrame f, int x0, int x1) {
+        double s = 0, s2 = 0;
+        int n = 0;
+        for (int y = 20; y < f.height - 20; y++) {
+            for (int x = x0; x < x1; x++) {
+                int v = f.luma(x, y);
+                s += v;
+                s2 += v * v;
+                n++;
+            }
+        }
+        double m = s / n;
+        return Math.sqrt(s2 / n - m * m);
+    }
+
     private static double err(YuvFrame f, int[] clean, int x0, int x1, int w) {
         double s = 0;
         int n = 0;
