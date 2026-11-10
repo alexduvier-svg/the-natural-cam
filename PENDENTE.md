@@ -266,3 +266,6 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Desfoque inteligente nas cópias de óptica (tele de perto e lente longa): frente do plano de foco com
   só 15% do desfoque (PortraitEngine.bokeh frontScale) — como a X8 Ultra: atrás suave, frente nítida.
 - Pedido: tratamento para pouca luz de fim de tarde (talvez no Noite) — próximo passo.
+- 1.23.2: faixa nítida atrás do sujeito nas cópias de óptica (sharpBand 0,05 da profundidade relativa):
+  o desfoque só começa alguns centímetros atrás; objetos vazados tratados pixel a pixel. Teste
+  PortraitEngineTest.faixaNitidaAtrasEFrenteSuave (logo atrás 0, frente 15 % da lente real).
