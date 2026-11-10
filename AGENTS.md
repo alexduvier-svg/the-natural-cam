@@ -16,6 +16,7 @@ Diretriz do usuário em 10/11/2026: não escrever junto com o Claude, para não 
 - Operar o foco, o zoom e o disparo para testar as fotos nas diferentes focais e avaliar os arquivos efetivamente salvos.
 - Dispensar a tela de bloqueio pelo comando padrão do Android somente quando não exigir senha. Não tentar descobrir, adivinhar ou contornar senha, PIN ou biometria.
 - Antes de cada ação de tela no Reno, confirmar que a janela focada é do pacote br.com.duvier.thenaturalcam.codex. Interromper imediatamente se houver ligação ou outro app em foco; não executar sequências cegas de toques após desbloqueio ou mudança de atividade.
+- O usuário liberou os testes durante a chamada em segundo plano, usando fone. Nessa situação explicitamente autorizada, a chamada ativa por si só não bloqueia a câmera: confirmar a janela Codex antes de cada ação e interromper se houver chamada recebida ou outra janela em foco. Nunca operar os controles da ligação.
 
 ## Encerramento de tarefas — preferência de 10/11/2026
 

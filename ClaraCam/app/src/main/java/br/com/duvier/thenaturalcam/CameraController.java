@@ -212,6 +212,8 @@ final class CameraController {
     private long regionsUntil;
     private float regionsZoom = 1f;
     private volatile Rect lastCrop;
+    private MeteringRectangle[] lastAfRegions;
+    private int lastAfMode = -1, lastRotateCrop = -1;
     private MeteringRectangle[] faceRegions;
     private long faceSeenAt;
     private volatile int lastAfState = -1;
@@ -504,40 +506,20 @@ final class CameraController {
         });
     }
 
-    /**
-     * Retângulo (em coordenadas do sensor) que corresponde ao que a prévia mostra.
-     * Pela especificação, com CONTROL_ZOOM_RATIO as regiões usam o campo de visão já com zoom
-     * (= matriz ativa inteira). Alguns HALs (vistos em OPPO/MediaTek) ainda respondem no sistema
-     * antigo, de recorte: isso aparece no SCALER_CROP_REGION do resultado, menor que a matriz.
-     * Nesse caso a região precisa ser montada dentro desse recorte, senão o toque cai em outro
-     * ponto da cena (geralmente o fundo).
-     */
+    /** CONTROL_ZOOM_RATIO already changes the field of view represented by the full active array. */
     private Rect visibleSensorRect() {
         Rect active = caps.ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
         if (active == null) return null;
-        Rect full = new Rect(0, 0, active.width(), active.height());
-        Rect crop = lastCrop;
-        if (zoom > 1.05f && crop != null && crop.width() < full.width() * 0.9f && crop.width() > 16) return crop;
-        return full;
-    }
-
-    private static float[] toSensor(int sensorOrientation, float nx, float ny) {
-        switch (sensorOrientation) {
-            case 90: return new float[]{ny, 1f - nx};
-            case 270: return new float[]{1f - ny, nx};
-            case 180: return new float[]{1f - nx, 1f - ny};
-            default: return new float[]{nx, ny};
-        }
+        // A small reported crop alone is not proof that the HAL expects legacy coordinates.
+        // Reapplying it here moves off-centre taps toward the centre at 3.5x-8x.
+        return new Rect(0, 0, active.width(), active.height());
     }
 
     private MeteringRectangle[] regionAt(float nx, float ny, float size, int weight) {
         Rect v = visibleSensorRect();
         if (v == null) return null;
-        float[] s = toSensor(caps.sensorOrientation, nx, ny);
-        int half = Math.max(8, Math.round(Math.min(v.width(), v.height()) * size));
-        int cx = v.left + Math.round(s[0] * v.width()), cy = v.top + Math.round(s[1] * v.height());
-        Rect r = new Rect(clampI(cx - half, v.left, v.right - 2), clampI(cy - half, v.top, v.bottom - 2),
-                clampI(cx + half, v.left + 2, v.right), clampI(cy + half, v.top + 2, v.bottom));
+        int[] mapped = FocusRegionMapper.postZoomRegion(v.width(), v.height(), caps.sensorOrientation, nx, ny, size);
+        Rect r = new Rect(mapped[0], mapped[1], mapped[2], mapped[3]);
         return new MeteringRectangle[]{new MeteringRectangle(r, weight)};
     }
 
@@ -1124,6 +1106,11 @@ final class CameraController {
             if (aperture != null) lastAperture = aperture;
             Rect crop = result.get(CaptureResult.SCALER_CROP_REGION);
             if (crop != null) lastCrop = crop;
+            lastAfRegions = result.get(CaptureResult.CONTROL_AF_REGIONS);
+            Integer afMode = result.get(CaptureResult.CONTROL_AF_MODE);
+            if (afMode != null) lastAfMode = afMode;
+            Integer rotateCrop = result.get(CaptureResult.SCALER_ROTATE_AND_CROP);
+            if (rotateCrop != null) lastRotateCrop = rotateCrop;
             Float lfd = result.get(CaptureResult.LENS_FOCUS_DISTANCE);
             if (lfd != null) lastFocusDistance = lfd;
             Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
@@ -1354,6 +1341,14 @@ final class CameraController {
             j.sheet.put("sessao_geracao", generation);
             j.sheet.put("camera_logica", caps.logicalMultiCamera);
             j.sheet.put("foco_calibrado", caps.focusCalibrated);
+            j.sheet.put("foco_coordenadas", "active_array_post_zoom_ratio");
+            j.sheet.put("foco_regiao_pedida", meteringJson(regions));
+            j.sheet.put("foco_regiao_previa", meteringJson(lastAfRegions));
+            j.sheet.put("af_modo_previa", lastAfMode);
+            j.sheet.put("rotacao_recorte_previa", lastRotateCrop);
+            j.sheet.put("recorte_previa", lastCrop != null ? lastCrop.toShortString() : JSONObject.NULL);
+            j.sheet.put("foco_previa_posicao", lastFocusDistance);
+            if (regions != null) j.sheet.put("foco_toque_normalizado", new org.json.JSONArray(new float[]{tapX, tapY}));
             j.sheet.put("yuv_alta_resolucao_fallback", normalYuvFallback);
             j.sheet.put("modo", mode.name());
             j.sheet.put("processo", pipeline);
@@ -2350,6 +2345,15 @@ final class CameraController {
         }
     }
 
+    private static org.json.JSONArray meteringJson(MeteringRectangle[] areas) throws org.json.JSONException {
+        org.json.JSONArray values = new org.json.JSONArray();
+        if (areas != null) for (MeteringRectangle area : areas) {
+            Rect rect = area.getRect();
+            values.put(new org.json.JSONArray(new int[]{rect.left, rect.top, rect.right, rect.bottom, area.getMeteringWeight()}));
+        }
+        return values;
+    }
+
     private void fillResult(JSONObject sheet, TotalCaptureResult r) {
         if (r == null) return;
         try {
@@ -2367,9 +2371,14 @@ final class CameraController {
             if (zr != null) sheet.put("zoom_observado", zr);
             String phys = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             if (phys != null) sheet.put("lente_fisica_ativa", phys);
+            sheet.put("foco_regiao_observada", meteringJson(r.get(CaptureResult.CONTROL_AF_REGIONS)));
+            Rect crop = r.get(CaptureResult.SCALER_CROP_REGION);
+            if (crop != null) sheet.put("recorte_observado", crop.toShortString());
+            sheet.put("af_modo_observado", r.get(CaptureResult.CONTROL_AF_MODE));
+            sheet.put("rotacao_recorte_observada", r.get(CaptureResult.SCALER_ROTATE_AND_CROP));
             if (phys != null && caps.teleId != null && caps.teleRatio > 1.5f && zoom >= caps.teleRatio * 0.97f && !phys.equals(caps.teleId)) {
-                sheet.put("aviso_lente", "zoom da tele feito como recorte ampliado da lente " + phys
-                        + " (tele foca a partir de " + Math.round(100f / Math.max(.1f, caps.teleMinFocus)) + " cm)");
+                sheet.put("aviso_lente", "zoom da tele registrado como recorte digital da lente " + phys
+                        + (caps.focusCalibrated ? "" : "; posição de foco não calibrada, sem distância física confirmada"));
             }
             Integer afCap = r.get(CaptureResult.CONTROL_AF_STATE);
             if (afCap != null && afCap == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {

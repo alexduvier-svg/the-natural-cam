@@ -2,7 +2,8 @@ param(
     [double[]]$Zooms = @(0.6, 1, 2, 3.5, 6, 7, 8),
     [int]$FocusX = 540,
     [int]$FocusY = 1080,
-    [string]$DeviceSerial = $env:NATURAL_CAM_ADB_SERIAL
+    [string]$DeviceSerial = $env:NATURAL_CAM_ADB_SERIAL,
+    [switch]$AllowBackgroundCall
 )
 $ErrorActionPreference = 'Stop'
 $codexRoot = Split-Path -Parent $PSScriptRoot
@@ -25,8 +26,9 @@ $positions = @{'0.6'=86; '1'=246; '2'=392; '3.5'=555; '6'=718; '7'=872; '8'=1015
 $summary = @()
 function Assert-CodexForeground {
     $callState = (& $adbExe -s $renoSerial shell dumpsys telephony.registry | Select-String -Pattern '\bmCallState=') -join ' '
-    if ($LASTEXITCODE -ne 0 -or !$callState -or $callState -match '\bmCallState=[12]\b') {
-        throw 'Ligação ativa ou estado indisponível. Teste de câmera interrompido.'
+    if ($LASTEXITCODE -ne 0 -or !$callState -or $callState -match '\bmCallState=1\b' -or
+            (!$AllowBackgroundCall -and $callState -match '\bmCallState=2\b')) {
+        throw 'Ligação sem autorização de teste simultâneo, chamada recebida ou estado indisponível. Teste interrompido.'
     }
     # On this Android build the focus summary belongs to dumpsys window, not its windows subcommand.
     $focus = (& $adbExe -s $renoSerial shell dumpsys window | Select-String -Pattern 'mCurrentFocus=') -join ' '
