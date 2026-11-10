@@ -1,18 +1,51 @@
 # The Natural Cam Codex — implementação e testes no Reno 16 Pro
 
-Registro de 10/11/2026. Versão instalada no Reno: **1.20.4-codex**, código 44. Android confirmou `Success`, `versionCode=44` e `versionName=1.20.4-codex`.
+Registro de 10/11/2026. Versão instalada: **1.27.1-codex**, código 67. O histórico abaixo identifica checkpoints anteriores; suas medições não são resultados desta versão.
 
 ## Entrega e isolamento
 
 - Diretriz: [DIRETRIZ_THE_NATURAL_CAM.md](DIRETRIZ_THE_NATURAL_CAM.md).
-- APK: `The_Natural_Cam_Codex_1.20.4.apk`.
-- SHA-256: `0439DE67C16F73B7AD316727E52B5E13C0B81E105B36BE8C949FDDAB76D518DD`.
+- APK atual: `The_Natural_Cam_Codex_1.27.1.apk`. SHA-256: `F81B8FF974C1166D9E79C5C82277F08BD6549BBA0C6E020A880C4F9A341B9A03`.
 - Pacote exclusivo: `br.com.duvier.thenaturalcam.codex`; nome no celular: **The Natural Cam Codex**.
 - Fotos: `DCIM/TheNaturalCamCodex`; fichas: `Documents/TheNaturalCamCodex`.
-- Branch: `codex/natural-cam-memory`, neste worktree. A pasta e o pacote do Claude permanecem separados. O usuário autorizou commit local e envio a esta branch ao fim de cada tarefa; não há merge na branch do Claude.
-- Instalador autorizado: [tools/Install-RenoCodex.ps1](tools/Install-RenoCodex.ps1). Atualiza o pacote Codex por ADB, preserva dados e não abre a câmera.
+- Branch: `codex/natural-cam-memory`, neste worktree. A pasta do Claude é somente leitura; nenhuma alteração não commitada foi copiada. O pacote original permanece separado.
+- Integração solicitada: snapshot publicado `cee696e1ec9d569fd00c4979b25583cc3806cd7c` (Claude 1.24.1), 16 commits após a base. O merge e o envio destinam-se somente à branch Codex, conforme autorização do usuário.
+- [Instalador](tools/Install-RenoCodex.ps1): atualização automática por ADB, preservando dados, sem tela manual de instalação. Fotos privadas, diagnósticos, referências originais e APK permanecem fora do Git.
 
-## Correções e melhorias implementadas
+## Base aprovada e ajuste por área — 1.27.1
+
+A 1.27.0 restaurou o foco, a medição, a seleção de lente e o plano de Foto/Retrato publicados em 1.24.1, após regressões experimentais de exposição. A abertura direta da principal e o tempo de Foto controlado por fluxo óptico foram retirados do padrão. O usuário relatou que o resultado ficou próximo do desejado e que o pós-processamento diminuiu bastante o ruído; confirmou o teste em **3,5×**, pediu limpeza no primeiro e segundo plano preservando claridade, textura e cores, e aprovou a transição suave de zoom.
+
+A ficha dessa foto confirma sensor físico 2 via lógica 0, ISO 9946, 29,998 ms por quadro, 12 quadros recebidos/usados e 359,97 ms de exposição somada. Arquivo de 4096 × 3072 (12,58 MP), 2.154.571 bytes; a saída usa recorte e super-resolução computacional, sem alegar resolução nativa de 50/200 MP. A inspeção do JPEG confirmou os frisos e letras principais visíveis, com grão e manchas cromáticas residuais. As estimativas de ruído da fusão não são uma medida laboratorial da imagem final.
+
+A **1.27.1** conserva captura, enquadramento, mapeamento tonal limitado e a transição de zoom dessa base. Ajusta somente o acabamento, além da proteção contra reaplicar automaticamente um par de exposição lógica a outro sensor físico:
+
+- Realces por escala agora deixam o grão abaixo do limiar sem amplificação e limitam a correção a ±6 níveis. Não há nova afiação depois da limpeza residual.
+- `ResidualNoiseRefiner` compara padrões 3×3 numa grade auxiliar de meia resolução. Aplica uma correção suave à luminância inteira, com mais peso em superfícies lisas/sombras e proteção para textura, letras e possível pele. Não reduz a resolução final nem gera detalhes.
+- Uma escala maior de crominância trata manchas de cor; guias de luminância e cor limitam vazamento entre materiais. Não há nova estimativa de balanço de branco ou dessaturação global.
+- A etapa regional preserva sua entrada; exige detalhe relativo ≥0,93 e correlação ≥0,985 quando mensuráveis, ou descarta seu candidato. Medição sem bordas suficientes fica inconclusiva. Esse controle não comprova preservação de cada microtextura real.
+- O usuário definiu os frisos da tampa como referência de nitidez. Foram inspecionados recortes correspondentes do mesmo arquivo, junto com parede, superfície clara do frasco e rótulo. O ensaio no PC apresentou limpeza modesta, sem aumento de claridade por exposição nem perda visível dos sulcos; não equivale a comparação entre duas capturas controladas.
+- O processamento automático é fotométrico/por padrões locais; não declara uma segmentação semântica confiável de primeiro e segundo plano. Bokeh e profundidade continuam separados.
+
+O protocolo está em [PROTOCOLO_RUIDO_E_EMPILHAMENTO.md](PROTOCOLO_RUIDO_E_EMPILHAMENTO.md), também disponível em Ajustes → **Diretriz e protocolo de qualidade**. A pesquisa de fontes e comunidades está em [OPPO e pipeline híbrido](conhecimento/oppo_ia_e_pipeline_hibrido_2026_11_10.md).
+
+## Verificações atuais
+
+Instalação automática confirmada pelo Android (`Success`, versão 1.27.1/código 67), preservando dados e o pacote original. A diretriz e o protocolo dentro do APK foram comparados byte a byte aos documentos finais.
+
+`assembleDebug` e `testDebugUnitTest` concluídos: **90 testes, 88 aprovados, zero falhas/erros e duas demonstrações visuais opcionais ignoradas por falta de entrada configurada**. As regressões adicionais cobrem ruído correlacionado em duas luminosidades, contraste dos frisos, textura fina, brilho do primeiro plano, cor média, fronteiras de cor e preservação da entrada. Os números de testes referem-se a software e não validam fisicamente todas as lentes.
+
+No ensaio do mesmo JPEG em resolução inteira no PC, o refino residual apresentou razão de detalhe 1,0003 e correlação de bordas aproximadamente 1,0000; o recorte dos frisos manteve continuidade/contraste. Esses índices são relativos à entrada já processada, sem referência limpa de verdade. O teste novo de captura da 1.27.1 foi interrompido antes do disparo porque outro aplicativo estava em foco; nenhuma ação foi enviada fora do Codex. Portanto, o resultado da cadeia inteira desta atualização ainda precisa de uma nova foto no Reno, e a melhora observada no PC foi modesta.
+
+Os protótipos de movimento e `NightCapturePlan` mantêm um orçamento escolhido de até 15 quadros/3 s desejados no Noite, condicionado às observações e ao que o HAL permite. OIS só é considerado ativo se observado no resultado; seu funcionamento não foi demonstrado nas capturas recentes. RAW/DNG, retratos humanos, Noite e qualidade profissional em 6×–8× continuam sem validação física completa nesta versão.
+
+## Comparação nativa OPPO concluída
+
+Na terceira miniatura da Galeria, foi executada a sequência solicitada **Remoção de desfoque por IA → Aprimorar nitidez → Salvar cópia**. Entrada e cópia mantiveram 3072 × 4096; o original permaneceu byte a byte idêntico por SHA-256. A entrada já continha edição anterior, portanto não é um RAW de controle. Houve sombras mais uniformes e contornos mais definidos; letras pequenas continuam limitadas, com aparência de retoque em algumas formas. Não houve clareamento global. O algoritmo proprietário da OPPO não foi incorporado nem reproduzido.
+
+As versões intermediárias 1.25.0–1.26.1 tiveram falhas de bitmap reutilizado, exposição escura e estimativa de movimento excessiva. O bitmap foi corrigido; captura direta e fluxo óptico no tempo de Foto foram abandonados. Os arquivos de diagnóstico continuam locais para rastreabilidade. A 1.27.0 aprovada pelo usuário permanece como APK local de referência.
+
+## Correções implementadas no checkpoint 1.20.4
 
 1. **Enquadramento entre visor e captura:** no Reno com foco não calibrado, o burst mantém o zoom e o campo de visão usados na prévia. Foi retirado desse caminho o salto temporário para zoom nativo seguido de recorte central. Esse salto mudava a condição de foco e, quando a fusão era rejeitada, podia salvar apenas um recorte de aproximadamente 1 MP. Nos testes posteriores, o arquivo passou a manter 4096 × 3072 e o frasco inteiro quando inteiro na prévia.
 2. **Foco persistente:** resultados atrasados de buscas anteriores são rejeitados; o disparo aguarda a busca atual, com prazo e tentativas limitados. Há opção de AF contínuo na área tocada. É acompanhamento da profundidade nessa área, sem rastreamento de identidade do sujeito através do quadro. Foco manual e trava explícita têm prioridade.
@@ -76,7 +109,7 @@ Dez eixos produzem exatamente **50.000.000 de combinações endereçáveis**, co
 
 As sete imagens fornecidas foram incorporadas como originais locais, com índice e SHA-256 em `ClaraCam/app/src/main/assets/references/`. São referências de observação e acabamento, sem substituir a fotografia capturada por detalhes gerados. Não foram publicadas no GitHub.
 
-## Validação e pendências materiais
+## Validação do checkpoint 1.20.4 e pendências materiais
 
 - `assembleDebug` e `testDebugUnitTest`: **56 testes, zero falhas e zero erros**. Incluem fusão, RAW, bokeh, qualidade relativa, foco atrasado, giroscópio, sensor de cor e todos os IDs da memória.
 - Instalação automática da **1.20.4 concluída**, sem desinstalar o pacote ou apagar dados. Testes fotográficos anteriores estão registrados acima; os novos caminhos desta versão permanecem sujeitos às validações físicas descritas abaixo.

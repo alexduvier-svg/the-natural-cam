@@ -200,6 +200,18 @@ public final class MainActivity extends Activity implements CameraController.Lis
         apertureScroll = apScroll;
         stage.addView(apScroll, new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM));
         buildApertureRow();
+        // ícone pequeno à direita do quadro: mostra a abertura e abre/fecha o dial (não ocupa espaço)
+        blurIcon = Ui.text(this, "", 11, Ui.TEXT);
+        blurIcon.setGravity(Gravity.CENTER);
+        blurIcon.setBackground(Ui.rounded(this, 0x9908090B, dp(26)));
+        blurIcon.setVisibility(View.GONE);
+        blurIcon.setOnClickListener(v -> {
+            blurOpen = !blurOpen;
+            refreshBlurUi();
+        });
+        FrameLayout.LayoutParams bi = new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.END | Gravity.CENTER_VERTICAL);
+        bi.setMargins(0, 0, dp(10), 0);
+        stage.addView(blurIcon, bi);
         longRow = Ui.row(this);
         longRow.setGravity(Gravity.CENTER);
         HorizontalScrollView lgScroll = Ui.horizontal(this, longRow);
@@ -235,6 +247,21 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture s) {
+                long now = android.os.SystemClock.elapsedRealtimeNanos();
+                if (!resumed || busy || now - lastMotionProbe < 180_000_000L) return;
+                lastMotionProbe = now;
+                // Read outside TextureView's drawing callback. previewProbe owns a REUSED bitmap:
+                // recycling it here made the next native getBitmap call abort the app on the Reno.
+                main.post(() -> {
+                    if (!resumed || busy || camera == null) return;
+                    android.graphics.Bitmap bitmap = previewProbe(96, 128);
+                    if (bitmap == null) return;
+                    int[] pixels = new int[96 * 128];
+                    bitmap.getPixels(pixels, 0, 96, 0, 0, 96, 128);
+                    float x = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : -1;
+                    float y = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : -1;
+                    camera.observePreview(pixels, 96, 128, android.os.SystemClock.elapsedRealtimeNanos(), x, y);
+                });
             }
         });
 
@@ -415,7 +442,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             t.setTypeface(null, on ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
         }
         hdr.setTextColor(mode == CameraController.Mode.HDR ? Ui.ACCENT : Ui.TEXT);
-        apertureScroll.setVisibility(mode == CameraController.Mode.RETRATO ? View.VISIBLE : View.GONE);
+        refreshBlurUi();
         longScroll.setVisibility(mode == CameraController.Mode.LONGA ? View.VISIBLE : View.GONE);
         astroScroll.setVisibility(mode == CameraController.Mode.ASTRO ? View.VISIBLE : View.GONE);
         boolean resAllowed = mode == CameraController.Mode.FOTO || mode == CameraController.Mode.PRO;
@@ -427,7 +454,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         quality.selected(maxOn);
         quality.label = !maxOn ? "Máxima"
                 : (mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO) ? "Máx detalhe"
-                : mode == CameraController.Mode.NOITE ? "Máx 12q" : "Máxima";
+                : mode == CameraController.Mode.NOITE ? "Até 15q" : "Máxima";
         quality.invalidate();
     }
 
@@ -474,11 +501,6 @@ public final class MainActivity extends Activity implements CameraController.Lis
         stackPolicy = stackPolicy == CameraController.STACK_MAX ? CameraController.STACK_AUTO : CameraController.STACK_MAX;
         camera.setStackPolicy(stackPolicy);
         refreshModes();
-        Toast.makeText(this, stackPolicy == CameraController.STACK_MAX
-                ? ((mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO)
-                    ? "Máxima: mais amostras e acabamento natural. A resolução depende da lente e do recorte; não é leitura de 200 MP."
-                    : "Qualidade máxima: mais quadros conforme a luz. Segure firme.")
-                : "Qualidade automática: 4–10 quadros conforme a luz e o modo.", Toast.LENGTH_LONG).show();
     }
 
     private void setResolution(int index) {
@@ -604,6 +626,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private android.animation.ValueAnimator zoomAnimator;
+    private long lastMotionProbe;
 
     private void zoomTo(float z) {
         zoomTo(z, false);
@@ -623,6 +646,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
             zoomAnimator.addUpdateListener(animation -> camera.setZoom((Float) animation.getAnimatedValue()));
             zoomAnimator.start();
         } else camera.setZoom(zoom);
+        if (apertureScroll != null) {
+            refreshBlurUi();
+            buildApertureRow();
+        }
     }
 
     private void buildZooms() {
@@ -834,96 +861,136 @@ public final class MainActivity extends Activity implements CameraController.Lis
         return t;
     }
 
+    /** Card de ajuste (estilo da grade do editor): ícone, nome, valor atual em laranja; toque alterna. */
+    private static final class SettingCard {
+        final String icon, name;
+        final java.util.function.Supplier<String> value;
+        final Runnable tap;
+
+        SettingCard(String icon, String name, java.util.function.Supplier<String> value, Runnable tap) {
+            this.icon = icon;
+            this.name = name;
+            this.value = value;
+            this.tap = tap;
+        }
+    }
+
+    private static final int SET_TILE_BG = 0xFF0B0C0E, SET_TILE_LINE = 0xFF26272B;
+
+    /** Seção da tela de Ajustes: título laranja centralizado + grade de cards (2 por linha, sem vazios). */
+    private void settingsGrid(LinearLayout root, String title, List<SettingCard> cards) {
+        TextView h = Ui.text(this, title, 16, Ui.ACCENT);
+        h.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        h.setGravity(Gravity.CENTER);
+        h.setPadding(0, dp(root.getChildCount() == 0 ? 2 : 16), 0, dp(10));
+        root.addView(h, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout box = Ui.column(this);
+        box.setBackground(Ui.rounded(this, SET_TILE_LINE, dp(14)));
+        box.setClipToOutline(true);
+        int cols = 2;
+        for (int i = 0; i < cards.size(); i += cols) {
+            LinearLayout row = Ui.row(this);
+            int inRow = Math.min(cols, cards.size() - i); // última linha incompleta divide a largura
+            for (int c = 0; c < inRow; c++) {
+                SettingCard sc = cards.get(i + c);
+                LinearLayout tile = Ui.column(this);
+                tile.setGravity(Gravity.CENTER);
+                tile.setBackgroundColor(SET_TILE_BG);
+                tile.setPadding(dp(8), dp(10), dp(8), dp(10));
+                TextView icon = Ui.text(this, sc.icon, 22, Ui.TEXT);
+                icon.setGravity(Gravity.CENTER);
+                tile.addView(icon);
+                TextView name = Ui.text(this, sc.name, 12, Ui.TEXT);
+                name.setGravity(Gravity.CENTER);
+                name.setPadding(0, dp(6), 0, dp(2));
+                tile.addView(name);
+                TextView val = Ui.text(this, sc.value.get(), 12, Ui.ACCENT);
+                val.setGravity(Gravity.CENTER);
+                tile.addView(val);
+                if (sc.tap != null) {
+                    tile.setOnClickListener(v -> {
+                        sc.tap.run();
+                        val.setText(sc.value.get());
+                    });
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(104), 1);
+                lp.setMargins(c == 0 ? 0 : dp(1), i == 0 ? 0 : dp(1), 0, 0);
+                row.addView(tile, lp);
+            }
+            box.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        root.addView(box, new LinearLayout.LayoutParams(-1, -2));
+    }
+
     private void showSettings() {
         LinearLayout root = Ui.column(this);
-        LinearLayout content = settingsSection(root, "Captura");
+        String[] flashNames = {"Desligado", "Automático", "Ligado"};
+        String[] stackNames = {"Automático", "Desligado", "Máximo"};
+        List<SettingCard> captura = new ArrayList<>();
         if (caps != null && caps.flash) {
-            content.addView(settingsLabel("Flash"));
-            LinearLayout r = Ui.row(this);
-            String[] names = {"Desligado", "Automático", "Ligado"};
-            List<TextView> pills = new ArrayList<>();
-            for (int i = 0; i < 3; i++) {
-                final int f = i;
-                TextView t = Ui.pill(this, names[i], flash == i);
-                t.setOnClickListener(v -> {
-                    flash = f;
-                    camera.setFlash(f);
-                    for (int k = 0; k < pills.size(); k++) Ui.select(this, pills.get(k), k == flash);
-                });
-                pills.add(t);
-                r.addView(t, Ui.pillParams(this));
-            }
-            content.addView(r);
+            captura.add(new SettingCard("ϟ", "Flash", () -> flashNames[flash], () -> {
+                flash = (flash + 1) % 3;
+                camera.setFlash(flash);
+            }));
         }
         if (caps != null && !caps.resolutions.isEmpty()) {
-            content.addView(settingsLabel("Resolução (Foto e Pro)"));
-            LinearLayout r = Ui.row(this);
-            List<TextView> pills = new ArrayList<>();
-            for (int i = 0; i < caps.resolutions.size(); i++) {
-                final int idx = i;
-                CameraCaps.ResOption o = caps.resolutions.get(i);
-                TextView t = Ui.pill(this, o.label + (i == 0 ? " · menos ruído" : ""), resIndex == i);
-                t.setOnClickListener(v -> {
-                    setResolution(idx);
-                    for (int k = 0; k < pills.size(); k++) Ui.select(this, pills.get(k), k == resIndex);
-                });
-                pills.add(t);
-                r.addView(t, Ui.pillParams(this));
-            }
-            content.addView(Ui.horizontal(this, r), new LinearLayout.LayoutParams(-1, dp(48)));
+            captura.add(new SettingCard("▦", "Resolução",
+                    () -> caps.resolutions.get(Math.min(resIndex, caps.resolutions.size() - 1)).label + (resIndex == 0 ? " · menos ruído" : ""),
+                    () -> setResolution((resIndex + 1) % caps.resolutions.size())));
         }
-        content.addView(settingsLabel("Empilhamento de Quadros (Foto 12 MP e Noite)"));
-        LinearLayout stackRow = Ui.row(this);
-        String[] stackNames = {"Automático", "Desligado", "Máximo"};
-        List<TextView> stackPills = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
-            final int p = i;
-            TextView t = Ui.pill(this, stackNames[i], stackPolicy == i);
-            t.setOnClickListener(v -> {
-                stackPolicy = p;
-                camera.setStackPolicy(p);
-                refreshModes();
-                for (int k = 0; k < stackPills.size(); k++) Ui.select(this, stackPills.get(k), k == stackPolicy);
-            });
-            stackPills.add(t);
-            stackRow.addView(t, Ui.pillParams(this));
-        }
-        content.addView(stackRow);
-        content.addView(note("Automático ajusta os quadros conforme a luz, com redução de ruído mínima em cada um: "
-                + "mantém a textura e reduz o ruído pela média. Desligado usa um único JPEG da câmera."));
-        content.addView(toggle("Foco contínuo na área tocada", followFocusPoint, on -> {
-            followFocusPoint = on;
-            camera.setFollowFocusPoint(on);
+        captura.add(new SettingCard("❏", "Empilhamento", () -> stackNames[stackPolicy], () -> {
+            stackPolicy = (stackPolicy + 1) % 3;
+            camera.setStackPolicy(stackPolicy);
+            refreshModes();
         }));
-        content = settingsSection(root, "Visor");
-        content.addView(toggle("Focus peaking (contornos em foco, só na tela)", peaking, on -> {
-            peaking = on;
-            if (on) startPeaking();
+        captura.add(new SettingCard("◐", "Sombras", () -> "limpeza automática", null));
+        captura.add(new SettingCard("◎", "Foco na área tocada", () -> followFocusPoint ? "Contínuo" : "Disparo único", () -> {
+            followFocusPoint = !followFocusPoint;
+            camera.setFollowFocusPoint(followFocusPoint);
+        }));
+        settingsGrid(root, "Captura", captura);
+        root.addView(note("O empilhamento considera luz e movimento. Noite usa até 15 quadros; a limpeza protege textura, pele e bordas."));
+        List<SettingCard> visor = new ArrayList<>();
+        visor.add(new SettingCard("◎", "Focus peaking", () -> peaking ? "Ligado" : "Desligado", () -> {
+            peaking = !peaking;
+            if (peaking) startPeaking();
             else overlay.peakPts = null;
             overlay.invalidate();
         }));
-        content.addView(toggle("Grade de composição", grid, on -> {
-            grid = on;
+        visor.add(new SettingCard("▤", "Grade", () -> grid ? "Ligada" : "Desligada", () -> {
+            grid = !grid;
             overlay.invalidate();
         }));
-        content.addView(toggle("Mostrar ISO e velocidade no visor", liveInfo, on -> {
-            liveInfo = on;
-            exposureLine.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        visor.add(new SettingCard("ⓘ", "ISO e velocidade", () -> liveInfo ? "No visor" : "Ocultos", () -> {
+            liveInfo = !liveInfo;
+            exposureLine.setVisibility(liveInfo ? View.VISIBLE : View.INVISIBLE);
         }));
-        content = settingsSection(root, "Sobre o Aparelho");
-        content.addView(note(camera.colorSensorSummary()));
+        visor.add(new SettingCard("◑", "Luz ambiente", () -> {
+            double k = camera.colorSensorCct();
+            return Double.isFinite(k) ? Math.round(k) + " K" : (camera.colorSensorsAvailable() ? "medindo…" : "sem sensor");
+        }, null));
+        settingsGrid(root, "Visor", visor);
+        List<SettingCard> sobre = new ArrayList<>();
+        sobre.add(new SettingCard("✦", "Versão", () -> BuildConfigInfo.VERSION, null));
+        sobre.add(new SettingCard("▣", "Câmera", () -> caps == null ? "—" : caps.id + (caps.logicalMultiCamera ? " (lógica)" : ""), null));
+        sobre.add(new SettingCard("◫", "RAW", () -> caps != null && caps.raw ? "Disponível (RAW+)" : "Não", null));
+        sobre.add(new SettingCard("☾", "Noite", () -> caps != null && caps.extNight ? "Sistema + própria" : "Fusão própria", null));
+        settingsGrid(root, "Sobre o Aparelho", sobre);
         TextView references = Ui.action(this, "Ver referências fotográficas");
         references.setOnClickListener(v -> PhotoReferenceLibrary.show(this));
-        content.addView(references);
-        content.addView(note("Memória fotográfica 1.0.0 · 50 milhões de combinações. RAW+ preserva DNG original e JPEG revelado. Fotos desta versão ficam em pasta Codex separada."));
-        content.addView(note("The Natural Cam " + BuildConfigInfo.VERSION + " · fotos em " + MediaSaver.PHOTO_DIR
-                + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
-        if (caps != null) {
-            content.addView(note("Câmera " + caps.id + (caps.logicalMultiCamera ? " (lógica)" : "")
-                    + " · Noite do sistema: " + (caps.extNight ? "sim" : "não, usa fusão própria")
-                    + " · HDR do sistema: " + (caps.extHdr ? "sim" : "não")
-                    + " · RAW: " + (caps.raw ? "sim" : "não")));
-        }
+        root.addView(references);
+        TextView guide = Ui.action(this, "Diretriz e protocolo de qualidade");
+        guide.setOnClickListener(v -> new Thread(() -> {
+            try {
+                String text = PhotoKnowledge.readGuide(this);
+                runOnUiThread(() -> Ui.sheet(this, "Diretriz fotográfica", note(text)).show());
+            } catch (java.io.IOException error) {
+                runOnUiThread(() -> Toast.makeText(this, "Não foi possível abrir a diretriz.", Toast.LENGTH_SHORT).show());
+            }
+        }, "NaturalCam-guide").start());
+        root.addView(guide);
+        root.addView(note("Memória: 50 milhões de combinações de referência. RAW+ preserva DNG original e JPEG revelado. Pacote Codex separado."));
+        root.addView(note("Fotos em " + MediaSaver.PHOTO_DIR + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
         Ui.sheet(this, "Ajustes", root).show();
     }
 
@@ -1032,6 +1099,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (mode == CameraController.Mode.RETRATO && !summary.startsWith("retrato")) {
             makePortrait(uri, aperture, "_RETRATO", "retrato");
             processingPortrait = true;
+        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
+            // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
+            // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
+            // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
+            // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
+            // a abertura vem do dial de desfoque no visor (f/16…f/8).
+            float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
+            if (ap > 0) {
+                makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f);
+                processingPortrait = true;
+            }
         }
         lastUri = uri;
         busy = processingPortrait;
@@ -1358,22 +1436,66 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     // ---- Retrato --------------------------------------------------------------------------
 
-    private float aperture = PortraitEngine.DEFAULT_APERTURE;
+    private float aperture = apertureOf(0.5f); // ≈ f/11, mesmo ponto inicial do dial
     private LinearLayout apertureRow;
     private View apertureScroll;
     private final java.util.concurrent.ExecutorService portraitWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    /**
+     * Dial de desfoque (como o de EV): 0 = desligado (lente longa) / f/16 (Retrato), 1 = f/8.
+     * Regra do usuário: nunca mais aberto que f/8 — sem bokeh exagerado (sempre acima de f/5,6).
+     */
+    private float blurLevel = 0f; // enable the dial explicitly for a depth copy of ordinary photos
+
+    /** Abertura simulada do nível (f/16 → f/8, contínuo). */
+    private static float apertureOf(float level) {
+        return (float) (16.0 * Math.pow(8.0 / 16.0, Math.max(0, Math.min(1, level))));
+    }
+
+    /** Abertura da versão de lente longa (6×–8×), ou 0 se o dial estiver desligado. */
+    private float longLensAperture() {
+        return blurLevel < 0.02f ? 0f : apertureOf(blurLevel);
+    }
+
+    private TextView blurIcon;
+    /** Dial aberto pelo ícone (fechado por padrão: não ocupa o visor). */
+    private boolean blurOpen;
+
+    private String blurLabel() {
+        if (mode != CameraController.Mode.RETRATO && blurLevel < 0.02f) return "◎\noff";
+        return "◎\n" + PortraitEngine.label(Math.round(apertureOf(blurLevel) * 10) / 10f);
+    }
+
+    private void refreshBlurUi() {
+        if (apertureScroll == null || blurIcon == null) return;
+        boolean vis = blurDialVisible();
+        blurIcon.setVisibility(vis ? View.VISIBLE : View.GONE);
+        blurIcon.setText(blurLabel());
+        blurIcon.setTextColor(blurOpen ? Ui.ACCENT : Ui.TEXT);
+        apertureScroll.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean blurDialVisible() {
+        return mode == CameraController.Mode.RETRATO || (mode == CameraController.Mode.FOTO && zoom >= 5.5f);
+    }
+
     private void buildApertureRow() {
         apertureRow.removeAllViews();
-        for (float f : PortraitEngine.PORTRAIT_APERTURES) {
-            TextView t = Ui.pill(this, PortraitEngine.label(f), f == aperture);
-            t.setOnClickListener(v -> {
-                aperture = f;
-                buildApertureRow();
-                if (!busy) status.setText(statusHint());
-            });
-            apertureRow.addView(t, Ui.pillParams(this));
-        }
+        PillSlider s = new PillSlider(this, "Desfoque", blurLevel, 0f, 1f);
+        s.setFormat(v -> {
+            if (mode != CameraController.Mode.RETRATO && v < 0.02f) return "desligado";
+            return PortraitEngine.label(Math.round(apertureOf(v) * 10) / 10f);
+        });
+        s.setListener((v, drag) -> {
+            blurLevel = v;
+            aperture = apertureOf(v);
+            if (blurIcon != null) blurIcon.setText(blurLabel());
+            if (!busy && !drag) status.setText(statusHint());
+        });
+        int width = getResources().getDisplayMetrics().widthPixels - dp(32);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(width, dp(40));
+        lp.setMargins(dp(16), dp(4), dp(16), dp(4));
+        apertureRow.addView(s, lp);
     }
 
     /**
@@ -1381,6 +1503,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * Plano em foco = último toque no visor (ou o centro, um pouco acima, onde costuma estar o rosto).
      */
     private void makePortrait(Uri original, float apIn, String suffix, String kind) {
+        makePortrait(original, apIn, suffix, kind, 1f);
+    }
+
+    /** frontScale abaixo de 1: desfoque inteligente — atrás do sujeito suave, a frente quase intacta. */
+    private void makePortrait(Uri original, float apIn, String suffix, String kind, float frontScale) {
         final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
         final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
         final float ap = apIn;
@@ -1404,7 +1531,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 long tDepth = System.currentTimeMillis();
                 // recorte do sujeito tocado + profundidade (objetivo: recorte perfeito em qualquer zoom)
                 float[] alpha = PortraitEngine.subjectAlpha(this, depth, fx, fy);
-                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha);
+                // cópias de óptica: faixa nítida atrás do sujeito (≈ 5 % da profundidade relativa)
+                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha, frontScale, frontScale < 1f ? 0.05f : 0f);
                 long tLayers = System.currentTimeMillis();
                 int w = full.getWidth(), h = full.getHeight();
                 int[] px = new int[w * h];

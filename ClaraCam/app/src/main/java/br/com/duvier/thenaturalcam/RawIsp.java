@@ -86,6 +86,10 @@ public final class RawIsp {
     }
 
     public static Result process(List<Frame> frames, Meta m, Progress progress) {
+        return process(frames, m, progress, true);
+    }
+
+    static Result process(List<Frame> frames, Meta m, Progress progress, boolean finish) {
         long t0 = System.currentTimeMillis();
         Progress p = progress != null ? progress : (l, f) -> { };
         Result res = new Result();
@@ -109,10 +113,12 @@ public final class RawIsp {
 
         p.step("Acabamento", 0.85f);
         // acabamento leve: a média dos quadros já tirou o grosso do ruído — preserva a textura
-        float[] model = BurstFusion.noiseModel(out);
-        BurstFusion.lumaDenoise(out, model, res.framesIn > 1 ? 0.18f : 0.3f);
-        BurstFusion.chromaFilter(out, model[8]);
-        BurstFusion.sharpenLuma(out, 0.18f, Math.max(2f, model[8] * 3f));
+        if (finish) {
+            float[] model = BurstFusion.noiseModel(out);
+            BurstFusion.lumaDenoise(out, model, res.framesIn > 1 ? 0.18f : 0.3f);
+            BurstFusion.chromaFilter(out, model[8]);
+            BurstFusion.sharpenLuma(out, 0.18f, Math.max(2f, model[8] * 3f));
+        }
         res.frame = out;
         res.finishMs = System.currentTimeMillis() - t2;
         res.millis = System.currentTimeMillis() - t0;

@@ -35,7 +35,7 @@ final class PortraitEngine {
     /** Aberturas do editor (e do Ajuste fino). */
     static final float[] APERTURES = {2.8f, 4f, 5.6f, 8f, 11f, 16f};
     /** Aberturas no modo Retrato da câmera: bokeh suave, de lente real (pedido do usuário). */
-    static final float[] PORTRAIT_APERTURES = {5.6f, 8f, 11f, 16f};
+    static final float[] PORTRAIT_APERTURES = {8f, 11f, 16f}; // regra: sempre acima de f/5,6
     static final float DEFAULT_APERTURE = 8f;
     /** f/5,6: fundo mais distante com raio ≈ 1,6 % do lado; f/8 ≈ 1,1 %; f/16 ≈ 0,6 % (moderado). */
     static final float BOKEH_SCALE = 26f;
@@ -321,10 +321,31 @@ final class PortraitEngine {
      * baixa resolução perde; a profundidade gradua o desfoque do resto da cena.
      */
     static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha) {
+        return bokeh(dp, focus, aperture, alpha, 1f, 0f);
+    }
+
+    /**
+     * frontScale: fração do desfoque aplicada ao que está À FRENTE do plano de foco (1 = lente real;
+     * 0,15 na lente longa: como a X8 Ultra no boné — atrás desfoca suave, a frente da mesa quase não).
+     */
+    static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha, float frontScale) {
+        return bokeh(dp, focus, aperture, alpha, frontScale, 0f);
+    }
+
+    /**
+     * sharpBand: faixa NÍTIDA atrás do plano de foco (em profundidade relativa, 0..1): o desfoque só
+     * começa depois dela, aos poucos — como a profundidade de campo real (pedido do usuário: "o
+     * desfoque deve começar alguns centímetros atrás do objeto"; vale para objetos vazados, pixel a pixel).
+     */
+    static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha, float frontScale, float sharpBand) {
         final int w = dp.w, h = dp.h, n = w * h;
         final float side = Math.max(w, h);
         final float[] raw = new float[n];
-        for (int i = 0; i < n; i++) raw[i] = rawCoc(dp.d[i] - focus, aperture, side);
+        for (int i = 0; i < n; i++) {
+            float delta = dp.d[i] - focus;
+            if (delta < 0) delta = Math.min(0, delta + sharpBand); // atrás: só além da faixa nítida
+            raw[i] = rawCoc(delta, aperture, side) * (dp.d[i] > focus ? frontScale : 1f);
+        }
         int rs = Math.max(2, Math.round(side * .01f));
         float[] smooth = box(box(raw, w, h, rs), w, h, rs);
         final float[] coc = new float[n];

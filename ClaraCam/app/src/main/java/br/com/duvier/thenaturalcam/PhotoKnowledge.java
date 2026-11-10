@@ -26,6 +26,7 @@ public final class PhotoKnowledge {
     public static final String VERSION = "1.0.0";
     public static final String MANIFEST = "knowledge/photo_memory_v1.json";
     public static final String GUIDE = "knowledge/diretriz_fotografica_50_milhoes.md";
+    public static final String PROTOCOL = "knowledge/protocolo_ruido_empilhamento.md";
     private static PhotoKnowledge cached;
     private final JSONObject catalog;
 
@@ -46,7 +47,7 @@ public final class PhotoKnowledge {
     }
 
     public static String readGuide(Context context) throws IOException {
-        return readAsset(context, GUIDE);
+        return readAsset(context, GUIDE) + "\n\n" + readAsset(context, PROTOCOL);
     }
 
     public long scenarioCount() { return PhotoScenarioSpace.COUNT; }

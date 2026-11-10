@@ -172,3 +172,111 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   rua ≤ 1/250), super-resolução e acabamento. CaptureDirectorTest verifica 1.075.200 cenários.
 - Corrigidos: falha "Index 0" com super-resolução; barra de EV mudando sem querer.
 - NÃO testado na mão: 3,5/6/7/8× com o zoom por super-resolução (tempo e nitidez de rótulo).
+
+## Feito na 1.19.1–1.19.3 (2026-11-10)
+- Verificador compara super-resolução na MESMA escala (reduz por área) e desconta o ruído dos dois
+  lados (antes reprovava fusões boas a 2,5× e salvava quadro único ruidoso/pequeno).
+- Reserva do zoom: quadro mais nítido ampliado (bicúbico) + nitidez na escala, no tamanho da fusão.
+- Diretriz aplica a limpeza de ruído por luz (fundo sem grão) e nitidez na escala do zoom super-res.
+- Aviso "os quadros variaram" saiu da tela (fica na ficha).
+- Sensor de cor TCS3720 (AmbientColor): luz_ambiente_cct_k e wb_ganhos_camera na ficha (passo 1;
+  passo 2 = corrigir o WB com ele após calibrar).
+- Troca tele/principal só depois de 1,5 s aberta e com o AF assentado (foco "agarrava" ao abrir).
+- Integrados os arquivos do Codex (PhotoKnowledge/PhotoScenarioSpace): keySet() → keys() (Android).
+- Usuário: 3,5× com boa nitidez; ruído vinha do quadro único (fusão reprovada) — corrigido.
+
+## Feito na 1.19.4–1.19.7 (2026-11-10) — testes feitos pelo app no celular (frasco)
+- Descoberto com imagens de depuração (_DBG_FUSAO/_DBG_REF, só na versão de teste): a tele diz
+  "foco travado" e distâncias falsas (chegou a 25 m) com o objeto abaixo de 40 cm — tudo desfocado.
+- Decisão de lente agora pela distância da PRINCIPAL (coerente: 24–38 cm medidos): ao escolher zoom
+  de tele, se a principal mediu < ~46 cm, fica na principal + zoom por super-resolução; volta para a
+  tele quando a principal mede > ~55 cm. Reserva: tele sem foco por 2,5 s → principal.
+- Disparo espera a varredura do foco tocado (até 2 s); verificador reduz as imagens em pouca luz
+  (ruído alto) antes de comparar; nitidez só acima de 2,5σ do ruído (diretriz do Codex).
+- Resultado 3,5× a 27 cm: fusão aprovada (0,85), 2924×2194, rótulo inteiro legível.
+- Codex: diretriz de 50 milhões (assets/knowledge, PhotoKnowledge, PhotoScenarioSpace) — referência,
+  não usada na captura; regras úteis aproveitadas (limiar de nitidez, estados de foco).
+
+## Feito na 1.19.8–1.20.0 (2026-11-10) — testes no boné/cadeira a ~2 m (tele)
+- 3,5×/6×/7×/8× pela tele aprovadas. Reserva da super-resolução: refaz a fusão simples dos mesmos
+  quadros (antes caía num quadro único ISO 6000 cheio de pontos coloridos); quadros só são
+  liberados em saídas > 20 MP. Regra de tempo por quadro 6/focal (8× = 1/31 s, ISO ~1/3 menor).
+- Memória das sombras (BurstFusion.shadowDenoise): limpeza forte em áreas escuras e lisas, leve no
+  resto, textura quase intacta (teste: sombra −72% de ruído, rótulo mantém 91% do detalhe).
+- Resolução: a tele só lista 4096×3072 em getHighResolutionOutputSizes — agora incluído (antes
+  3264×2448). Saída mínima 4096×3072 (ampliação final bicúbica + nitidez na escala). JPEG 97.
+- Resultado: 3,5× e 8× em 4096×3072, ~2,5 MB em interior escuro (ISO 5000–7000).
+
+## Feito na 1.20.1 (2026-11-10)
+- Pele protegida na memória das sombras (BurstFusion.skinCbCr, todos os tons): rosto em meia-luz
+  recebe só a limpeza leve geral — teste: pele mantém 90% da textura, sombra cinza −67% de ruído.
+- Rosto hoje: detector da câmera guia foco/exposição sem toque; diretriz limita 1/60 s; fusão
+  recusa movimento. Falta: detecção de olho; testar com rosto real.
+
+## Feito na 1.20.2 (2026-11-10)
+- Usuário comparou 7× e 8× com a câmera da OPPO: o nosso app saiu melhor (boné natural, "como
+  câmera, sem traços de IA"). A limpeza das sombras foi aprovada ("ótimo").
+- Limpeza das sombras agora também no Rua e no RAW+ (já valia em Foto/Retrato/Noite em todas as
+  lentes, 0,6× a 8×).
+- Verificação da proteção de pele com 3 retratos reais (DemoPeleTest + testes_comparacao/): sem e
+  com proteção davam quase o mesmo — quem limpa a pele é a limpeza leve geral (cor 5,0→1,2; brilho
+  9→5–6). Pele agora: ruído de cor sai inteiro, brilho pela metade (SKIN_LUMA_CLEAN 0,5).
+
+## Feito na 1.20.3 (2026-11-10)
+- "Falha ao combinar quadros": no escuro (ISO 9000) a tele não firmava foco → ia para a principal →
+  a principal media longe → voltava para a tele → pingue-pongue a cada 2–3 s; a câmera ficava
+  fechada nas trocas. Agora a volta automática só ocorre se foi a principal que mediu perto, e a
+  troca por falha da tele só uma vez por escolha de zoom. Se o acabamento falhar (memória), salva
+  a fusão já aprovada. Teste: 8× no escuro salvou normalmente.
+
+## Feito na 1.21.0 (2026-11-10)
+- Ajustes em cards no estilo do editor (Captura · Visor · Sobre o Aparelho), card "Luz ambiente" com
+  a temperatura de cor ao vivo (sensor TCS3720).
+- Laboratório de tempo: ficha ganha tempo_etapa_* (verificador, limpeza leve, sombras, nitidez,
+  ampliação). Medido: 1× ~10 s (fusão 4,7), 8× ~12–16 s (super-res 5,3–5,7), Máxima ~25 s (SR 12,7).
+- Super-resolução pula amostras com d² > 1,2 px² (peso < 0,75 %): teste no PC −33 % de tempo com
+  a mesma imagem (dif. máx 1 nível); no celular uma foto 8× não mostrou ganho claro (5,7 s) — medir mais.
+- Codex (worktree próprio, pacote separado): diretriz de 50 milhões só de referência; vale trazer o
+  CameraMotionMeter (giroscópio) para o tempo por quadro.
+- Pendente: teste de cor do piso de taco com o sensor espectral vs câmera OPPO; referência X8 Ultra
+  8× (desfoque natural sob a aba, trama do tecido nítida) — comparar com o nosso 8× no mesmo enquadramento.
+
+## Laboratório boné 8× vs Find X8 Ultra 8× (2026-11-10)
+- Enquadramento 3,5×/8× confere com o visor (a foto escura anterior era cena sem luz).
+- Logo, pontos do bordado e costuras da aba: bons, sem aspecto digital. Trama do tecido da copa: a
+  X8 Ultra mostra, nós não. Medido (LabTexturaTest sobre _DBG_PRE): a trama já não existe antes do
+  acabamento (textura 0,56) e nem na 3,5× nativa — limite óptico: a X8 Ultra usa periscópica 6× de
+  50 MP; nossa 8× é recorte 2,3× da tele de 80 mm. Limpeza das sombras não é a causa (variantes iguais).
+- Desfoque sob a aba na X8U é óptico (focal ~131 mm). Opção: simular a profundidade de campo da focal
+  equivalente com o motor de Retrato (gradual, sem halo). Não inventar textura (regra: sem IA generativa).
+- Ferramentas: _DBG_PRE (imagem antes do acabamento, só na versão de teste), LabTexturaTest.
+
+## Feito na 1.22.0 (2026-11-10) — óptica de lente longa
+- Foto em 6×–8× (modo Foto) gera também _OPTICA_LONGA: desfoque gradual da profundidade de campo de
+  uma lente longa (motor do Retrato: profundidade + recorte do sujeito tocado), 8× → f/5,6, 6–7× →
+  f/8. Original intacta (arquivo separado); processamento normal não muda.
+- Teste inválido: o celular foi movido (estava no WhatsApp) e o toque de foco caiu na parede, então a
+  versão longa desfocou o boné. Refazer com o celular parado e o boné tocado. Cuidado: não dirigir o
+  celular sem checar se o usuário está usando (aconteceu aqui).
+
+## Feito na 1.22.1–1.23.1 (2026-11-10)
+- Regra: desfoque sempre acima de f/5,6 (Retrato da câmera f/8–f/16; lente longa pelo dial).
+- Dial de desfoque no visor (PillSlider, como o EV): Retrato e Foto em 6×+; f/16 → f/8, à esquerda
+  "desligado" na lente longa (sem cópia). Aviso da Máxima removido.
+- Desfoque inteligente nas cópias de óptica (tele de perto e lente longa): frente do plano de foco com
+  só 15% do desfoque (PortraitEngine.bokeh frontScale) — como a X8 Ultra: atrás suave, frente nítida.
+- Pedido: tratamento para pouca luz de fim de tarde (talvez no Noite) — próximo passo.
+- 1.23.2: faixa nítida atrás do sujeito nas cópias de óptica (sharpBand 0,05 da profundidade relativa):
+  o desfoque só começa alguns centímetros atrás; objetos vazados tratados pixel a pixel. Teste
+  PortraitEngineTest.faixaNitidaAtrasEFrenteSuave (logo atrás 0, frente 15 % da lente real).
+
+## Feito na 1.24.0 (2026-11-10) — pouca luz
+- GyroMeter (giroscópio, ideia do Codex): tremor real entra na diretriz. 8×: sem medida 1/31 s,
+  apoiado 1/15 s (Foto até 1/15, Noite até 1/8 quando firme), tremendo 1/53, rosto 1/60.
+  Ficha: tremor_rad_s. Objetivo: menos ISO em fim de tarde/sem luz artificial.
+- Usuário: textura do boné boa; em pouca luz o ponto é o ruído. Testar 8× apoiado vs na mão.
+- 1.24.1: dial de desfoque recolhido num ícone pequeno à direita do quadro (◎ + abertura); toque
+  abre/fecha. Aparece no Retrato e em 6×+. Não conferido na tela: a bateria do celular acabou (1 %).
+- Pouca luz medida: quarto quase escuro, AE da câmera já em 1/11 s e ISO 14.664 → a regra do
+  giroscópio não alonga mais (ISO máx 19.200). Fusão tira ~70 % do ruído (20 → 6). Próximas opções:
+  Noite apoiado (até 1/8 s) e Ruído IA (NAFNet) automático no Noite acima de ISO ~8000 (~50 s).

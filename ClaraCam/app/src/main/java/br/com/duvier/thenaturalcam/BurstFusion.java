@@ -88,6 +88,10 @@ public final class BurstFusion {
      * muito da imagem combinada (movimento). Não há detalhe inventado: só amostras reais do sensor.
      * A cor (croma) é ampliada da imagem combinada.
      */
+    /** Corte de distância das amostras da super-resolução: 255 = todas (d² ≤ 2,5 px²); 123 = d² ≤ 1,2
+     *  px² (peso gaussiano ≥ 0,75 %). Medido: mesma imagem (diferença máx. ≤ 1 nível), bem mais rápido. */
+    static int srCut = 123;
+
     static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
                                  int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale) {
         final int w = guide.width, h = guide.height, n = frames.size();
@@ -167,7 +171,7 @@ public final class BurstFusion {
                                 if (px < 0 || px >= w) continue;
                                 float ddx = px - ax;
                                 int k = (int) ((ddx * ddx + ddy * ddy) * (256f / 2.5f));
-                                if (k > 255) continue;
+                                if (k > srCut) continue; // amostras distantes pesam < 1 %: puladas (mais rápido)
                                 int v = src[py * w + px] & 0xFF;
                                 int diff = v - gi;
                                 float wt = gauss[k] * rl[diff < 0 ? -diff : diff];
@@ -398,7 +402,9 @@ public final class BurstFusion {
             long ts = System.currentTimeMillis();
             fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
             // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
-            frames.clear(); // libera ~230 MB de quadros antes do acabamento em 28 MP
+            // só nas fotos gigantes: libera ~230 MB antes do acabamento em 28 MP; nas menores os quadros
+            // ficam para a reserva poder refazer a fusão sem super-resolução
+            if ((long) fin.width * fin.height > 20_000_000L) frames.clear();
             tSr = System.currentTimeMillis() - ts;
         }
         final YuvFrame outF = fin;
@@ -914,20 +920,142 @@ public final class BurstFusion {
      * vários pixels, então o realce usa raio proporcional à ampliação. Só no brilho, com limiar
      * acima do ruído e reforço limitado (sem halo/contorno) — natural, como pede o usuário.
      */
+    /**
+     * "Memória das sombras" (ideia do usuário): limpeza FORTE só onde o ruído aparece e não há
+     * detalhe a perder — áreas escuras E lisas (sombra embaixo da mesa, fundo escuro) —; nas demais,
+     * leve; onde há textura (letras, frisos, tecido), quase nada. A máscara é medida na versão já
+     * limpa para reduzir a confusão entre ruído e textura, com transições suaves entre as regiões.
+     * Retorna a fração média da imagem tratada com força (para a ficha).
+     */
+    static float shadowDenoise(YuvFrame f, float[] model, float strong) {
+        final int w = f.width, h = f.height;
+        YuvFrame c = QualityCheck.copy(f);
+        lumaDenoise(c, model, strong);
+        lumaDenoiseCoarse(c, model, strong);
+        chromaFilter(c, model[8] * 2f);
+        // Máscaras em MEIA resolução (a grade do croma): elas são suaves de qualquer forma e assim a
+        // memória cai ~4× — em 12 MP a versão em resolução cheia passava de 400 MB e o acabamento
+        // falhava por falta de memória (visto no aparelho a 8×, ISO 11000).
+        final int w2 = c.chromaWidth, h2 = c.chromaHeight, n2 = w2 * h2;
+        float[] y = new float[n2], y2 = new float[n2];
+        for (int yy = 0; yy < h2; yy++) {
+            int r0 = Math.min(h - 1, 2 * yy) * w, r1 = Math.min(h - 1, 2 * yy + 1) * w;
+            for (int xx = 0; xx < w2; xx++) {
+                int x0 = Math.min(w - 1, 2 * xx), x1 = Math.min(w - 1, 2 * xx + 1);
+                float v = ((c.y[r0 + x0] & 0xFF) + (c.y[r0 + x1] & 0xFF) + (c.y[r1 + x0] & 0xFF) + (c.y[r1 + x1] & 0xFF)) / 4f;
+                // desvio local do bloco 2×2 entra no quadrado médio (textura fina não some na redução)
+                float q = ((c.y[r0 + x0] & 0xFF) * (c.y[r0 + x0] & 0xFF) + (c.y[r0 + x1] & 0xFF) * (c.y[r0 + x1] & 0xFF)
+                        + (c.y[r1 + x0] & 0xFF) * (c.y[r1 + x0] & 0xFF) + (c.y[r1 + x1] & 0xFF) * (c.y[r1 + x1] & 0xFF)) / 4f;
+                y[yy * w2 + xx] = v;
+                y2[yy * w2 + xx] = q;
+            }
+        }
+        final float[] m1 = PortraitEngine.box(y, w2, h2, 1), m2 = PortraitEngine.box(y2, w2, h2, 1);
+        y = null;
+        y2 = null;
+        final float sig = Math.max(1f, model[8]);
+        final float[] maskL = new float[n2], maskC = new float[n2];
+        IntStream.range(0, h2).parallel().forEach(yy -> {
+            for (int xx = 0; xx < w2; xx++) {
+                int i = yy * w2 + xx;
+                float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
+                float flat = 1 - smooth01((sd - flatLo * sig) / (flatSpan * sig)); // liso → 1, textura → 0
+                float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
+                // escuro e liso: força total; claro e liso: um terço; textura: quase nada
+                float base = flat * (0.33f + 0.67f * dark);
+                // PELE (qualquer tom, também em meia-luz), tratada como os retratistas: o ruído de COR
+                // recebe mais limpeza; o de brilho recebe metade da mistura do candidato limpo.
+                // É uma heurística conservadora, não uma identificação semântica de pele.
+                float sk = skinProtect ? skinCbCr(m1[i], c.u[i] & 0xFF, c.v[i] & 0xFF) : 0f;
+                maskL[i] = (1 - sk) * base + sk * SKIN_LUMA_CLEAN;
+                maskC[i] = (1 - sk) * base + sk;
+                if (!skinProtect) maskL[i] = maskC[i] = Math.max(base, 0.9f * flatOrSkinUnprotected(sd, sig));
+            }
+        });
+        // suaviza as máscaras (transição gradual, sem contorno) — raio 2 na meia resolução ≈ 4 px
+        final float[] ms = PortraitEngine.box(PortraitEngine.box(maskL, w2, h2, 2), w2, h2, 2);
+        final float[] msC = PortraitEngine.box(PortraitEngine.box(maskC, w2, h2, 2), w2, h2, 2);
+        final double[] rowSum = new double[h];
+        IntStream.range(0, h).parallel().forEach(yy -> {
+            float fy = Math.max(0, Math.min(h2 - 1.001f, (yy - .5f) / 2f));
+            int y0 = (int) fy;
+            float ty = fy - y0;
+            double s = 0;
+            for (int xx = 0; xx < w; xx++) {
+                float fx = Math.max(0, Math.min(w2 - 1.001f, (xx - .5f) / 2f));
+                int x0 = (int) fx;
+                float tx = fx - x0;
+                int o = y0 * w2 + x0;
+                float k = (ms[o] * (1 - tx) + ms[o + 1] * tx) * (1 - ty) + (ms[o + w2] * (1 - tx) + ms[o + w2 + 1] * tx) * ty;
+                s += k;
+                int i = yy * w + xx;
+                f.y[i] = (byte) Math.round((f.y[i] & 0xFF) * (1 - k) + (c.y[i] & 0xFF) * k);
+            }
+            rowSum[yy] = s;
+        });
+        for (int i = 0; i < n2; i++) {
+            float k = msC[i];
+            f.u[i] = (byte) Math.round((f.u[i] & 0xFF) * (1 - k) + (c.u[i] & 0xFF) * k);
+            f.v[i] = (byte) Math.round((f.v[i] & 0xFF) * (1 - k) + (c.v[i] & 0xFF) * k);
+        }
+        double sum = 0;
+        for (double v : rowSum) sum += v;
+        return (float) (sum / ((double) w * h));
+    }
+
+    /** Limiar do "liso" na limpeza das sombras, em múltiplos do ruído (ajustável no laboratório). */
+    static float flatLo = 1.5f, flatSpan = 5f;
+
+    /** Proteção de pele na limpeza das sombras (desligável só para comparação em teste). */
+    static boolean skinProtect = true;
+    /** Na pele, fração da limpeza de brilho aplicada (o resto do ruído de brilho fica: textura). */
+    static final float SKIN_LUMA_CLEAN = 0.5f;
+
+    /** Só para a comparação "sem proteção": limpeza forte também em pele/meia-textura (o que alisa). */
+    private static float flatOrSkinUnprotected(float sd, float sig) {
+        return 1 - smooth01((sd - 3f * sig) / (6f * sig));
+    }
+
+    /** Probabilidade de pele pela cor (Cb/Cr, faixa cheia), do mais claro ao mais escuro. */
+    static float skinCbCr(float y, int cb, int cr) {
+        if (y < 18 || y > 250) return 0;
+        float a = smooth01((cr - 131f) / 7f) * (1 - smooth01((cr - 172f) / 8f));
+        float b = smooth01((cb - 74f) / 8f) * (1 - smooth01((cb - 126f) / 8f));
+        return a * b;
+    }
+
+    private static float smooth01(float t) {
+        t = Math.max(0, Math.min(1, t));
+        return t * t * (3 - 2 * t);
+    }
+
     static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise) {
+        sharpenScaled(f,upscale,amount,noise,false);
+    }
+
+    static void sharpenScaledRegional(YuvFrame f, float upscale, float amount, float noise) {
+        sharpenScaled(f,upscale,amount,noise,true);
+    }
+
+    private static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise, boolean regional) {
         final int w = f.width, h = f.height, n = w * h;
         int r = Math.max(1, Math.round(upscale * 0.55f));
         float[] y = new float[n];
         for (int i = 0; i < n; i++) y[i] = f.y[i] & 0xFF;
         final float[] bl = PortraitEngine.box(PortraitEngine.box(y, w, h, r), w, h, r);
-        final float thr = Math.max(1.5f, noise * 1.2f), lim = 14f;
+        // detalhe só acima de ~2,5σ do ruído residual (diretriz): o grão do fundo não é realçado
+        final float thr = Math.max(2f, noise * 2.5f), lim = 14f;
         IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
             int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
             for (int i = i0; i < i1; i++) {
                 float d = y[i] - bl[i], ad = Math.abs(d);
-                if (ad < thr) d *= ad / thr; // ruído/grão: quase não realça
+                if(regional) {
+                    // Do not enhance low-confidence grain in smooth foreground/background surfaces.
+                    d*=smooth01((ad-Math.max(1f,noise*1.1f))/(Math.max(1f,noise*2.4f)+1));
+                } else if (ad < thr) d *= ad / thr;
                 float s = amount * d;
-                s = s > lim ? lim : (s < -lim ? -lim : s); // borda forte: sem halo
+                float limit=regional?6f:lim;
+                s = s > limit ? limit : (s < -limit ? -limit : s);
                 f.y[i] = (byte) clamp(Math.round(y[i] + s), 0, 255);
             }
         });

@@ -57,7 +57,7 @@ foreach ($zoom in $Zooms) {
     do {
         Start-Sleep -Milliseconds 1000
         $after = @(& $adbExe -s $renoSerial shell ls /sdcard/Documents/TheNaturalCamCodex)
-        $new = @($after | Where-Object { $_ -notin $before -and $_ -like '*_ficha.json' })
+        $new = @($after | Where-Object { $_ -notin $before -and $_ -like '*_ficha.json' -and $_ -notmatch '_DBG_|_ORIGINAL|_OPTICA_' })
     } while ($new.Count -eq 0 -and $timer.Elapsed.TotalSeconds -lt 40)
     if ($new.Count -eq 0) { throw "No completed photo at $zoom x in 40 s; inspect the app." }
     foreach ($name in $new) {

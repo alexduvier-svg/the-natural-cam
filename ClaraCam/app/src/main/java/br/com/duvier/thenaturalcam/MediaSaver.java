@@ -205,7 +205,7 @@ final class MediaSaver {
         File tmp = new File(context.getCacheDir(), name + ".jpg");
         try {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                if (!img.compressToJpeg(new android.graphics.Rect(0, 0, w, h), 95, fos)) throw new IOException("Falha ao codificar JPEG.");
+                if (!img.compressToJpeg(new android.graphics.Rect(0, 0, w, h), 97, fos)) throw new IOException("Falha ao codificar JPEG.");
             }
             nv21 = null;
             ExifInterface exif = new ExifInterface(tmp.getAbsolutePath());

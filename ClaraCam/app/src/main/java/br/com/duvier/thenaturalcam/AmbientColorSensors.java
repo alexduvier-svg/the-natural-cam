@@ -102,6 +102,15 @@ final class AmbientColorSensors implements SensorEventListener {
 
     synchronized double angularMotion() { return motion.rms(SystemClock.elapsedRealtimeNanos()); }
     synchronized boolean steady() { return motion.steady(SystemClock.elapsedRealtimeNanos()); }
+    synchronized double cctKelvin() {
+        long now = SystemClock.elapsedRealtimeNanos();
+        for (ColorSensorReading reading : readings.values()) {
+            double cct = reading != null ? reading.cctKelvin(now) : Double.NaN;
+            if (Double.isFinite(cct)) return cct;
+        }
+        return Double.NaN;
+    }
+    synchronized boolean available() { return !readings.isEmpty(); }
 
     @Override public synchronized void onSensorChanged(SensorEvent event) {
         if (running && event.sensor == gyro && event.values.length >= 3) {

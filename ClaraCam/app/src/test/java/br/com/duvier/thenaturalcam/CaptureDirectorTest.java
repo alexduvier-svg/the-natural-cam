@@ -46,7 +46,7 @@ public class CaptureDirectorTest {
 
     private static void check(CaptureDirector.Scene s, CaptureDirector.Plan p) {
         String c = "iso " + s.iso + " zoom " + s.zoom + " " + s.kind + " face " + s.face + " manual " + s.manual + " → " + p.reason;
-        if (p.frames < 1 || p.frames > 12) fail("quadros fora de 1..12: " + c);
+        if (p.frames < 1 || p.frames > (s.kind == CaptureDirector.Kind.NOITE ? 15 : 12)) fail("quadros fora do orçamento: " + c);
         if (p.srScale > 1f && p.frames < 4) fail("super-resolução sem amostras suficientes: " + c);
         if (p.srScale > 2.5f) fail("ampliação acima de 2,5× inventaria detalhe: " + c);
         if (p.srCrop > 1f && p.srScale < 1.29f) fail("recorte sem super-resolução: " + c);
@@ -55,9 +55,9 @@ public class CaptureDirectorTest {
             if (p.maxFrameExposureNs < 1_000_000L) fail("tempo de quadro irreal: " + c);
             if (s.face && p.maxFrameExposureNs > 16_666_666L) fail("rosto acima de 1/60 s borra: " + c);
             if (s.kind == CaptureDirector.Kind.RUA && p.maxFrameExposureNs > 4_000_000L) fail("rua acima de 1/250 s: " + c);
-            // zoom longo nunca pode pedir mais tempo que a regra 1/focal folgada 4×
+            // zoom longo nunca pode pedir mais tempo que a regra 1/focal folgada 6×
             float eq = 23f * Math.max(0.6f, s.zoom);
-            if (p.maxFrameExposureNs > 4e9 / eq + 1) fail("tempo longo demais para o zoom (tremido): " + c);
+            if (p.maxFrameExposureNs > 6e9 / eq + 1) fail("tempo longo demais para o zoom (tremido): " + c);
         }
         if (p.sharpen > 0.35f) fail("nitidez excessiva (regra do usuário): " + c);
         if (s.zoom >= 6f && !s.manual && !s.stackOff && s.kind == CaptureDirector.Kind.FOTO && p.srCrop <= 1f)
@@ -77,5 +77,27 @@ public class CaptureDirectorTest {
                 prev = cap;
             }
         }
+    }
+
+    @Test
+    public void tremorRealDecideOTempoDoQuadro() {
+        CaptureDirector.Scene s = new CaptureDirector.Scene();
+        s.iso = 3200;
+        s.zoom = 8f;
+        s.tele = true;
+        s.lensCrop = 2.32f;
+        long unknown = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.001f; // estável segundo a janela medida do Codex
+        long steady = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.2f; // tremendo
+        long shaky = CaptureDirector.decide(s).maxFrameExposureNs;
+        s.shakeRadS = 0.001f;
+        s.face = true;
+        long face = CaptureDirector.decide(s).maxFrameExposureNs;
+        System.out.println("8×: sem medida 1/" + Math.round(1e9 / unknown) + " · apoiado 1/" + Math.round(1e9 / steady)
+                + " · tremendo 1/" + Math.round(1e9 / shaky) + " · rosto 1/" + Math.round(1e9 / face));
+        assertTrue("apoiado permite quadro mais longo (menos ISO)", steady > unknown * 1.5);
+        assertTrue("tremendo encurta o quadro", shaky < unknown);
+        assertTrue("rosto continua no máximo 1/60 s", face <= 16_666_666L);
     }
 }

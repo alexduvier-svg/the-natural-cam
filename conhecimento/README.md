@@ -12,6 +12,8 @@ Montada em 09/11/2026, sem alterar o código do app (`ClaraCam/`).
 | [diretriz_fotografica_50_milhoes.md](diretriz_fotografica_50_milhoes.md) | Memória fotográfica v1: 50 milhões de combinações indexadas e 40 regras; consulta parcial embarcada. Execução e testes físicos documentados no relatório Codex |
 | [novidades_git_reddit_2026_11_10.md](novidades_git_reddit_2026_11_10.md) | Pesquisa atualizada de GitHub/Reddit e prioridades para foco, fusão, RAW e redução de ruído |
 | [referencias_retrato_usuario_2026_11_10.md](referencias_retrato_usuario_2026_11_10.md) | Links enviados pelo usuário, manual H5D e critérios de retrato, pele, cor e bokeh suave |
+| [Protocolo de ruído e empilhamento](../PROTOCOLO_RUIDO_E_EMPILHAMENTO.md) | Tratamento por área, Noite adaptativa e distinção entre média, HDR e foco, com fontes Adobe/Google/Huawei |
+| [OPPO IA e pipeline híbrido](oppo_ia_e_pipeline_hibrido_2026_11_10.md) | Ensaio real na Galeria, pesquisa das comunidades e avaliação de alternativas de restauração móvel |
 | [dados_adb/](dados_adb/) | Resumo das características e nomes de vendor tags por aparelho |
 
 ## As 5 melhorias mais promissoras para nitidez e ruído

@@ -332,6 +332,14 @@ final class CameraCaps {
         return m < 9.5 ? String.format(Locale.ROOT, "%.1f MP", m) : String.format(Locale.ROOT, "%d MP", Math.round(m));
     }
 
+    static Size[] concat(Size[] a, Size[] b) {
+        if (a == null) return b;
+        if (b == null || b.length == 0) return a;
+        Size[] o = Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, o, a.length, b.length);
+        return o;
+    }
+
     static List<Size> sorted(Size[] sizes) {
         List<Size> list = sizes == null ? new ArrayList<>() : new ArrayList<>(Arrays.asList(sizes));
         list.sort((a, b) -> Long.compare(area(b), area(a)));

@@ -56,6 +56,18 @@ final class PillSlider extends View {
         });
     }
 
+    /** Texto do valor (ex.: "f/11"); null = número com duas casas. */
+    interface Format {
+        String text(float v);
+    }
+
+    private Format format;
+
+    void setFormat(Format f) {
+        format = f;
+        invalidate();
+    }
+
     void setListener(Listener l) {
         listener = l;
     }
@@ -93,7 +105,7 @@ final class PillSlider extends View {
         c.drawText(label, pad, ty, text);
         text.setColor(0xFFFFFFFF);
         text.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(String.format(Locale.ROOT, lo < 0 ? "%+.2f" : "%.2f", value).replace('.', ','), w - pad, ty, text);
+        c.drawText(format != null ? format.text(value) : String.format(Locale.ROOT, lo < 0 ? "%+.2f" : "%.2f", value).replace('.', ','), w - pad, ty, text);
     }
 
     @Override

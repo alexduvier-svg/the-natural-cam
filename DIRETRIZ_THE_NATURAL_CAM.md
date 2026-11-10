@@ -255,4 +255,19 @@ Versão do app: 1.20.0-codex. Pacote próprio br.com.duvier.thenaturalcam.codex;
 - Sete exemplos originais do usuário em biblioteca local, acessível nos Ajustes. São referências visuais e não treinamento ou calibração fotométrica.
 - Sem aumento automático para 28 MP na lente nativa. Em recortes, a saída da fusão é identificada como computacional. Resoluções altas reais são procuradas também na lista high-resolution da Camera2.
 
-Os 48 testes automatizados aprovados cobrem regressões e cenários sintéticos, não comprovam qualidade de nível Sony, Hasselblad, Leica, Nikon ou Phase One, nem substituem fotografias comparativas no Reno 16 Pro.
+No checkpoint inicial, os 48 testes automatizados aprovados cobriram regressões e cenários sintéticos. Não comprovam qualidade de nível Sony, Hasselblad, Leica, Nikon ou Phase One, nem substituem fotografias comparativas no Reno 16 Pro. A validação atual fica no relatório Codex.
+
+## 16. Integração Codex 1.27.1 — captura de referência e acabamento por área
+
+A estratégia padrão de Foto/Retrato foi restaurada do snapshot publicado `cee696e` (Claude 1.24.1), após comparação física mostrar regressões nas tentativas de trocar o sensor e de encurtar a exposição por movimento estimado. O pacote, arquivos e desenvolvimento do Claude continuam separados.
+
+- Foco, medição, seleção de lente e plano de Foto usam a estratégia publicada que produziu a referência aprovada. A medição de movimento da prévia não encurta automaticamente a exposição de Foto. A transição suave de zoom aprovada pelo usuário foi mantida.
+- O fluxo pode usar recorte na grade nativa, super-resolução computacional e complementação de tamanho, conforme a base publicada. Isso não constitui leitura de 50/200 MP. Dimensões, lente real e decisões devem ser conferidas na ficha.
+- Após a limpeza da base publicada, o acabamento adicional trata ruído residual por semelhança de pequenas regiões, com mais atuação em áreas lisas e sombras e proteção para letras, bordas e possível pele. Há uma escala maior só para manchas de cor. A correção de luminância volta à grade inteira, sem reduzir o tamanho da fotografia ou recriar detalhe.
+- Os realces por escala agora têm uma zona sem realce abaixo do ruído e limite de 6 níveis de luminância. O acabamento final não acrescenta outra afiação. As ranhuras da tampa e as letras do frasco em 3,5× são referências de inspeção a 100%; não alisar os frisos nem desenhar sulcos inexistentes. Não equivale a uma máscara semântica de primeiro/segundo plano.
+- O mapeamento tonal local limitado da 1.27.0 foi mantido para conservar a claridade. Não acrescentar ganho de exposição para mascarar ruído. O processamento regional completo continua no JPEG do RAW+, preservando o DNG original.
+- O plano Noite mantém até 15 quadros e orçamento desejado de até 3 s; depende da medição confiável e do que o HAL realmente entrega. Não apresentar esse orçamento como tempo comprovado de captura no Reno.
+- Se o tempo proposto exigir ISO fora da faixa, conservar AE. Medida inconclusiva de bordas é registrada como desconhecida, sem aprovação fictícia. Intermediários de laboratório ficam desligados por padrão.
+- A base de 50 milhões permanece combinatória, com consulta parcial e 40 regras. Os protótipos de medição de movimento e mapeamento de foco não equivalem a calibração física nem a treinamento de imagem.
+
+Os ajustes abrem esta diretriz e `PROTOCOLO_RUIDO_E_EMPILHAMENTO.md`. A qualidade real, o desempenho e as pendências de cada versão ficam no relatório Codex; os testes de software não substituem a comparação dos JPEGs salvos.

@@ -173,4 +173,29 @@ public class PortraitEngineTest {
         // moderado: mesmo em f/5,6 o fundo distante fica abaixo de ~1,6 % do lado
         assertTrue("f/5,6 não pode ser exagerado: " + c56, c56 < 720 * .016f);
     }
+
+    @Test
+    public void faixaNitidaAtrasEFrenteSuave() {
+        // colunas: frente (0,8) | sujeito (0,6) | logo atrás (0,57) | fundo (0,2); cena 400×300
+        int w = 400, h = 300;
+        float[] d = new float[w * h];
+        int[] guide = new int[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                d[y * w + x] = x < 100 ? .8f : x < 200 ? .6f : x < 300 ? .57f : .2f;
+                guide[y * w + x] = 0xFF808080 | ((x * 7 + y * 3) & 63);
+            }
+        }
+        PortraitEngine.Depth dp = new PortraitEngine.Depth(d, w, h, guide, 0);
+        PortraitEngine.Bokeh smart = PortraitEngine.bokeh(dp, .6f, 8f, null, .15f, .05f);
+        PortraitEngine.Bokeh real = PortraitEngine.bokeh(dp, .6f, 8f, null);
+        float behindNear = smart.coc[150 * w + 250], far = smart.coc[150 * w + 380], front = smart.coc[150 * w + 50];
+        float realBehind = real.coc[150 * w + 250], realFront = real.coc[150 * w + 50];
+        System.out.println("inteligente: logo atrás " + behindNear + " · fundo " + far + " · frente " + front
+                + " | lente real: logo atrás " + realBehind + " · frente " + realFront);
+        assertTrue("logo atrás do sujeito continua nítido", behindNear < 0.5f);
+        float realFar = real.coc[150 * w + 380];
+        assertTrue("fundo distante desfoca quase como numa lente real (" + far + " vs " + realFar + ")", far > realFar * 0.85f && far > 1f);
+        assertTrue("frente bem menos desfocada que numa lente real", front < realFront * 0.3f);
+    }
 }

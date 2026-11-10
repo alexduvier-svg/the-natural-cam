@@ -35,3 +35,11 @@ A implementação usa classificação parcial da cena, sem inventar eixos ausent
 Os sensores TCS3720 CCT e OPLUS Fusion RGB foram confirmados no sensorservice do próprio Reno. Os canais são registrados como observações auxiliares; corrigir ganhos RGB a partir do sensor exige calibração específica. O tamanho em MB não é o critério de resolução: cada JPEG passa a registrar bytes, largura, altura e megapixels na ficha.
 
 As fotos de 0,6× a 8× foram salvas, extraídas e conferidas. O reenquadramento do burst e o recorte de aproximadamente 1 MP foram corrigidos no caminho do Reno. A tele confirmou foco falsamente no limite próximo; 1.20.4 restaura a alternativa de proximidade nesse modelo/firmware. O ganho profissional em 6×–8× a 40–60 cm ainda não está demonstrado. RAW/DNG e retratos humanos ainda precisam de validação física nesta atualização. Não confundir testes de software aprovados com essa validação.
+
+## Atualização de referência — 1.27.1-codex
+
+Integração do snapshot publicado `cee696e` (Claude 1.24.1), somente nesta branch. A 1.27.0 recuperou a estratégia de captura de referência; o usuário relatou redução importante de ruído em 3,5× e aprovou a transição suave de zoom. A 1.27.1 conserva essa base e ajusta o ruído residual/realces por área, usando os frisos da tampa, as letras e as superfícies lisas como critérios de inspeção.
+
+O protocolo 1.1.0 está no guia local e embarcado. O relatório registra a versão instalada, verificações e limitações reais; os protótipos de movimento não comandam Foto. Diagnósticos e originais continuam privados/ignorados, e o pacote do Claude não foi atualizado pelo Codex.
+
+A atualização 1.27.1/código 67 foi instalada por ADB com confirmação `Success`. Compilação e suíte completa passaram: 90 testes, 88 aprovados e 2 demonstrações opcionais ignoradas, sem falhas/erros. A nova captura física desta atualização ficou pendente porque a proteção encontrou outro pacote em foco e não enviou o disparo.

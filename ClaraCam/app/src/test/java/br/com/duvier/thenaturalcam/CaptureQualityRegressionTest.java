@@ -16,7 +16,7 @@ public class CaptureQualityRegressionTest {
             CaptureDirector.Plan plan = CaptureDirector.decide(scene);
             assertEquals(1f, plan.srCrop, 0);
             assertEquals(1f, plan.srScale, 0);
-            assertTrue(plan.frames <= 8);
+            assertTrue(plan.frames <= 12);
             assertTrue(plan.reason.contains("zoom constante"));
         }
     }
@@ -76,6 +76,46 @@ public class CaptureQualityRegressionTest {
             for (int x = 144; x < 240; x++) pattern += (output.luma(x, 96) - tone) * (x / 4 % 2 == 0 ? 1 : -1);
             assertTrue("texture retained", pattern / 96 > 7);
         }
+    }
+
+    @Test public void quietMeasuredSceneCanUseMoreLightWhileSubjectMotionStillLimitsTheFrame() {
+        CaptureDirector.Scene scene=new CaptureDirector.Scene();
+        scene.iso=3200;scene.zoom=8;scene.equivalentMm=184;scene.maxPolicy=true;
+        scene.steadyCamera=true;scene.angularRmsRad=.0005;scene.previewMotionMeasured=true;
+        scene.previewPixelsPerSecond=0;
+        CaptureDirector.Plan quiet=CaptureDirector.decide(scene);
+        assertEquals(12,quiet.frames);
+        assertEquals(33_333_333L,quiet.maxFrameExposureNs);
+        scene.previewPixelsPerSecond=400;
+        assertTrue(CaptureDirector.decide(scene).maxFrameExposureNs<=3_125_000L);
+        scene.face=true;scene.previewPixelsPerSecond=0;
+        assertTrue(CaptureDirector.decide(scene).maxFrameExposureNs<=8_000_000L);
+    }
+
+    @Test public void incompatibleIsoLimitsPreserveAeInsteadOfProducingBlackOrClippedPhotos() {
+        // Actual Reno failure: 12k ISO, 40 ms became 25.6k ISO, 2.4 ms (over three stops too dark).
+        assertEquals(0,BurstExposurePolicy.equivalentIso(12312,40_000_000L,2_416_695L,100,25600));
+        assertEquals(0,BurstExposurePolicy.equivalentIso(120,10_000_000L,33_333_333L,100,19200));
+        assertEquals(2000,BurstExposurePolicy.equivalentIso(4000,20_000_000L,40_000_000L,100,19200));
+    }
+
+    @Test public void publishedPhotoBaselineIsUnaffectedByUnvalidatedPreviewMotion() {
+        CaptureDirector.Scene s=new CaptureDirector.Scene();
+        s.iso=6000;s.exposureNs=100_000_000L;s.zoom=3.5f;s.lensCrop=3.5f;s.maxPolicy=true;
+        CaptureDirector.Plan baseline=CaptureDirector.decidePublished(s);
+        s.previewMotionMeasured=true;s.previewPixelsPerSecond=517;
+        CaptureDirector.Plan observed=CaptureDirector.decidePublished(s);
+        assertEquals(12,observed.frames);
+        assertEquals(baseline.maxFrameExposureNs,observed.maxFrameExposureNs);
+        assertEquals(baseline.srCrop,observed.srCrop,0);
+    }
+
+    @Test public void logicalTeleMustNotReuseMainSensorExposurePair() {
+        // Reno regression: logical id 0 switched to physical 4; the reported main pair produced black YUV.
+        assertTrue(!BurstExposurePolicy.allowAutomaticManual(true,"2","4"));
+        assertTrue(!BurstExposurePolicy.allowAutomaticManual(true,"2",null));
+        assertTrue(BurstExposurePolicy.allowAutomaticManual(true,"2","2"));
+        assertTrue(BurstExposurePolicy.allowAutomaticManual(false,null,"4"));
     }
 
     @Test public void qualityCheckerHandlesFractionalTeleUpscalesWithoutOutOfBounds() {
