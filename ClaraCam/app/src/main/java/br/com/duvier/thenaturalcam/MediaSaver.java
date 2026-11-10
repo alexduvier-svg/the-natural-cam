@@ -25,8 +25,8 @@ import java.util.Locale;
 /** Grava fotos em DCIM/TheNaturalCam e a ficha técnica em Documents/TheNaturalCam. */
 final class MediaSaver {
 
-    static final String PHOTO_DIR = "DCIM/TheNaturalCam";
-    static final String SHEET_DIR = "Documents/TheNaturalCam";
+    static final String PHOTO_DIR = "DCIM/TheNaturalCamCodex";
+    static final String SHEET_DIR = "Documents/TheNaturalCamCodex";
 
     private final Context context;
 
@@ -40,6 +40,18 @@ final class MediaSaver {
 
     /** JPEG pronto (vindo da câmera): já traz EXIF e orientação. */
     Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet) throws IOException {
+        if (sheet != null) {
+            try {
+                android.graphics.BitmapFactory.Options size = new android.graphics.BitmapFactory.Options();
+                size.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, size);
+                sheet.put("arquivo_jpeg_bytes", jpeg.length);
+                sheet.put("largura_px", size.outWidth);
+                sheet.put("altura_px", size.outHeight);
+                sheet.put("megapixels_arquivo", size.outWidth * (double) size.outHeight / 1_000_000);
+                sheet.put("referencias_visuais", "biblioteca local v1: exemplos, não treinamento nem calibração de cor");
+            } catch (org.json.JSONException ignored) { }
+        }
         ContentResolver cr = context.getContentResolver();
         ContentValues v = new ContentValues();
         v.put(MediaStore.Images.Media.DISPLAY_NAME, name + ".jpg");
@@ -112,7 +124,7 @@ final class MediaSaver {
 
     Uri saveBitmap(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs, JSONObject sheet, Uri exifFrom) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream(8 * 1024 * 1024);
-        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 95, bos)) throw new IOException("Falha ao codificar JPEG.");
+        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 100, bos)) throw new IOException("Falha ao codificar JPEG.");
         File tmp = new File(context.getCacheDir(), name + ".jpg");
         try {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {

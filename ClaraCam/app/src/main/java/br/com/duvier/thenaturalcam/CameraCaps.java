@@ -40,6 +40,7 @@ final class CameraCaps {
     final List<ResOption> resolutions = new ArrayList<>();
     final Size previewSize;
     final Size nightYuvSize;
+    final Size normalYuvSize;
     final Range<Float> zoomRange;
     final Range<Integer> isoRange;
     final Range<Long> exposureRange;
@@ -91,7 +92,20 @@ final class CameraCaps {
 
         StreamConfigurationMap map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
         List<Size> jpeg = sorted(map != null ? map.getOutputSizes(ImageFormat.JPEG) : null);
+        // High-resolution streams can be separate from the normal frame-rate list.
+        if (map != null) {
+            Size[] high = map.getHighResolutionOutputSizes(ImageFormat.JPEG);
+            if (high != null) for (Size size : high) if (!jpeg.contains(size)) jpeg.add(size);
+            jpeg.sort((a, b) -> Long.compare(area(b), area(a)));
+        }
         List<Size> yuv = sorted(map != null ? map.getOutputSizes(ImageFormat.YUV_420_888) : null);
+        Size normal43 = largest43(yuv, 14_000_000L);
+        normalYuvSize = normal43 != null ? normal43 : (yuv.isEmpty() ? null : yuv.get(0));
+        if (map != null) {
+            Size[] highYuv = map.getHighResolutionOutputSizes(ImageFormat.YUV_420_888);
+            if (highYuv != null) for (Size size : highYuv) if (!yuv.contains(size)) yuv.add(size);
+            yuv.sort((a, b) -> Long.compare(area(b), area(a)));
+        }
         List<Size> tex = sorted(map != null ? map.getOutputSizes(SurfaceTexture.class) : null);
 
         // Resoluções: padrão com pixels agrupados (~12 MP) primeiro — é a que tem menos ruído.

@@ -72,7 +72,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private boolean grid;
     private boolean liveInfo = true;
     private boolean lowLight;
-    private int stackPolicy = CameraController.STACK_AUTO;
+    private int stackPolicy = CameraController.STACK_MAX;
     private int nrPolicy = CameraController.NR_LIGHT;
     private boolean busy;
     private boolean resumed;
@@ -120,6 +120,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     @Override
     protected void onPause() {
+        if (zoomAnimator != null) zoomAnimator.cancel();
         resumed = false;
         orientationListener.disable();
         camera.stop();
@@ -425,7 +426,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         boolean maxOn = stackMode ? stackPolicy == CameraController.STACK_MAX : (resAllowed && resIndex > 0);
         quality.selected(maxOn);
         quality.label = !maxOn ? "Máxima"
-                : (mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO) ? "Máx 28 MP"
+                : (mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO) ? "Máx detalhe"
                 : mode == CameraController.Mode.NOITE ? "Máx 12q" : "Máxima";
         quality.invalidate();
     }
@@ -450,6 +451,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private void shoot() {
         if (busy) return;
+        if (zoomAnimator != null && zoomAnimator.isRunning()) {
+            zoomAnimator.cancel();
+            camera.setZoom(zoom);
+        }
         overlay.flash();
         camera.capture();
     }
@@ -471,9 +476,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         refreshModes();
         Toast.makeText(this, stackPolicy == CameraController.STACK_MAX
                 ? ((mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO)
-                    ? "Máxima: 10–12 quadros + super-resolução (28 MP computacional). Segure firme; demora mais."
-                    : "Qualidade máxima: 10–12 quadros por foto. Segure firme; a captura demora mais.")
-                : "Qualidade automática: 3–8 quadros conforme a luz.", Toast.LENGTH_LONG).show();
+                    ? "Máxima: mais amostras e acabamento natural. A resolução depende da lente e do recorte; não é leitura de 200 MP."
+                    : "Qualidade máxima: mais quadros conforme a luz. Segure firme.")
+                : "Qualidade automática: 4–10 quadros conforme a luz e o modo.", Toast.LENGTH_LONG).show();
     }
 
     private void setResolution(int index) {
@@ -598,11 +603,26 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (overlay != null) overlay.invalidate();
     }
 
+    private android.animation.ValueAnimator zoomAnimator;
+
     private void zoomTo(float z) {
+        zoomTo(z, false);
+    }
+
+    private void zoomTo(float z, boolean smooth) {
         if (caps == null) return;
+        float previous = zoom;
+        if (zoomAnimator != null) zoomAnimator.cancel();
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
-        camera.setZoom(zoom);
         updateZoomSelection();
+        // Pinch follows the finger immediately. Buttons ease the field of view over 160 ms.
+        if (smooth && Math.abs(Math.log(zoom / previous)) > .02) {
+            zoomAnimator = android.animation.ValueAnimator.ofFloat(previous, zoom);
+            zoomAnimator.setDuration(160);
+            zoomAnimator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            zoomAnimator.addUpdateListener(animation -> camera.setZoom((Float) animation.getAnimatedValue()));
+            zoomAnimator.start();
+        } else camera.setZoom(zoom);
     }
 
     private void buildZooms() {
@@ -616,7 +636,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             if (z < lo - 0.04f || z > hi + 0.01f) continue;
             TextView t = Ui.pill(this, zoomName(z), false);
             t.setTag(z);
-            t.setOnClickListener(v -> zoomTo((Float) v.getTag()));
+            t.setOnClickListener(v -> zoomTo((Float) v.getTag(), true));
             zooms.addView(t, Ui.pillParams(this));
         }
         updateZoomSelection();
@@ -719,14 +739,15 @@ public final class MainActivity extends Activity implements CameraController.Lis
             content.addView(note("ISO acima de 1600 aumenta muito o ruído. No escuro, prefira o modo Noite."));
         }
 
-        if (caps.minFocus > 0) {
+        final float focusLimit = camera.activeFocusLimit();
+        if (focusLimit > 0) {
             content.addView(Ui.text(this, "Foco manual · perto → infinito", 13, Ui.MUTED));
             SeekBar focus = new SeekBar(this);
             focus.setMax(1000);
-            focus.setProgress(focusDistance < 0 ? 1000 : Math.round(1000 * (1 - focusDistance / caps.minFocus)));
+            focus.setProgress(focusDistance < 0 ? 1000 : Math.round(1000 * (1 - focusDistance / focusLimit)));
             TextView auto = Ui.pill(this, "Foco automático", focusDistance < 0);
             focus.setOnSeekBarChangeListener(onChange(() -> {
-                focusDistance = caps.minFocus * (1 - focus.getProgress() / 1000f);
+                focusDistance = focusLimit * (1 - focus.getProgress() / 1000f);
                 Ui.select(this, auto, false);
                 camera.setFocusDistance(focusDistance);
             }));
@@ -741,7 +762,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             content.addView(r);
         }
 
-        content.addView(Ui.text(this, "Redução de ruído da câmera (quadro único: Pro, RAW, 50/200 MP)", 13, Ui.MUTED));
+        content.addView(Ui.text(this, "Redução de ruído da câmera (JPEG único / Pro)", 13, Ui.MUTED));
         LinearLayout nrRow = Ui.row(this);
         String[] nrNames = {"Desligada · textura", "Leve", "Alta · suave"};
         List<TextView> nrPills = new ArrayList<>();
@@ -861,14 +882,19 @@ public final class MainActivity extends Activity implements CameraController.Lis
             t.setOnClickListener(v -> {
                 stackPolicy = p;
                 camera.setStackPolicy(p);
+                refreshModes();
                 for (int k = 0; k < stackPills.size(); k++) Ui.select(this, stackPills.get(k), k == stackPolicy);
             });
             stackPills.add(t);
             stackRow.addView(t, Ui.pillParams(this));
         }
         content.addView(stackRow);
-        content.addView(note("Automático junta 3 a 8 quadros conforme a luz, com redução de ruído mínima em cada um: "
+        content.addView(note("Automático ajusta os quadros conforme a luz, com redução de ruído mínima em cada um: "
                 + "mantém a textura e reduz o ruído pela média. Desligado usa um único JPEG da câmera."));
+        content.addView(toggle("Foco contínuo na área tocada", followFocusPoint, on -> {
+            followFocusPoint = on;
+            camera.setFollowFocusPoint(on);
+        }));
         content = settingsSection(root, "Visor");
         content.addView(toggle("Focus peaking (contornos em foco, só na tela)", peaking, on -> {
             peaking = on;
@@ -885,6 +911,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
             exposureLine.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
         }));
         content = settingsSection(root, "Sobre o Aparelho");
+        content.addView(note(camera.colorSensorSummary()));
+        TextView references = Ui.action(this, "Ver referências fotográficas");
+        references.setOnClickListener(v -> PhotoReferenceLibrary.show(this));
+        content.addView(references);
+        content.addView(note("Memória fotográfica 1.0.0 · 50 milhões de combinações. RAW+ preserva DNG original e JPEG revelado. Fotos desta versão ficam em pasta Codex separada."));
         content.addView(note("The Natural Cam " + BuildConfigInfo.VERSION + " · fotos em " + MediaSaver.PHOTO_DIR
                 + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
         if (caps != null) {
@@ -997,19 +1028,16 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     @Override
     public void onSaved(Uri uri, String summary) {
+        boolean processingPortrait = false;
         if (mode == CameraController.Mode.RETRATO && !summary.startsWith("retrato")) {
             makePortrait(uri, aperture, "_RETRATO", "retrato");
-        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotWasCrop()) {
-            // de perto no zoom da tele a foto vem da principal (profundidade de campo de grande-
-            // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
-            // de uma tele de verdade — gradual, sem contorno
-            makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele");
+            processingPortrait = true;
         }
         lastUri = uri;
-        busy = false;
+        busy = processingPortrait;
         shutter.invalidate();
-        thumbBusy.setVisibility(View.GONE);
-        status.setText("Salva · " + summary);
+        thumbBusy.setVisibility(processingPortrait ? View.VISIBLE : View.GONE);
+        if (!processingPortrait) status.setText("Salva · " + summary);
         main.postDelayed(() -> {
             if (!busy) status.setText(statusHint());
         }, 3500);
@@ -1064,6 +1092,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private Runnable focusTracker;
     private android.graphics.Bitmap probe;
     private boolean peaking;
+    private boolean followFocusPoint;
     private Runnable peakingTask;
 
     /** Lê a prévia em baixa resolução (sem custo de câmera: vem da própria TextureView). */
@@ -1141,7 +1170,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     float d = clearPeak(trace);
                     if (d < 0 && st == android.hardware.camera2.CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) d = dNow;
                     if (d < 0) d = sharpestSmoothed(trace);
-                    if (d >= 0) camera.holdFocus(d);
+                    if (d >= 0 && !followFocusPoint) camera.holdFocus(d);
                     focusTracker = null;
                     return;
                 }

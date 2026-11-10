@@ -10,6 +10,12 @@ import org.junit.Test;
  * fundo, sujeito em foco intacto, f/16 mais nítido que f/5,6.
  */
 public class PortraitEngineTest {
+    @org.junit.Test
+    public void portraitNeverExceedsTheF56BlurAndSoftensTowardF16() {
+        org.junit.Assert.assertEquals(PortraitEngine.rawCoc(.7f, 5.6f, 1440), PortraitEngine.rawCoc(.7f, 2f, 1440), .001f);
+        org.junit.Assert.assertTrue(PortraitEngine.rawCoc(.7f, 8f, 1440) < PortraitEngine.rawCoc(.7f, 5.6f, 1440));
+        org.junit.Assert.assertTrue(PortraitEngine.rawCoc(.7f, 16f, 1440) < PortraitEngine.rawCoc(.7f, 8f, 1440));
+    }
 
     /** Sujeito (disco perto) no centro; fundo com um DEGRAU de profundidade no meio (mesa → parede). */
     private static PortraitEngine.Depth scene(int w, int h) {

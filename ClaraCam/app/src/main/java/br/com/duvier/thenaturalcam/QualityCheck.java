@@ -22,6 +22,7 @@ public final class QualityCheck {
         /** Pixels de borda usados na medida. */
         public int edgePixels;
         public boolean passed = true;
+        public boolean measurable;
         public String reason = "ok";
     }
 
@@ -55,13 +56,12 @@ public final class QualityCheck {
                 if (g < edgeThr) continue;
                 double lr = 4 * c - ref.luma(x - 1, y) - ref.luma(x + 1, y) - ref.luma(x, y - 1) - ref.luma(x, y + 1);
                 // mesma vizinhança na fusão (1 px da referência = s px da fusão)
-                int fx = Math.min(fused.width - 3, Math.max(2, Math.round(x * sx)));
-                int fy = Math.min(fused.height - 3, Math.max(2, Math.round(y * sy)));
-                int dx = Math.max(1, Math.round(sx)), dy = Math.max(1, Math.round(sy));
-                int fc = fused.luma(fx, fy);
-                int fgx = fused.luma(fx + dx, fy) - fused.luma(fx - dx, fy);
-                int fgy = fused.luma(fx, fy + dy) - fused.luma(fx, fy - dy);
-                double lf = 4 * fc - fused.luma(fx - dx, fy) - fused.luma(fx + dx, fy) - fused.luma(fx, fy - dy) - fused.luma(fx, fy + dy);
+                float fx = (x + .5f) * sx - .5f, fy = (y + .5f) * sy - .5f;
+                double fc = sample(fused, fx, fy);
+                double left = sample(fused, fx - sx, fy), right = sample(fused, fx + sx, fy);
+                double up = sample(fused, fx, fy - sy), down = sample(fused, fx, fy + sy);
+                double fgx = right - left, fgy = down - up;
+                double lf = 4 * fc - left - right - up - down;
                 lapRef += Math.abs(lr);
                 lapFus += Math.abs(lf);
                 gxy += gx * (double) fgx + gy * (double) fgy;
@@ -76,6 +76,7 @@ public final class QualityCheck {
             return r;
         }
         r.detailRatio = lapRef > 0 ? lapFus / lapRef : 1;
+        r.measurable = true;
         r.edgeCorrelation = gxx > 0 && gyy > 0 ? gxy / Math.sqrt(gxx * gyy) : 1;
         if (r.detailRatio < MIN_DETAIL) {
             r.passed = false;
@@ -97,5 +98,15 @@ public final class QualityCheck {
         c.exposureNs = f.exposureNs;
         c.timestampNs = f.timestampNs;
         return c;
+    }
+
+    private static double sample(YuvFrame frame, float x, float y) {
+        x = Math.max(0, Math.min(frame.width - 1, x));
+        y = Math.max(0, Math.min(frame.height - 1, y));
+        int x0 = (int) x, y0 = (int) y;
+        int x1 = Math.min(x0 + 1, frame.width - 1), y1 = Math.min(y0 + 1, frame.height - 1);
+        double dx = x - x0, dy = y - y0;
+        return (frame.luma(x0, y0) * (1 - dx) + frame.luma(x1, y0) * dx) * (1 - dy)
+                + (frame.luma(x0, y1) * (1 - dx) + frame.luma(x1, y1) * dx) * dy;
     }
 }

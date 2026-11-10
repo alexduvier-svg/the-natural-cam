@@ -9,9 +9,14 @@ Montada em 09/11/2026, sem alterar o código do app (`ClaraCam/`).
 | [pipeline_computacional.md](pipeline_computacional.md) | HDR+, Night Sight, super-resolução e projetos abertos (com licenças) → `BurstFusion` |
 | [discussoes_comunidade.md](discussoes_comunidade.md) | GCam/AGC/LMC em OPPO, HP5/JN5/GC50F6 e queixas de nitidez e NR |
 | [agentes_e_banco.md](agentes_e_banco.md) | Agentes locais (modelo do Agro Gestão), esquema SQLite e plano em etapas |
+| [diretriz_fotografica_50_milhoes.md](diretriz_fotografica_50_milhoes.md) | Memória fotográfica v1: 50 milhões de combinações indexadas e 40 regras; consulta parcial embarcada. Execução e testes físicos documentados no relatório Codex |
+| [novidades_git_reddit_2026_11_10.md](novidades_git_reddit_2026_11_10.md) | Pesquisa atualizada de GitHub/Reddit e prioridades para foco, fusão, RAW e redução de ruído |
+| [referencias_retrato_usuario_2026_11_10.md](referencias_retrato_usuario_2026_11_10.md) | Links enviados pelo usuário, manual H5D e critérios de retrato, pele, cor e bokeh suave |
 | [dados_adb/](dados_adb/) | Resumo das características e nomes de vendor tags por aparelho |
 
 ## As 5 melhorias mais promissoras para nitidez e ruído
+
+As observações abaixo são o diagnóstico histórico de 09/11. O estado atual do worktree e as correções efetivamente testadas estão em [RELATORIO_THE_NATURAL_CAM_CODEX.md](../RELATORIO_THE_NATURAL_CAM_CODEX.md).
 
 1. **Acabar com a nitidez dupla.** Hoje o burst pede `EDGE_MODE_FAST` por quadro e o `BurstFusion` afia de novo. O certo é pedir `EDGE_MODE_OFF` mais `NR_MINIMAL` nos quadros (suportados nos 3 aparelhos) e afiar **uma vez**, no fim, com máscara de borda e limiar de 2–3σ residual. É o menor esforço e remove halos e ruído realçado.
 2. **Alinhamento subpixel com blocos sobrepostos.** Trocar os blocos de 128 px e a busca inteira por blocos de 32–64 px com 50% de sobreposição, janela cosseno e subpixel por ajuste parabólico do SAD. O erro de meio pixel é o que mais apaga a textura fina na fusão atual.

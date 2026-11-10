@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "privacy": "local_only",
+  "purpose": "Referências visuais fornecidas pelo usuário; sem treinamento ou transferência automática de identidade/cor",
+  "references": [
+    {
+      "asset": "references/retrato.jpg",
+      "title": "Pele clara · textura",
+      "note": "Preservar sardas, poros, cílios e volume. Não reproduzir identidade, maquiagem ou iluminação como receita universal.",
+      "sha256": "AEF7972B1281DD4C1A624612290BD5196FA07000C0454889D7AE2D6E01921E12",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/retrato2.jpg",
+      "title": "Detalhe humano",
+      "note": "Preservar sobrancelhas, olhos e textura de pele; brilho natural sem afiação agressiva.",
+      "sha256": "44293EE51BD43B44E18B5D4FE3503311805F7148349FF8F1E4BABC443C3CEB30",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/hassel.jpg",
+      "title": "Pele negra · gradação",
+      "note": "Preservar tonalidade profunda, textura e relevo sem clarear a pele para um alvo único de exposição.",
+      "sha256": "6F6E55550C4697271D94BE07EC441EF4502741DA55E20FEED350F1C8B6F1D2E3",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/hasselblad.jpeg",
+      "title": "Retrato · naturalidade",
+      "note": "Separação suave do fundo, cor contida e expressão intacta. Referência estética, não perfil oficial Hasselblad.",
+      "sha256": "268969B41F20D7D6A713230138F7766362D24F4D3AEBF792767E4D650A6192ED",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/fred.jpg",
+      "title": "Fotografia de rua",
+      "note": "Instante, volume e luz coerente. Cor de referência não é calibração colorimétrica do Reno.",
+      "sha256": "F0AE9EDF4DF99ACBA197B0DAB2E5CEBFD80BBF83CE29612A485CB7E4F79C7C75",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/sebastiaosalgado1.jpeg",
+      "title": "Retrato em preto e branco",
+      "note": "Preservar textura e transições tonais. Não confundir ruído, grão ou maior contraste com detalhe real.",
+      "sha256": "4719552445E3F3CA138783BDBF1198A988200D93082B3D25FDB96304540D725F",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    },
+    {
+      "asset": "references/bokeh3.webp",
+      "title": "Luzes de fundo · referência parcial",
+      "note": "Observar discos suaves; NÃO reproduzir a intensidade do desfoque. No app, priorizar f/8 e faixa f/5,6–f/16.",
+      "sha256": "1F060F1712AE0F4C428375195EA55F081C897534D9127661208CA6EB207E8FE3",
+      "source": "Arquivo fornecido pelo usuário no PC",
+      "role": "visual_reference_not_training_or_calibration",
+      "original_preserved": true
+    }
+  ]
+}

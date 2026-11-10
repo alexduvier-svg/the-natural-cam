@@ -1,5 +1,8 @@
 # compilação
 .gradle/
+.android-sdk/
+/tmp/
+.gradle-codex/
 build/
 **/build/
 local.properties
@@ -20,6 +23,7 @@ ia-ponte/dist/
 *.mp4
 *.pdf
 testes_reno16/
+diagnostico_codex/
 # configuração local do Claude
 .claude/
 

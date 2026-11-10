@@ -285,7 +285,7 @@ final class PortraitEngine {
      */
     static float rawCoc(float delta, float aperture, float side) {
         float t = Math.abs(delta);
-        float k = 5.6f / Math.max(1.4f, Math.min(16f, aperture));
+        float k = 5.6f / Math.max(5.6f, Math.min(16f, aperture));
         return BOKEH_SCALE * (side / 1440f) * k * (t * t / (t + .1f));
     }
 

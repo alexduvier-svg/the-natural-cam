@@ -54,6 +54,7 @@ public final class BurstFusion {
     private final float sharpenAmount;
     private final boolean finish;
     private final float scale;
+    private final float denoiseCeiling;
 
     public BurstFusion() {
         this(0.30f, true, 1f);
@@ -66,9 +67,14 @@ public final class BurstFusion {
 
     /** scale > 1 liga a super-resolução de vários quadros (ex.: 1,5 → 6144×4608 a partir de 4096×3072). */
     public BurstFusion(float sharpenAmount, boolean finish, float scale) {
+        this(sharpenAmount, finish, scale, 0.5f);
+    }
+
+    public BurstFusion(float sharpenAmount, boolean finish, float scale, float denoiseCeiling) {
         this.sharpenAmount = sharpenAmount;
         this.finish = finish;
         this.scale = scale;
+        this.denoiseCeiling = Math.max(0f, Math.min(0.5f, denoiseCeiling));
     }
 
     // =====================================================================================
@@ -401,7 +407,7 @@ public final class BurstFusion {
         double lumaStrength = 0;
         if (finish) {
             float res = (float) Math.max(0.5, noiseAfter);
-            lumaStrength = Math.max(0, Math.min(0.5, (res - 1.2) / 3.0));
+            lumaStrength = Math.max(0, Math.min(denoiseCeiling, (res - 1.2) / 3.0));
             if (lumaStrength > 0.02) {
                 p.step("Limpando ruído de brilho", 0.72f);
                 float[] resid = new float[BINS];

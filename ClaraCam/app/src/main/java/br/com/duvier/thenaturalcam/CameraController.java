@@ -116,6 +116,8 @@ final class CameraController {
     private ImageReader yuvReader;
     private ImageReader rawReader;
     private Size activePreview;
+    private Size activeYuvSize;
+    private boolean normalYuvFallback;
 
     // ajustes (lidos/escritos só na thread da câmera)
     private Mode mode = Mode.FOTO;
@@ -139,6 +141,13 @@ final class CameraController {
         caps = tele ? teleCaps : logicalCaps;
         regions = null;
         tapHold = -1f;
+        lastCrop = null;
+        lastPhys = null;
+        lastAfState = -1;
+        lastFocusDistance = -1f;
+        lastAperture = Float.NaN;
+        normalYuvFallback = false;
+        tapScanning = false;
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
         closeAll();
@@ -146,7 +155,7 @@ final class CameraController {
     }
 
     private void checkNearFar(Integer af, Float fd) {
-        if (capturing || logicalCaps == null || teleCaps == null) return;
+        if (capturing || logicalCaps == null || teleCaps == null || focusDistance >= 0 || userLock) return;
         long now = SystemClock.elapsedRealtime();
         if (onTele) {
             // tele sem foco com a lente no limite de perto → objeto está perto demais
@@ -155,8 +164,11 @@ final class CameraController {
             boolean nearLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.85f;
             // lente encostada no limite de perto: mesmo que o AF diga "focado", a tele está no
             // fio da navalha ali (foco caça entre quadros) — a principal entrega melhor
-            boolean atLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.96f;
-            if ((unfocused && nearLimit) || atLimit) {
+            boolean atLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * .96f;
+            // Verified on this firmware: AF can report success while the selected near subject stays blurred.
+            boolean verifiedProfile = "CPH2863".equals(Build.MODEL)
+                    && Build.DISPLAY.startsWith("CPH2863_17.0.0.100") && !teleCaps.focusCalibrated;
+            if (TeleFocusPolicy.shouldFallback(unfocused, nearLimit, atLimit, verifiedProfile)) {
                 if (nearSince == 0) nearSince = now;
                 else if (now - nearSince > 700) {
                     nearMode = true;
@@ -193,7 +205,7 @@ final class CameraController {
     private int flash = FLASH_OFF;
     static final int STACK_AUTO = 0, STACK_OFF = 1, STACK_MAX = 2;
     static final int NR_OFF = 0, NR_LIGHT = 1, NR_HIGH = 2;
-    private int stackPolicy = STACK_AUTO;
+    private int stackPolicy = STACK_MAX;
     private int nrPolicy = NR_LIGHT;
     private int jpegOrientation = 90;
     private MeteringRectangle[] regions;
@@ -211,6 +223,10 @@ final class CameraController {
     private boolean aeLocked;
     private boolean userLock;
     private boolean awbLocked;
+    private boolean burstAwbLocked;
+    private float lastAperture = Float.NaN;
+    private volatile PhotoKnowledge photoKnowledge;
+    private final AmbientColorSensors colorSensors;
     private float focusDistance = -1f;
 
     // estado ao vivo
@@ -258,6 +274,8 @@ final class CameraController {
         float cropUpscale = 1f;
         /** Zoom por super-resolução: fator do recorte central feito pelo app (1 = não). */
         float srCrop = 1f;
+        float srScale = 1f, sharpen = 0.24f, denoiseCeiling = 0.5f;
+        final Map<Long, TotalCaptureResult> rawResults = new HashMap<>();
         LongExposure longExp;
         int longCount;
         /** Quadros entregues pela câmera (somados ou pulados) e somas ainda na fila. */
@@ -277,6 +295,11 @@ final class CameraController {
         thread.start();
         handler = new Handler(thread.getLooper());
         handlerExecutor = handler::post;
+        colorSensors = new AmbientColorSensors(this.context, handler);
+        worker.execute(() -> {
+            try { photoKnowledge = PhotoKnowledge.load(this.context); }
+            catch (Exception e) { Log.w(TAG, "memória fotográfica indisponível", e); }
+        });
     }
 
     // =====================================================================================
@@ -287,6 +310,7 @@ final class CameraController {
         handler.post(() -> {
             texture = tex;
             wanted = true;
+            colorSensors.start();
             reopenTries = 0;
             if (previewSurface != null) previewSurface.release();
             previewSurface = new Surface(texture);
@@ -295,12 +319,13 @@ final class CameraController {
     }
 
     void stop() {
-        handler.post(() -> { wanted = false; closeAll(); });
+        handler.post(() -> { wanted = false; colorSensors.stop(); closeAll(); });
     }
 
     void release() {
         handler.post(() -> {
             wanted = false;
+            colorSensors.stop();
             closeAll();
             if (previewSurface != null) previewSurface.release();
             previewSurface = null;
@@ -313,6 +338,8 @@ final class CameraController {
     float focusDistanceNow() {
         return lastFocusDistance;
     }
+
+    float activeFocusLimit() { return caps != null ? caps.minFocus : 0f; }
 
     int afStateNow() {
         return lastAfState;
@@ -328,6 +355,7 @@ final class CameraController {
             // Foco sem calibração (Reno16): pedir uma distância não devolve a lente ao mesmo
             // ponto (medido: travar no valor informado borrou a imagem). Aí quem segura é o AF AUTO.
             if (!caps.focusCalibrated) return;
+            focusScan.invalidate();
             tapHold = Math.max(0f, diopters);
             tapScanning = false;
             Log.w(TAG, "foco travado no pico de nitidez: " + tapHold + " dpt (" + (tapHold > 0 ? Math.round(100 / tapHold) + " cm" : "infinito") + ")");
@@ -338,10 +366,19 @@ final class CameraController {
     void setMode(Mode m) {
         handler.post(() -> {
             if (mode == m || capturing) return;
-            tapHold = -1f;
+            boolean wasYuv = useFusion();
             mode = m;
-            regions = null;
             if (m != Mode.PRO) manualIso = 0;
+            // Foto/Retrato/Noite/Rua share the YUV outputs; preserve the lens, focus and live surface.
+            if (wasYuv && useFusion() && session != null && yuvReader != null && ext == null
+                    && m != Mode.ASTRO && m != Mode.LONGA) {
+                startRepeating();
+                Size size = activePreview;
+                main.post(() -> listener.onSessionReady(m, size, "Captura · " + CameraCaps.mp(caps.nightYuvSize)));
+                return;
+            }
+            tapHold = -1f;
+            regions = null;
             configure();
         });
     }
@@ -394,6 +431,8 @@ final class CameraController {
         handler.post(() -> {
             if (session == null || capturing) return;
             userLock = on;
+            focusScan.invalidate();
+            tapScanning = false;
             if (on) {
                 regionsUntil = Long.MAX_VALUE;
                 try {
@@ -422,10 +461,14 @@ final class CameraController {
         });
     }
 
+    String colorSensorSummary() { return colorSensors.summary(); }
+
     /** Distância em dioptrias (0 = infinito); negativo volta ao foco automático. */
     void setFocusDistance(float d) {
         handler.post(() -> {
             focusDistance = d;
+            focusScan.invalidate();
+            tapScanning = false;
             if (session != null && !capturing) startRepeating();
         });
     }
@@ -442,9 +485,11 @@ final class CameraController {
 
     void setStackPolicy(int p) {
         handler.post(() -> {
-            if (stackPolicy == p) return;
+            if (stackPolicy == p || capturing) return;
+            boolean before = useFusion();
             stackPolicy = p;
-            if (session != null && !capturing && (mode == Mode.FOTO || mode == Mode.NOITE || mode == Mode.RETRATO)) configure();
+            // Maximum/Auto only change the next capture plan. Never recreate preview for these.
+            if (session != null && before != useFusion()) configure();
         });
     }
 
@@ -531,6 +576,21 @@ final class CameraController {
     private int tapRetries;
     private boolean tapScanning;
     private boolean tapCaf;
+    private boolean followFocusPoint;
+    private final FocusScanGuard focusScan = new FocusScanGuard();
+
+    void setFollowFocusPoint(boolean follow) {
+        handler.post(() -> {
+            followFocusPoint = follow;
+            if (session == null || capturing || userLock || focusDistance >= 0) return;
+            tapHold = -1f;
+            tapCaf = follow;
+            if (regions != null) {
+                if (follow) startRepeating();
+                else scanTap();
+            }
+        });
+    }
 
     /**
      * Varredura ativa no ponto tocado (modo AUTO): o foco contínuo deste aparelho ignora troca de
@@ -539,6 +599,8 @@ final class CameraController {
      */
     private void scanTap() {
         if (session == null || device == null) return;
+        final long focusToken = focusScan.begin();
+        tapCaf = false;
         try {
             startRepeating(); // a prévia passa a pedir AF AUTO com a nova região
             CaptureRequest.Builder c = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
@@ -548,7 +610,7 @@ final class CameraController {
             session.capture(c.build(), liveCallback, handler);
             final int gen = generation;
             handler.postDelayed(() -> {
-                if (gen != generation || session == null || capturing) return;
+                if (gen != generation || focusToken != focusScan.token() || session == null || job != null) return;
                 try {
                     CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                     b.addTarget(previewSurface);
@@ -556,6 +618,15 @@ final class CameraController {
                     b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
                     tapScanning = true;
                     session.capture(b.build(), liveCallback, handler);
+                    handler.postDelayed(() -> {
+                        if (gen != generation || job != null || !focusScan.timeout(focusToken)) return;
+                        tapScanning = false;
+                        lastAfState = -1;
+                        if (tapRetries < 2 && regions != null) {
+                            tapRetries++;
+                            scanTap();
+                        } else Log.w(TAG, "foco sem confirmação: timeout");
+                    }, 1500);
                 } catch (Exception e) {
                     Log.w(TAG, "foco", e);
                 }
@@ -566,10 +637,20 @@ final class CameraController {
     }
 
     /** Chamado a cada mudança de estado do AF durante a varredura do toque. */
-    private void onTapAf(int st) {
+    private void onTapAf(int st, CaptureRequest request) {
         if (!tapScanning) return;
+        Object tag = request.getTag();
+        long token = tag instanceof Long ? (Long) tag : -1;
+        Integer trigger = request.get(CaptureRequest.CONTROL_AF_TRIGGER);
+        if (!focusScan.accept(token, trigger != null && trigger == CameraMetadata.CONTROL_AF_TRIGGER_START,
+                st == CameraMetadata.CONTROL_AF_STATE_ACTIVE_SCAN, afDone(st))) return;
         if (st == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) {
             tapScanning = false;
+            if (followFocusPoint && !userLock && focusDistance < 0) {
+                tapCaf = true;
+                tapHold = -1f;
+                startRepeating();
+            }
         } else if (st == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {
             tapScanning = false;
             if (tapRetries < 2 && regions != null) {
@@ -692,6 +773,9 @@ final class CameraController {
     }
 
     private void closeAll() {
+        burstAwbLocked = false;
+        focusScan.invalidate();
+        tapScanning = false;
         generation++;
         closeSession();
         if (device != null) {
@@ -733,6 +817,7 @@ final class CameraController {
         generation++;
         closeSession();
         aeLocked = false;
+        burstAwbLocked = false;
         preState = PRE_IDLE;
         try {
             // Noite: sempre a fusão própria. A extensão "Noite do sistema" da OPPO ignora o zoom
@@ -772,7 +857,8 @@ final class CameraController {
                 configureStandard();
                 return;
             }
-            Size ys = caps.nightYuvSize;
+            Size ys = normalYuvFallback && caps.normalYuvSize != null ? caps.normalYuvSize : caps.nightYuvSize;
+            activeYuvSize = ys;
             yuvReader = ImageReader.newInstance(ys.getWidth(), ys.getHeight(), ImageFormat.YUV_420_888, 14);
             yuvReader.setOnImageAvailableListener(this::onYuvImage, handler);
             outs.add(new OutputConfiguration(yuvReader.getSurface()));
@@ -822,7 +908,12 @@ final class CameraController {
                     @Override
                     public void onConfigureFailed(CameraCaptureSession s) {
                         if (gen != generation) return;
-                        if (res != null && resIndex > 0) {
+                        if (yuvReader != null && !normalYuvFallback && caps.normalYuvSize != null
+                                && !caps.normalYuvSize.equals(caps.nightYuvSize)) {
+                            normalYuvFallback = true;
+                            Log.w(TAG, "YUV de alta resolução recusado; retorno ao tamanho normal suportado");
+                            configure();
+                        } else if (res != null && resIndex > 0) {
                             resIndex = 0;
                             error("A câmera recusou " + res.label + "; voltando para " + caps.resolutions.get(0).label + ".");
                             configure();
@@ -930,6 +1021,7 @@ final class CameraController {
     }
 
     private void applyCommon(CaptureRequest.Builder b, boolean still, boolean maxRes) {
+        b.setTag(Long.valueOf(focusScan.token()));
         b.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         boolean useRegions = regions != null && !maxRes;
         boolean manualFocus = focusDistance >= 0f && caps.minFocus > 0f
@@ -984,7 +1076,7 @@ final class CameraController {
             b.set(CaptureRequest.CONTROL_AE_LOCK, (aeLocked || userLock) && caps.aeLock);
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO);
-        if (caps.awbLock) b.set(CaptureRequest.CONTROL_AWB_LOCK, awbLocked);
+        if (caps.awbLock) b.set(CaptureRequest.CONTROL_AWB_LOCK, awbLocked || burstAwbLocked);
         b.set(CaptureRequest.CONTROL_ZOOM_RATIO, maxRes ? 1f : deviceZoom());
 
         if (still) {
@@ -1002,7 +1094,7 @@ final class CameraController {
             if (CameraCaps.contains(caps.hotPixelModes, CameraMetadata.HOT_PIXEL_MODE_HIGH_QUALITY)) {
                 b.set(CaptureRequest.HOT_PIXEL_MODE, CameraMetadata.HOT_PIXEL_MODE_HIGH_QUALITY);
             }
-            b.set(CaptureRequest.JPEG_QUALITY, (byte) 96);
+            b.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
             b.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
             b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false);
         }
@@ -1023,10 +1115,13 @@ final class CameraController {
     private final CameraCaptureSession.CaptureCallback liveCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
         public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest request, TotalCaptureResult result) {
+            if (s != session) return;
             Integer iso = result.get(CaptureResult.SENSOR_SENSITIVITY);
             Long exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
             if (iso != null) lastIso = iso;
             if (exp != null) lastExposure = exp;
+            Float aperture = result.get(CaptureResult.LENS_APERTURE);
+            if (aperture != null) lastAperture = aperture;
             Rect crop = result.get(CaptureResult.SCALER_CROP_REGION);
             if (crop != null) lastCrop = crop;
             Float lfd = result.get(CaptureResult.LENS_FOCUS_DISTANCE);
@@ -1039,7 +1134,7 @@ final class CameraController {
             }
             String physNow = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             if (physNow != null) lastPhys = physNow;
-            if (af != null && af != lastAfState) onTapAf(af);
+            if (af != null) onTapAf(af, request);
             if (af != null) lastAfState = af;
             // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
             checkNearFar(af, lfd);
@@ -1152,7 +1247,7 @@ final class CameraController {
         // foco contínuo: dispara uma varredura final e só fotografa quando confirmar (até ~1,2 s)
         afTriggered = afNeedsTrigger();
         if (afTriggered) b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
-        lastAfState = -1;
+        if (afTriggered) lastAfState = -1;
         preAction = action;
         preState = PRE_WAIT_START;
         preStartedAt = SystemClock.elapsedRealtime();
@@ -1168,7 +1263,9 @@ final class CameraController {
         long elapsed = SystemClock.elapsedRealtime() - preStartedAt;
         int st = ae != null ? ae : -1;
         // espera o foco confirmar quando foi disparado (limite 1,2 s para não travar o disparo)
-        boolean focusReady = !afTriggered || afDone(lastAfState) || elapsed > 1200;
+        boolean requiresFocus = afTriggered || (regions != null && caps.minFocus > 0 && focusDistance < 0 && tapHold < 0);
+        boolean focusReady = FocusScanGuard.captureReady(requiresFocus, tapScanning,
+                afDone(lastAfState) || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED, elapsed);
         switch (preState) {
             case PRE_WAIT_START:
                 if (st == CameraMetadata.CONTROL_AE_STATE_PRECAPTURE) {
@@ -1254,7 +1351,10 @@ final class CameraController {
             j.sheet.put("aparelho", Build.MANUFACTURER + " " + Build.MODEL);
             j.sheet.put("android", Build.VERSION.RELEASE);
             j.sheet.put("camera_id", caps.id);
+            j.sheet.put("sessao_geracao", generation);
             j.sheet.put("camera_logica", caps.logicalMultiCamera);
+            j.sheet.put("foco_calibrado", caps.focusCalibrated);
+            j.sheet.put("yuv_alta_resolucao_fallback", normalYuvFallback);
             j.sheet.put("modo", mode.name());
             j.sheet.put("processo", pipeline);
             j.sheet.put("zoom", zoom);
@@ -1267,6 +1367,24 @@ final class CameraController {
             j.sheet.put("empilhamento", stackPolicy == STACK_OFF ? "desligado" : stackPolicy == STACK_MAX ? "maximo" : "automatico");
             j.sheet.put("iso_previa", lastIso);
             j.sheet.put("exposicao_previa_ns", lastExposure);
+            j.sheet.put("foco_previa_estado", lastAfState);
+            j.sheet.put("foco_previa_confirmado", lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                    || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED);
+            j.sheet.put("memoria_versao", PhotoKnowledge.VERSION);
+            j.sheet.put("memoria_combinacoes", PhotoScenarioSpace.COUNT);
+            j.sheet.put("scenario_id", JSONObject.NULL);
+            j.sheet.put("classificacao", "parcial: direção da luz, movimento e contraste não medidos");
+            j.sheet.put("sensores_cor", colorSensors.snapshot());
+            double angular = colorSensors.angularMotion();
+            j.sheet.put("giro_rms_rad_s", Double.isFinite(angular) ? angular : JSONObject.NULL);
+            j.sheet.put("camera_estavel_medida", colorSensors.steady());
+            if (photoKnowledge != null) {
+                Map<String, String> known = new HashMap<>();
+                known.put("temporal_intent", mode == Mode.LONGA ? "show_motion" : "freeze");
+                if (mode == Mode.RETRATO || currentFaces() != null) known.put("subject", "portrait");
+                known.put("output", "editing_master");
+                j.sheet.put("memoria_regras_consultadas", new org.json.JSONArray(photoKnowledge.adviceForKnownAxes(known)));
+            }
         } catch (Exception ignored) {
         }
         return j;
@@ -1334,6 +1452,7 @@ final class CameraController {
         job = null;
         capturing = false;
         aeLocked = false;
+        burstAwbLocked = false;
         if (session != null) startRepeating();
         afRelease();
         fillResult(j.sheet, j.result);
@@ -1370,17 +1489,19 @@ final class CameraController {
             Job j = newJob("raw_isp");
             j.rawFrames = new ArrayList<>();
             // 25 MB por quadro (12 MP × 16 bits): de 3 (luz boa) a 8 (pouca luz)
-            j.rawTarget = lastIso >= 1600 ? 8 : lastIso >= 800 ? 6 : lastIso >= 200 ? 4 : 3;
+            CaptureDirector.Plan rawPlan = CaptureDirector.decide(captureScene(CaptureDirector.Kind.RAW));
+            j.rawTarget = Math.min(8, rawPlan.frames);
+            j.sheet.put("diretriz", rawPlan.reason);
+            burstAwbLocked = true;
             j.sheet.put("quadros_pedidos", j.rawTarget);
             j.sheet.put("tamanho_raw", caps.rawSize.toString());
             job = j;
             long exp = 0;
             int iso = 0;
-            if (!isManual() && caps.manualSensor && lastIso >= 400 && lastExposure > 0 && caps.isoRange != null && caps.exposureRange != null) {
-                // a fusão RAW alinha o tremor: cada quadro expõe mais (até 1/30 s) com ISO menor
-                long target = Math.min(Math.min(lastExposure * 4, 33_333_333L), caps.exposureRange.getUpper());
-                if (target > lastExposure * 1.2) {
-                    iso = Math.max(caps.isoRange.getLower(), (int) Math.round((double) lastIso * lastExposure / target));
+            if (!isManual() && caps.manualSensor && lastExposure > 0 && caps.isoRange != null && caps.exposureRange != null) {
+                long target = Math.max(caps.exposureRange.getLower(), Math.min(lastExposure, rawPlan.maxFrameExposureNs));
+                if (target != lastExposure) {
+                    iso = clampI((int) Math.round((double) lastIso * lastExposure / target), caps.isoRange.getLower(), caps.isoRange.getUpper());
                     exp = target;
                     j.sheet.put("raw_exposicao_ns", exp);
                     j.sheet.put("raw_iso", iso);
@@ -1404,6 +1525,9 @@ final class CameraController {
             session.captureBurst(list, new CameraCaptureSession.CaptureCallback() {
                 @Override
                 public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult result) {
+                    if (j.done) return;
+                    Long ts = result.get(CaptureResult.SENSOR_TIMESTAMP);
+                    if (ts != null) j.rawResults.put(ts, result);
                     if (j.result == null) j.result = result;
                 }
             }, handler);
@@ -1438,7 +1562,7 @@ final class CameraController {
         }
         int k = j.rawFrames.size();
         busy("RAW+: quadro " + k + "/" + j.rawTarget + " — segure firme", 0.3f * k / j.rawTarget);
-        if (k >= j.rawTarget && j.result != null) finishRawPlus(j);
+            if (k >= j.rawTarget && j.result != null) finishRawPlus(j);
         else if (k >= j.rawTarget) handler.postDelayed(() -> { if (!j.done && j.result != null) finishRawPlus(j); }, 300);
     }
 
@@ -1508,13 +1632,30 @@ final class CameraController {
         j.done = true;
         job = null;
         aeLocked = false;
+        burstAwbLocked = false;
         startRepeating();
         afRelease();
         final List<RawIsp.Frame> frames = new ArrayList<>(j.rawFrames);
+        final Map<Long, TotalCaptureResult> rawResults = new HashMap<>(j.rawResults);
+        j.rawResults.clear();
         j.rawFrames.clear();
         fillResult(j.sheet, j.result);
         worker.execute(() -> {
             try {
+                if (!frames.isEmpty()) {
+                    RawIsp.Frame original = frames.get(0);
+                    TotalCaptureResult originalResult = rawResults.get(original.timestampNs);
+                    if (originalResult != null) {
+                        ByteBuffer pixels = ByteBuffer.allocateDirect(original.data.length * 2).order(java.nio.ByteOrder.nativeOrder());
+                        pixels.asShortBuffer().put(original.data);
+                        try {
+                            Uri dng = saver.saveDng(j.name + "_ORIGINAL", caps.ch, originalResult,
+                                    new Size(original.width, original.height), pixels, j.orientation);
+                            j.sheet.put("dng_original", dng.toString());
+                            j.sheet.put("dng_tipo", "quadro único do sensor, preservado; JPEG revelado por fusão separada");
+                        } catch (Exception e) { j.sheet.put("dng_aviso", "JPEG continua; DNG não salvo: " + e.getClass().getSimpleName()); }
+                    } else j.sheet.put("dng_aviso", "metadados de timestamp correspondente indisponíveis; DNG não inventado");
+                }
                 RawIsp.Meta m = rawMeta(j.result);
                 j.sheet.put("raw_cfa", m.cfa);
                 j.sheet.put("raw_preto", java.util.Arrays.toString(m.black));
@@ -1603,21 +1744,14 @@ final class CameraController {
             // o ambiente medido agora (luz × zoom × lente × distância × rosto × modo).
             CaptureDirector.Plan plan = null;
             if (mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.NOITE) {
-                CaptureDirector.Scene sc = new CaptureDirector.Scene();
-                sc.iso = lastIso;
-                sc.exposureNs = lastExposure;
-                sc.zoom = zoom;
-                sc.tele = onTele;
-                sc.lensCrop = onTele ? deviceZoom() : Math.max(1f, zoom);
-                sc.focusCm = lastFocusDistance > 0 ? Math.round(100f / lastFocusDistance) : 100;
-                sc.face = currentFaces() != null;
-                sc.kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
-                sc.maxPolicy = stackPolicy == STACK_MAX;
-                sc.stackOff = stackPolicy == STACK_OFF && mode != Mode.NOITE;
-                sc.manual = isManual();
+                CaptureDirector.Scene sc = captureScene(mode == Mode.NOITE ? CaptureDirector.Kind.NOITE
+                        : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO);
                 plan = CaptureDirector.decide(sc);
                 burstTarget = plan.frames;
                 j.superRes = plan.srScale > 1f;
+                j.srScale = plan.srScale;
+                j.sharpen = plan.sharpen;
+                j.denoiseCeiling = plan.denoise;
                 if (plan.srCrop > 1f) {
                     // os quadros vêm sem a ampliação do ISP; o app recorta e amplia com amostras reais
                     j.srCrop = plan.srCrop;
@@ -1635,9 +1769,10 @@ final class CameraController {
                 j.sheet.put("longa_estilo", longTrails ? "rastros de luz (média + máximo)" : "água sedosa (média, efeito filtro ND)");
                 j.sheet.put("longa_duracao_s", longSeconds);
             }
-            j.sheet.put("tamanho", caps.nightYuvSize.toString());
+            j.sheet.put("tamanho", activeYuvSize != null ? activeYuvSize.toString() : caps.nightYuvSize.toString());
             j.sheet.put("reducao_ruido_por_quadro", caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL) ? "MINIMAL" : "FAST");
             job = j;
+            burstAwbLocked = true;
             // Fusão: o alinhamento compensa o tremor entre quadros, então cada quadro pode expor mais
             // (Foto até 1/30 s, Noite até 1/15 s) com ISO proporcionalmente menor = menos ruído por quadro.
             long nightExp = 0;
@@ -1700,7 +1835,7 @@ final class CameraController {
                 } else if (caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_FAST)) {
                     b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_FAST);
                 }
-                if (teleFallback() && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
+                if (caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
                     // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
@@ -1729,6 +1864,30 @@ final class CameraController {
         } catch (Exception e) {
             fail("Falha no modo Noite: " + e.getMessage());
         }
+    }
+
+    private CaptureDirector.Scene captureScene(CaptureDirector.Kind kind) {
+        CaptureDirector.Scene scene = new CaptureDirector.Scene();
+        scene.iso = lastIso;
+        scene.exposureNs = lastExposure;
+        scene.aperture = lastAperture;
+        scene.zoom = zoom;
+        scene.tele = onTele;
+        scene.lensCrop = onTele ? deviceZoom() : Math.max(1f, zoom);
+        scene.focusCm = caps.focusCalibrated && lastFocusDistance > 0 ? Math.round(100f / lastFocusDistance) : 0;
+        scene.face = kind == CaptureDirector.Kind.RETRATO || currentFaces() != null;
+        scene.kind = kind;
+        scene.maxPolicy = stackPolicy == STACK_MAX;
+        scene.stackOff = stackPolicy == STACK_OFF;
+        scene.manual = isManual();
+        scene.nativeGridSafe = caps.focusCalibrated || caps.minFocus <= 0;
+        scene.steadyCamera = colorSensors.steady();
+        scene.angularRmsRad = colorSensors.angularMotion();
+        if (logicalCaps != null && logicalCaps.mainId != null) {
+            float[] principal = logicalCaps.physLens.get(logicalCaps.mainId);
+            if (principal != null) scene.equivalentMm = principal[0] * zoom;
+        }
+        return scene;
     }
 
     private void onYuvImage(ImageReader reader) {
@@ -1783,6 +1942,7 @@ final class CameraController {
         j.done = true;
         job = null;
         aeLocked = false;
+        burstAwbLocked = false;
         startRepeating();
         afRelease();
         fillResult(j.sheet, j.result);
@@ -1835,7 +1995,7 @@ final class CameraController {
             j.sheet.put("astro_exposicao_por_quadro_s", exp / 1e9);
             j.sheet.put("astro_iso", iso);
             j.sheet.put("astro_duracao_total_s", Math.round(frames * exp / 1e9));
-            j.sheet.put("tamanho", caps.nightYuvSize.toString());
+            j.sheet.put("tamanho", activeYuvSize != null ? activeYuvSize.toString() : caps.nightYuvSize.toString());
             job = j;
             boolean manualFocus = caps.minFocus > 0 && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_OFF);
             List<CaptureRequest> list = new ArrayList<>();
@@ -1884,9 +2044,11 @@ final class CameraController {
     }
 
     private void finishBurst(Job j) {
+        burstAwbLocked = false;
         j.done = true;
         job = null;
         aeLocked = false;
+        burstAwbLocked = false;
         startRepeating();
         afRelease();
         final List<YuvFrame> frames = new ArrayList<>(burstFrames);
@@ -1906,18 +2068,20 @@ final class CameraController {
             // recorte central de cada quadro (o zoom que o ISP faria, mas sem ampliar)
             for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropCenter(frames.get(i), j.srCrop));
         }
+        final YuvFrame[] emergencyReference = {frames.isEmpty() ? null : frames.get(0)};
         if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
         worker.execute(() -> {
             try {
                 boolean superRes = j.superRes;
-                float scale = j.srCrop > 1f ? Math.min(2.5f, j.srCrop) : superRes ? 1.5f : 1f;
-                BurstFusion.Result fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                float scale = j.srScale;
+                BurstFusion.Result fr = new BurstFusion(j.sharpen, true, scale, j.denoiseCeiling).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                if (fr.referenceFrame != null) emergencyReference[0] = fr.referenceFrame;
                 if (j.srCrop > 1f && fr.scale <= 1f) {
                     // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
                     j.cropUpscale = j.srCrop;
                 }
                 if (fr.scale > 1f) {
-                    j.sheet.put("super_resolucao", "1,5× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
+                    j.sheet.put("super_resolucao", fr.scale + "× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
                     j.sheet.put("tempo_super_resolucao_ms", fr.superResMs);
                 }
                 // Verificador de qualidade: a fusão só vira a foto final se mantiver o detalhe
@@ -1929,7 +2093,8 @@ final class CameraController {
                 qj.put("detalhe_vs_referencia", round2(q.detailRatio));
                 qj.put("forma_das_bordas", round2(q.edgeCorrelation));
                 qj.put("pixels_de_borda", q.edgePixels);
-                qj.put("aprovada", q.passed);
+                qj.put("aprovada", q.measurable ? q.passed : JSONObject.NULL);
+                qj.put("medicao_conclusiva", q.measurable);
                 qj.put("motivo", q.reason);
                 YuvFrame finalFrame = fr.frame;
                 if (!q.passed && fr.framesIn > 1) {
@@ -1938,8 +2103,7 @@ final class CameraController {
                     BurstFusion.lumaDenoise(finalFrame, model, 0.3f);
                     BurstFusion.chromaFilter(finalFrame, model[8]);
                     qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
-                    final String why = q.reason;
-                    main.post(() -> listener.onNotice("Os quadros variaram (" + why + "); salvei o mais nítido."));
+                    Log.i(TAG, "fallback de qualidade: " + q.reason);
                 } else {
                     qj.put("decisao", "fusao");
                 }
@@ -1959,17 +2123,13 @@ final class CameraController {
                 j.sheet.put("tempo_fusao_ms", fr.millis);
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 busy("Gravando…", 0.95f);
-                if (j.cropUpscale > 1.5f) {
-                    // recorte ampliado da principal: nitidez na escala da ampliação
-                    busy("Nitidez do recorte…", 0.94f);
-                    float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
-                    BurstFusion.sharpenScaled(finalFrame, up, 0.9f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,9");
-                }
+                j.sheet.put("nitidez_forca", j.sharpen);
+                j.sheet.put("reducao_luminancia_teto", j.denoiseCeiling);
+                j.sheet.put("acabamento", "nitidez única no app; ampliação não substitui detalhe óptico");
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
-                YuvFrame keep = frames.isEmpty() ? null : frames.get(0);
+                YuvFrame keep = emergencyReference[0];
                 frames.clear();
                 if (keep == null) {
                     error("Falha ao combinar quadros: " + t.getMessage());
@@ -2217,7 +2377,8 @@ final class CameraController {
             }
             Float fdist = r.get(CaptureResult.LENS_FOCUS_DISTANCE);
             if (fdist != null) sheet.put("foco_dioptrias", fdist);
-            if (fdist != null && fdist > 0) sheet.put("foco_distancia_cm", Math.round(100f / fdist));
+            if (fdist != null && fdist > 0) sheet.put("foco_distancia_cm",
+                    caps.focusCalibrated ? Math.round(100f / fdist) : JSONObject.NULL);
             Integer afs = r.get(CaptureResult.CONTROL_AF_STATE);
             if (afs != null) sheet.put("estado_af", afs);
             Integer ae = r.get(CaptureResult.CONTROL_AE_STATE);
@@ -2260,6 +2421,7 @@ final class CameraController {
         job = null;
         capturing = false;
         aeLocked = false;
+        burstAwbLocked = false;
         preState = PRE_IDLE;
         burstFrames.clear();
         startRepeating();
