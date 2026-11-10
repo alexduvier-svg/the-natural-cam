@@ -402,8 +402,31 @@ public final class BurstFusion {
             tSr = System.currentTimeMillis() - ts;
         }
         final YuvFrame outF = fin;
+        double lumaStrength = finishFrame(outF, sigma, effective, noiseAfter, p);
 
-        // ---- Acabamento proporcional ao ruído restante --------------------------------------
+        Result res = new Result();
+        res.frame = outF;
+        res.scale = outF == out ? 1f : scale;
+        res.superResMs = tSr;
+        res.framesIn = n;
+        res.framesUsed = n;
+        res.reference = ref;
+        res.referenceFrame = refKeep;
+        res.noiseBefore = noiseBefore;
+        res.noiseAfter = noiseAfter;
+        res.meanWeight = meanWeight;
+        res.maxShiftPx = maxShift[0];
+        res.lumaDenoise = lumaStrength;
+        res.alignMs = tAlign - t0;
+        res.mergeMs = tMerge - tAlign;
+        res.millis = System.currentTimeMillis() - t0;
+        res.finishMs = res.millis - (tMerge - t0);
+        p.step("Pronto", 1f);
+        return res;
+    }
+
+    /** Acabamento proporcional ao ruído restante (o mesmo para a fusão completa e a incremental). */
+    private double finishFrame(YuvFrame outF, float[] sigma, double effective, double noiseAfter, Progress p) {
         double lumaStrength = 0;
         if (finish) {
             float res = (float) Math.max(0.5, noiseAfter);
@@ -425,26 +448,251 @@ public final class BurstFusion {
                 sharpenLuma(outF, sharpenAmount, Math.max(2f, res * 3f));
             }
         }
+        return lumaStrength;
+    }
 
-        Result res = new Result();
-        res.frame = outF;
-        res.scale = outF == out ? 1f : scale;
-        res.superResMs = tSr;
-        res.framesIn = n;
-        res.framesUsed = n;
-        res.reference = ref;
-        res.referenceFrame = refKeep;
-        res.noiseBefore = noiseBefore;
-        res.noiseAfter = noiseAfter;
-        res.meanWeight = meanWeight;
-        res.maxShiftPx = maxShift[0];
-        res.lumaDenoise = lumaStrength;
-        res.alignMs = tAlign - t0;
-        res.mergeMs = tMerge - tAlign;
-        res.millis = System.currentTimeMillis() - t0;
-        res.finishMs = res.millis - (tMerge - t0);
-        p.step("Pronto", 1f);
-        return res;
+    // =====================================================================================
+    // Fusão incremental (memória constante, como o Night Sight: até 15 quadros)
+    // =====================================================================================
+
+    /** Quadros guardados até escolher a referência (o mais nítido entre eles) e medir o ruído. */
+    static final int STREAM_HEAD = 4;
+
+    /**
+     * Mesma matemática da {@link #fuse}, mas cada quadro é alinhado e SOMADO assim que chega, e
+     * então descartado. Só ficam na memória a referência e os acumuladores (~110 MB em 12 MP),
+     * em vez de todos os quadros (18 MB cada). A referência é o mais nítido dos 4 primeiros (o
+     * Night Sight também a escolhe entre os primeiros, perto do instante do disparo). Uso: chamar
+     * {@link #add} em sequência (uma thread) e {@link #finish} no fim. Sem super-resolução.
+     */
+    public static final class Stream {
+        private final BurstFusion engine;
+        private final List<YuvFrame> head = new java.util.ArrayList<>();
+        private YuvFrame r;
+        private int w, h, w4, h4, w16, h16, tilesX, tilesY;
+        private int[] r4, r16;
+        private double refFine;
+        private float[] sigma;
+        private int[][] lut;
+        private int[] accY, accU, accV;
+        private char[] swY, swC;
+        private int received, used, maxShift, refIndex;
+        private long wSumAll, wCntAll;
+        private long t0, alignMs, mergeMs;
+
+        public Stream(BurstFusion engine) {
+            this.engine = engine;
+        }
+
+        public int received() {
+            return received;
+        }
+
+        /** Soma um quadro (os 4 primeiros esperam a escolha da referência). */
+        public void add(YuvFrame f) {
+            if (t0 == 0) t0 = System.currentTimeMillis();
+            received++;
+            if (r == null) {
+                if (!head.isEmpty() && (f.width != head.get(0).width || f.height != head.get(0).height)) return;
+                head.add(f);
+                if (head.size() >= STREAM_HEAD) start();
+                return;
+            }
+            if (f.width != w || f.height != h) return;
+            mergeOne(f);
+        }
+
+        private void start() {
+            YuvFrame first = head.get(0);
+            w = first.width;
+            h = first.height;
+            w4 = w / 4;
+            h4 = h / 4;
+            w16 = w4 / 4;
+            h16 = h4 / 4;
+            tilesX = (w + TILE - 1) / TILE;
+            tilesY = (h + TILE - 1) / TILE;
+            int n = head.size();
+            int[][] l4 = new int[n][];
+            int[][] l16 = new int[n][];
+            double[] sharp = new double[n];
+            double[] fine = new double[n];
+            IntStream.range(0, n).parallel().forEach(i -> {
+                l4[i] = down4(head.get(i).y, w, h);
+                l16[i] = down4(l4[i], w4, h4);
+                sharp[i] = sharpness(l4[i], w4, h4);
+                fine[i] = fineSharpness(head.get(i).y, w, h);
+            });
+            int ref = 0;
+            for (int i = 1; i < n; i++) if (sharp[i] > sharp[ref]) ref = i;
+            r = head.get(ref);
+            refIndex = ref;
+            r4 = l4[ref];
+            r16 = l16[ref];
+            for (double v : fine) refFine = Math.max(refFine, v);
+            // ruído medido entre a referência e os outros quadros do início (igual à fusão completa)
+            int[][] offX = new int[n][];
+            int[][] offY = new int[n][];
+            for (int i = 0; i < n; i++) {
+                if (i == ref) continue;
+                int[][] o = align(head.get(i), l4[i], l16[i]);
+                offX[i] = o[0];
+                offY[i] = o[1];
+            }
+            sigma = n > 1 ? noiseBetweenFrames(head, ref, offX, offY, tilesX, tilesY) : noiseModel(r);
+            lut = weightLut(sigma);
+            accY = new int[w * h];
+            swY = new char[w * h];
+            int cn = r.chromaWidth * r.chromaHeight;
+            accU = new int[cn];
+            accV = new int[cn];
+            swC = new char[cn];
+            for (int i = 0; i < n; i++) {
+                if (i == ref) continue;
+                if (fine[i] < refFine * MIN_SHARP_RATIO) continue;
+                merge(head.get(i), offX[i], offY[i]);
+            }
+            head.clear();
+            head.add(r); // a lista guarda só a referência daqui em diante
+        }
+
+        private void mergeOne(YuvFrame f) {
+            if (fineSharpness(f.y, w, h) < refFine * MIN_SHARP_RATIO) return; // borrado: fora
+            int[] a4 = down4(f.y, w, h);
+            int[][] o = align(f, a4, down4(a4, w4, h4));
+            merge(f, o[0], o[1]);
+        }
+
+        private int[][] align(YuvFrame a, int[] a4, int[] a16) {
+            long ta = System.currentTimeMillis();
+            int[] g = globalShift(r16, a16, w16, h16, 8, 2, 1, 0, 0);
+            g = globalShift(r4, a4, w4, h4, 3, 8, 2, g[0] * 4, g[1] * 4);
+            int[] ox = new int[tilesX * tilesY];
+            int[] oy = new int[tilesX * tilesY];
+            alignTiles(r, a, r4, a4, w4, h4, g, tilesX, tilesY, ox, oy);
+            median3(ox, tilesX, tilesY);
+            median3(oy, tilesX, tilesY);
+            for (int k = 0; k < ox.length; k++) maxShift = Math.max(maxShift, Math.max(Math.abs(ox[k]), Math.abs(oy[k])));
+            alignMs += System.currentTimeMillis() - ta;
+            return new int[][]{ox, oy};
+        }
+
+        /** Mesma mistura robusta da fusão completa, acumulada (peso 0..256 por amostra). */
+        private void merge(YuvFrame a, int[] offX, int[] offY) {
+            long tm = System.currentTimeMillis();
+            used++;
+            final byte[] ry = r.y, ay = a.y;
+            final int bands = (h + BAND - 1) / BAND;
+            final long[] wSum = new long[bands];
+            final long[] wCnt = new long[bands];
+            IntStream.range(0, bands).parallel().forEach(b -> {
+                int y0 = b * BAND, y1 = Math.min(h, y0 + BAND);
+                long ws = 0, wc = 0;
+                for (int yy = y0; yy < y1; yy++) {
+                    int ty = Math.min(yy / TILE, tilesY - 1);
+                    int row = yy * w;
+                    for (int xx = 0; xx < w; xx++) {
+                        int tile = ty * tilesX + Math.min(xx / TILE, tilesX - 1);
+                        int rv = ry[row + xx] & 0xFF;
+                        int ax = xx + offX[tile];
+                        int yA = yy + offY[tile];
+                        if (ax < 0) ax = 0; else if (ax >= w) ax = w - 1;
+                        if (yA < 0) yA = 0; else if (yA >= h) yA = h - 1;
+                        int av = ay[yA * w + ax] & 0xFF;
+                        int d = av - rv;
+                        int wt = lut[rv >> 4][d < 0 ? -d : d];
+                        accY[row + xx] += wt * av;
+                        swY[row + xx] += (char) wt;
+                        if ((xx & 7) == 0 && (yy & 7) == 0) {
+                            ws += wt;
+                            wc++;
+                        }
+                    }
+                }
+                wSum[b] = ws;
+                wCnt[b] = wc;
+            });
+            for (int b = 0; b < bands; b++) {
+                wSumAll += wSum[b];
+                wCntAll += wCnt[b];
+            }
+            final int cw = r.chromaWidth, ch = r.chromaHeight;
+            final int cBands = (ch + BAND - 1) / BAND;
+            IntStream.range(0, cBands).parallel().forEach(b -> {
+                int c0 = b * BAND, c1 = Math.min(ch, c0 + BAND);
+                for (int cy = c0; cy < c1; cy++) {
+                    int yy = Math.min(cy * 2, h - 2);
+                    int ty = Math.min(yy / TILE, tilesY - 1);
+                    for (int cx = 0; cx < cw; cx++) {
+                        int xx = Math.min(cx * 2, w - 2);
+                        int tile = ty * tilesX + Math.min(xx / TILE, tilesX - 1);
+                        int ci = cy * cw + cx;
+                        int rAvg = avg2x2(ry, w, xx, yy);
+                        int ax = Math.max(0, Math.min(w - 2, xx + offX[tile]));
+                        int yA = Math.max(0, Math.min(h - 2, yy + offY[tile]));
+                        int d = avg2x2(ay, w, ax, yA) - rAvg;
+                        int wt = lut[rAvg >> 4][Math.min(255, (d < 0 ? -d : d) * 2)];
+                        if (wt == 0) continue;
+                        int aci = Math.min(ch - 1, yA >> 1) * cw + Math.min(cw - 1, ax >> 1);
+                        accU[ci] += wt * (a.u[aci] & 0xFF);
+                        accV[ci] += wt * (a.v[aci] & 0xFF);
+                        swC[ci] += (char) wt;
+                    }
+                }
+            });
+            mergeMs += System.currentTimeMillis() - tm;
+        }
+
+        /** Fecha a soma, aplica o mesmo acabamento da fusão completa e libera os acumuladores. */
+        public Result finish(Progress progress) {
+            final Progress p = progress != null ? progress : (l, f) -> { };
+            if (received == 0) throw new IllegalStateException("sem quadros");
+            if (r == null) start(); // menos de 4 quadros chegaram
+            long tf = System.currentTimeMillis();
+            final YuvFrame out = new YuvFrame(w, h);
+            out.iso = r.iso;
+            out.exposureNs = r.exposureNs;
+            out.timestampNs = r.timestampNs;
+            final byte[] ry = r.y;
+            IntStream.range(0, (h + BAND - 1) / BAND).parallel().forEach(b -> {
+                int i0 = b * BAND * w, i1 = Math.min(h, (b + 1) * BAND) * w;
+                for (int i = i0; i < i1; i++) {
+                    int sw = 256 + swY[i];
+                    out.y[i] = (byte) ((((ry[i] & 0xFF) << 8) + accY[i] + (sw >> 1)) / sw);
+                }
+            });
+            for (int i = 0; i < accU.length; i++) {
+                int sw = 256 + swC[i];
+                out.u[i] = (byte) ((((r.u[i] & 0xFF) << 8) + accU[i] + (sw >> 1)) / sw);
+                out.v[i] = (byte) ((((r.v[i] & 0xFF) << 8) + accV[i] + (sw >> 1)) / sw);
+            }
+            accY = accU = accV = null;
+            swY = swC = null;
+            int n = used + 1;
+            double noiseBefore = meanSigma(sigma);
+            // wCntAll já soma as amostras de todos os quadros: a razão é o peso médio por quadro
+            double meanWeight = wCntAll > 0 && used > 0 ? wSumAll / 256.0 / wCntAll : 0;
+            double effective = 1 + meanWeight * used;
+            double noiseAfter = noiseBefore / Math.sqrt(effective);
+            double ls = engine.finishFrame(out, sigma, effective, noiseAfter, p);
+            Result res = new Result();
+            res.frame = out;
+            res.framesIn = received;
+            res.framesUsed = n;
+            res.reference = refIndex;
+            res.referenceFrame = r;
+            res.noiseBefore = noiseBefore;
+            res.noiseAfter = noiseAfter;
+            res.meanWeight = meanWeight;
+            res.maxShiftPx = maxShift;
+            res.lumaDenoise = ls;
+            res.alignMs = alignMs;
+            res.mergeMs = mergeMs;
+            res.finishMs = System.currentTimeMillis() - tf;
+            res.millis = System.currentTimeMillis() - t0;
+            p.step("Pronto", 1f);
+            return res;
+        }
     }
 
     // =====================================================================================
@@ -622,13 +870,16 @@ public final class BurstFusion {
     // =====================================================================================
 
     static int[] globalShift(int[] ref, int[] alt, int w, int h, int radius, int border, int step, int cx, int cy) {
-        long best = Long.MAX_VALUE;
-        int bx = cx, by = cy;
-        for (int dy = cy - radius; dy <= cy + radius; dy++) {
-            for (int dx = cx - radius; dx <= cx + radius; dx++) {
+        // cada deslocamento candidato é medido em paralelo; a escolha final percorre na mesma ordem
+        // (desempate idêntico ao laço sequencial: o primeiro com a menor soma vence)
+        final int side = 2 * radius + 1;
+        final long[] score = new long[side * side];
+        IntStream.range(0, side * side).parallel().forEach(k -> {
+            int dx = cx - radius + k % side, dy = cy - radius + k / side;
+            score[k] = Long.MAX_VALUE;
                 int x0 = Math.max(border, border - dx), x1 = Math.min(w - border, w - border - dx);
                 int y0 = Math.max(border, border - dy), y1 = Math.min(h - border, h - border - dy);
-                if (x1 - x0 < w / 4 || y1 - y0 < h / 4) continue;
+                if (x1 - x0 < w / 4 || y1 - y0 < h / 4) return;
                 long s = 0;
                 int cnt = 0;
                 for (int y = y0; y < y1; y += step) {
@@ -638,15 +889,20 @@ public final class BurstFusion {
                         cnt++;
                     }
                 }
-                long norm = cnt > 0 ? (s << 10) / cnt : Long.MAX_VALUE;
+                if (cnt == 0) return;
+                long norm = (s << 10) / cnt;
                 // tremor de mão é pequeno: penaliza saltos grandes (evita "pular" para a repetição
                 // vizinha em texturas repetitivas como azulejos, grades e listras)
                 norm += 48L * (Math.abs(dx - cx) + Math.abs(dy - cy));
-                if (norm < best) {
-                    best = norm;
-                    bx = dx;
-                    by = dy;
-                }
+                score[k] = norm;
+        });
+        long best = Long.MAX_VALUE;
+        int bx = cx, by = cy;
+        for (int k = 0; k < score.length; k++) {
+            if (score[k] < best) {
+                best = score[k];
+                bx = cx - radius + k % side;
+                by = cy - radius + k / side;
             }
         }
         return new int[]{bx, by};

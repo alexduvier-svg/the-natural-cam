@@ -144,6 +144,7 @@ final class CameraController {
         onTele = tele;
         caps = tele ? teleCaps : logicalCaps;
         regions = null;
+        aeRegions = null;
         tapHold = -1f;
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
@@ -157,7 +158,11 @@ final class CameraController {
 
     /** A principal mediu há pouco (≤ 10 s) o objeto mais perto que o mínimo da tele (+15 %)? */
     private boolean mainNearNow() {
-        if (teleCaps == null || mainFd <= 0 || SystemClock.elapsedRealtime() - mainFdAt > 10_000) return false;
+        if (teleCaps == null || mainFd <= 0) return false;
+        // vale por 10 s — ou enquanto a principal continua aberta desde a medida (durante a foto ela
+        // não mede: depois de uma fusão longa no 3,5× a medida "vencia" e o 6× abria a tele desfocada)
+        boolean fresh = SystemClock.elapsedRealtime() - mainFdAt <= 10_000 || (!onTele && mainFdAt >= openedAt);
+        if (!fresh) return false;
         float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f; // 2,5 dpt = 40 cm
         return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
     }
@@ -232,6 +237,8 @@ final class CameraController {
     private int nrPolicy = NR_LIGHT;
     private int jpegOrientation = 90;
     private MeteringRectangle[] regions;
+    /** Medição de luz do toque: o objeto E o primeiro plano à frente dele (não só o ponto). */
+    private MeteringRectangle[] aeRegions;
     private long regionsUntil;
     private float regionsZoom = 1f;
     private volatile Rect lastCrop;
@@ -300,6 +307,9 @@ final class CameraController {
         /** Quadros entregues pela câmera (somados ou pulados) e somas ainda na fila. */
         int longSeen;
         final java.util.concurrent.atomic.AtomicInteger longPending = new java.util.concurrent.atomic.AtomicInteger();
+        /** Noite: fusão incremental (cada quadro somado ao chegar; memória constante, até 15 quadros). */
+        BurstFusion.Stream stream;
+        int streamSeen, streamQueued, streamSkipped;
         TotalCaptureResult result;
         boolean done;
         JSONObject sheet = new JSONObject();
@@ -380,6 +390,7 @@ final class CameraController {
             tapHold = -1f;
             mode = m;
             regions = null;
+            aeRegions = null;
             if (m != Mode.PRO) manualIso = 0;
             configure();
         });
@@ -419,6 +430,7 @@ final class CameraController {
             // enquadramento mudou: o ponto tocado antes não corresponde mais ao mesmo objeto
             if (regions != null && !userLock && Math.abs(Math.log(zoom / regionsZoom)) > 0.05) {
                 regions = null;
+                aeRegions = null;
                 tapHold = -1f;
             }
             if (session != null && !capturing) startRepeating();
@@ -461,6 +473,7 @@ final class CameraController {
                 }
             } else {
                 regions = null;
+                aeRegions = null;
                 tapHold = -1f;
             }
             startRepeating();
@@ -548,6 +561,24 @@ final class CameraController {
         return new MeteringRectangle[]{new MeteringRectangle(r, weight)};
     }
 
+    /**
+     * Luz do toque como câmera profissional: o FOCO fica exato no ponto tocado (área pequena), mas a
+     * LUZ é medida no objeto e no primeiro plano à frente/abaixo dele (largura ±30%, do toque até
+     * 40% do quadro abaixo). Antes a luz era medida só no ponto: um objeto branco (frasco) fazia a
+     * câmera escurecer a cena inteira para deixá-lo cinza.
+     */
+    private MeteringRectangle[] tapMetering(float nx, float ny) {
+        Rect v = visibleSensorRect();
+        if (v == null) return null;
+        float x0 = Math.max(0f, nx - 0.3f), x1 = Math.min(1f, nx + 0.3f);
+        float y0 = Math.max(0f, ny - 0.08f), y1 = Math.min(1f, ny + 0.4f);
+        float[] a = toSensor(caps.sensorOrientation, x0, y0), c = toSensor(caps.sensorOrientation, x1, y1);
+        int l = v.left + Math.round(Math.min(a[0], c[0]) * v.width()), r = v.left + Math.round(Math.max(a[0], c[0]) * v.width());
+        int t = v.top + Math.round(Math.min(a[1], c[1]) * v.height()), bt = v.top + Math.round(Math.max(a[1], c[1]) * v.height());
+        Rect rr = new Rect(clampI(l, v.left, v.right - 2), clampI(t, v.top, v.bottom - 2), clampI(Math.max(r, l + 2), v.left + 2, v.right), clampI(Math.max(bt, t + 2), v.top + 2, v.bottom));
+        return new MeteringRectangle[]{new MeteringRectangle(rr, MeteringRectangle.METERING_WEIGHT_MAX - 1)};
+    }
+
     /** Toque para foco/medição. nx, ny em 0..1 relativos à prévia em pé (retrato). */
     void focusAt(float nx, float ny) {
         handler.post(() -> {
@@ -568,6 +599,7 @@ final class CameraController {
             tapCaf = false;
             tapHold = -1f;
             regions = regionAt(nx, ny, 0.07f, MeteringRectangle.METERING_WEIGHT_MAX - 1);
+            aeRegions = tapMetering(nx, ny);
             if (regions == null) return;
             regionsZoom = zoom;
             scanTap();
@@ -1020,7 +1052,7 @@ final class CameraController {
                 if (auto != null) b.set(CaptureRequest.CONTROL_AF_REGIONS, auto);
             }
         }
-        if (useRegions && caps.maxAeRegions > 0) b.set(CaptureRequest.CONTROL_AE_REGIONS, regions);
+        if (useRegions && caps.maxAeRegions > 0) b.set(CaptureRequest.CONTROL_AE_REGIONS, aeRegions != null ? aeRegions : regions);
         else if (!maxRes && caps.maxAeRegions > 0 && currentFaces() != null) b.set(CaptureRequest.CONTROL_AE_REGIONS, currentFaces());
         if (caps.faceDetectMode != CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF) {
             b.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, caps.faceDetectMode);
@@ -1715,6 +1747,7 @@ final class CameraController {
                 j.sheet.put("quadros_pedidos", burstTarget);
                 j.sheet.put("diretriz", plan.reason);
                 j.denoise = plan.denoise;
+                if (plan.stream && j.srCrop <= 1f && !j.superRes) j.stream = new BurstFusion.Stream(new BurstFusion(0.30f, true, 1f));
             } else if (mode == Mode.RUA) {
                 // Rua também ganha a limpeza leve geral + memória das sombras (todas as lentes)
                 j.denoise = lastIso > 1600 ? 0.42f : lastIso > 400 ? 0.3f : 0.2f;
@@ -1821,7 +1854,7 @@ final class CameraController {
             handler.postDelayed(() -> {
                 if (gen != generation || job != j || j.done) return;
                 if (j.longExp != null && j.longCount >= 2) finishLong(j);
-                else if (burstFrames.size() >= 2) finishBurst(j);
+                else if (burstFrames.size() >= 2 || j.streamQueued >= 2) finishBurst(j);
                 else fail("A câmera não entregou os quadros.");
             }, mode == Mode.LONGA ? longSeconds * 1000L + 6000 : 6000 + burstTarget * nightExp / 1_000_000L);
         } catch (Exception e) {
@@ -1862,6 +1895,37 @@ final class CameraController {
                 }
                 busy((mode == Mode.ASTRO ? "Astro" : "Longa exposição") + ": quadro " + k + "/" + burstTarget, 0.8f * k / burstTarget);
                 if (k >= burstTarget) finishLong(j);
+                return;
+            }
+            if (j.stream != null) {
+                // Noite incremental: o quadro vai direto para a soma (fila sequencial do worker) e é
+                // descartado. Se a soma atrasar muito (> 5 pendentes), o quadro é pulado em vez de
+                // acumular cópias de 18 MB na memória.
+                if (j.streamSeen >= burstTarget) return;
+                j.streamSeen++;
+                final int k = j.streamSeen;
+                if (j.longPending.get() < 6 || k == burstTarget) {
+                    final YuvFrame f = copy(img);
+                    TotalCaptureResult tr = burstResults.get(f.timestampNs);
+                    if (tr != null) {
+                        Integer iso = tr.get(CaptureResult.SENSOR_SENSITIVITY);
+                        Long exp = tr.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                        if (iso != null) f.iso = iso;
+                        if (exp != null) f.exposureNs = exp;
+                    }
+                    j.streamQueued++;
+                    j.longPending.incrementAndGet();
+                    final BurstFusion.Stream st = j.stream;
+                    final Job jj = j;
+                    worker.execute(() -> {
+                        try { st.add(f); } finally { jj.longPending.decrementAndGet(); }
+                    });
+                    if (j.streamQueued == 1) quickPreview(f, j.orientation);
+                } else {
+                    j.streamSkipped++;
+                }
+                busy("Noite: quadro " + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget);
+                if (k >= burstTarget) finishBurst(j);
                 return;
             }
             if (burstFrames.size() >= burstTarget) return;
@@ -2010,7 +2074,15 @@ final class CameraController {
             try {
                 boolean superRes = j.superRes;
                 float scale = j.srCrop > 1f ? Math.min(2.5f, j.srCrop) : superRes ? 1.5f : 1f;
-                BurstFusion.Result fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                BurstFusion.Result fr;
+                if (j.stream != null) {
+                    // a fila do worker é sequencial: as somas de todos os quadros já terminaram aqui
+                    fr = j.stream.finish((label, p) -> busy(label, 0.3f + 0.6f * p));
+                    j.sheet.put("fusao_incremental", "quadros somados ao chegar (memória constante) · "
+                            + j.streamQueued + " na soma, " + j.streamSkipped + " pulados (soma atrasada)");
+                } else {
+                    fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                }
                 if (j.srCrop > 1f && fr.scale <= 1f) {
                     // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
                     j.cropUpscale = j.srCrop;

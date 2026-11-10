@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.25.0** (versionCode 60),
-APK: `The_Natural_Cam_1.25.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.26.0** (versionCode 61),
+APK: `The_Natural_Cam_1.26.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -294,3 +294,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Falta: fusão incremental (memória constante) para passar de 12 quadros (Night Sight usa até 15);
   testar na mão de verdade em cena bem escura; NAFNet (só regressivo) para ISO > 8000 no Noite.
 - Pergunta em aberto: 6×+ com objeto < 40 cm (recorte da principal) — indicador / 3,5× / deixar.
+
+## Feito na 1.26.0 (2026-11-10) — fusão incremental, luz do toque, 6× perto
+- BurstFusion.Stream: fusão incremental (cada quadro alinhado e somado ao chegar, depois descartado;
+  ~110 MB de acumuladores em vez de 18 MB por quadro). Referência = mais nítido dos 4 primeiros.
+  Mesma matemática da fuse(). Noite sem super-resolução usa 15 quadros (CaptureDirector.stream).
+  PC (StreamFusionTest, cena com textura aleatória, σ=9): 1 quadro 9,03 · completa 12 2,65 ·
+  incremental 12 2,64 · incremental 15 2,37; quadro tremido fica fora.
+- globalShift paralelo por deslocamento candidato (mesmo resultado; 17→5 ms e 14→3 ms no PC).
+- Aparelho, Noite apoiado: 14/15 quadros de 1/4 s somados (1 pulado por atraso), ruído 11,5 → 3,1.
+- Toque: FOCO no ponto (7%), LUZ medida no objeto + primeiro plano (±30% largura, até 40% abaixo):
+  frasco branco não escurece mais a cena (ISO 3700 → 3268 ao tocar, ~0,2 EV).
+- Bug 6× perto: a medida de distância da principal "vencia" (10 s) durante a fusão longa do 3,5× e
+  o 6× abria a tele desfocada (ISO 15602, fusão reprovada). Agora vale enquanto a principal segue
+  aberta. Teste 3,5×/6×/7×/8× no frasco: todos na principal, fusão aprovada, ruído 1,4–1,56.

@@ -46,7 +46,9 @@ public class CaptureDirectorTest {
 
     private static void check(CaptureDirector.Scene s, CaptureDirector.Plan p) {
         String c = "iso " + s.iso + " zoom " + s.zoom + " " + s.kind + " face " + s.face + " manual " + s.manual + " → " + p.reason;
-        if (p.frames < 1 || p.frames > 12) fail("quadros fora de 1..12: " + c);
+        int maxFrames = p.stream ? 15 : 12; // só a fusão incremental (memória constante) passa de 12
+        if (p.frames < 1 || p.frames > maxFrames) fail("quadros fora de 1..12 (15 na incremental): " + c);
+        if (p.stream && p.srScale > 1f) fail("incremental não faz super-resolução: " + c);
         if (p.srScale > 1f && p.frames < 4) fail("super-resolução sem amostras suficientes: " + c);
         if (p.srScale > 2.5f) fail("ampliação acima de 2,5× inventaria detalhe: " + c);
         if (p.srCrop > 1f && p.srScale < 1.29f) fail("recorte sem super-resolução: " + c);

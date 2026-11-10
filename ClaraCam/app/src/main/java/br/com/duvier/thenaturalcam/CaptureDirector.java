@@ -43,6 +43,8 @@ public final class CaptureDirector {
         public long maxFrameExposureNs;
         /** Recorte central feito pelo app (1 = não recorta) e escala da super-resolução (1 = sem). */
         public float srCrop = 1f, srScale = 1f;
+        /** Fusão incremental (quadro somado ao chegar, memória constante): permite até 15 quadros. */
+        public boolean stream;
         public float denoise, sharpen;
         public String light, reason;
     }
@@ -88,7 +90,10 @@ public final class CaptureDirector {
         } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff) {
             p.srScale = 1.5f;
         }
-        p.frames = Math.max(1, Math.min(12, frames));
+        // Noite sem super-resolução: fusão incremental, como o Night Sight (até 15 quadros na mão)
+        p.stream = s.kind == Kind.NOITE && p.srScale <= 1f && !s.stackOff;
+        if (p.stream && light >= 2) frames = Math.max(frames, light >= 3 ? 15 : 12);
+        p.frames = Math.max(1, Math.min(p.stream ? 15 : 12, frames));
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
             p.srScale = 1f;
             p.srCrop = 1f;
@@ -116,7 +121,7 @@ public final class CaptureDirector {
         p.reason = String.format(Locale.ROOT, "luz %s · %d quadros · até 1/%d s%s%s",
                 p.light, p.frames, p.maxFrameExposureNs > 0 ? Math.round(1e9 / p.maxFrameExposureNs) : 0,
                 p.srCrop > 1f ? String.format(Locale.ROOT, " · zoom super-res %.2fx (recorte nativo, %.2fx)", p.srCrop, p.srScale) : "",
-                p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x" : "");
+                (p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x" : "") + (p.stream ? " · fusão incremental" : ""));
         return p;
     }
 }
