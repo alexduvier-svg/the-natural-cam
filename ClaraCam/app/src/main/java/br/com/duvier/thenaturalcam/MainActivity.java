@@ -381,8 +381,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
         addMode("Noite", CameraController.Mode.NOITE);
         addMode("Longa", CameraController.Mode.LONGA);
         addMode("Astro", CameraController.Mode.ASTRO);
-        // RAW removido da lista: o DNG de quadro único da OPPO sai com qualidade ruim (usuário).
-        // A captura RAW continua no código para uma futura fusão RAW multiquadro.
+        // RAW+: rajada RAW revelada pelo ISP próprio (RawIsp) — o DNG de quadro único da OPPO saía ruim.
+        if (raw) addMode("RAW+", CameraController.Mode.RAW);
         addMode("Pro", CameraController.Mode.PRO);
         hdr.setVisibility(hdrAvailable ? View.VISIBLE : View.GONE);
         refreshModes();
@@ -969,7 +969,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (true) return "";
         switch (mode) {
             case NOITE: return "Noite: apoie o celular e segure firme até terminar.";
-            case RAW: return "RAW: salva DNG + JPEG.";
+            case RAW: return "RAW+: revelação própria do sensor (teste) — compare com Foto.";
             case RETRATO: return "Retrato: toque no rosto para focar · " + PortraitEngine.label(aperture) + " (simulação).";
             case RUA: return "Rua: disparo imediato, obturador rápido para congelar o movimento.";
             case LONGA: return (longTrails ? "Luzes: faróis e luzes viram rastros" : "Água: efeito sedoso, como filtro ND") + " · " + longSeconds + " s · apoie o celular.";

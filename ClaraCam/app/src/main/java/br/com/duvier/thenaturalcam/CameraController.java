@@ -121,6 +121,15 @@ final class CameraController {
     private Mode mode = Mode.FOTO;
     private int resIndex = 0;
     private float zoom = 1f;
+    /** Câmera lógica (interface) e tele física aberta direto; onTele = a tele está aberta. */
+    private CameraCaps logicalCaps, teleCaps;
+    private boolean onTele;
+
+    /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
+    private float deviceZoom() {
+        if (!onTele || teleCaps == null || logicalCaps == null) return zoom;
+        return clamp(zoom / logicalCaps.teleRatio, teleCaps.zoomRange.getLower(), teleCaps.zoomRange.getUpper());
+    }
     private int ev = 0;
     private int manualIso = 0;
     private long manualExposureNs = 0;
@@ -184,6 +193,9 @@ final class CameraController {
         ByteBuffer raw;
         Size rawSize;
         boolean rawDone;
+        /** RAW+: rajada de RAW para o ISP próprio (null = não é RAW+). */
+        List<RawIsp.Frame> rawFrames;
+        int rawTarget;
         boolean superRes;
         LongExposure longExp;
         int longCount;
@@ -283,8 +295,19 @@ final class CameraController {
 
     void setZoom(float z) {
         handler.post(() -> {
-            if (caps == null) return;
-            zoom = clamp(z, caps.zoomRange.getLower(), caps.zoomRange.getUpper());
+            if (caps == null || logicalCaps == null) return;
+            zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
+            boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+            if (wantTele != onTele && !capturing) {
+                // troca de lente física: fecha e abre a outra (≈ meio segundo), sem travar a tela
+                onTele = wantTele;
+                caps = wantTele ? teleCaps : logicalCaps;
+                regions = null;
+                tapHold = -1f;
+                closeAll();
+                if (wanted) openCamera();
+                return;
+            }
             // enquadramento mudou: o ponto tocado antes não corresponde mais ao mesmo objeto
             if (regions != null && !userLock && Math.abs(Math.log(zoom / regionsZoom)) > 0.05) {
                 regions = null;
@@ -504,10 +527,6 @@ final class CameraController {
                 // Não volta ao foco contínuo (é ele que fica "indo e voltando"): o AF AUTO
                 // mantém a lente onde a última varredura parou até um novo toque.
                 Log.w(TAG, "foco não confirmado após 3 tentativas; mantendo a lente parada");
-                int cm = caps.minFocusCm(lastPhys);
-                focusWarnUntil = SystemClock.elapsedRealtime() + 4000;
-                postHint(cm > 0 ? "Não focou. Afaste-se: esta lente foca a partir de " + cm + " cm."
-                        : "Não focou. Afaste-se um pouco ou toque numa borda com contraste.");
             }
         }
     }
@@ -524,6 +543,18 @@ final class CameraController {
                     astroBurst(); // tripé: exposição manual, sem medir
                 } else if (yuvReader != null && mode == Mode.RUA) {
                     burst(); // Rua: dispara na hora, sem esperar foco/medição (instante decisivo)
+                } else if (mode == Mode.RAW && rawReader != null) {
+                    precaptureThen(() -> {
+                        if (isManual()) {
+                            rawBurst();
+                            return;
+                        }
+                        aeLocked = true;
+                        startRepeating();
+                        preAction = this::rawBurst;
+                        preState = PRE_WAIT_LOCK;
+                        preStartedAt = SystemClock.elapsedRealtime();
+                    });
                 } else if (yuvReader != null && (mode == Mode.NOITE || mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.LONGA)) {
                     precaptureThen(this::lockAeThenBurst);
                 } else if (isManual()) {
@@ -549,7 +580,12 @@ final class CameraController {
         }
         if (opening) return;
         try {
-            if (caps == null) caps = CameraCaps.pick(manager);
+            if (caps == null) {
+                caps = logicalCaps = CameraCaps.pick(manager);
+                teleCaps = CameraCaps.teleOf(manager, logicalCaps);
+                Log.w(TAG, "tele direta: " + (teleCaps != null ? "câmera " + teleCaps.id + " a partir de "
+                        + logicalCaps.teleRatio + "×" : "indisponível"));
+            }
             opening = true;
             manager.openCamera(caps.id, new CameraDevice.StateCallback() {
                 @Override
@@ -560,7 +596,8 @@ final class CameraController {
                     reopenTries = 0;
                     device = cameraDevice;
                     CameraCaps c = caps;
-                    main.post(() -> listener.onOpened(c));
+                    // a interface (zooms, modos) segue a câmera lógica; a tele direta é interna
+                    if (c == logicalCaps) main.post(() -> listener.onOpened(c));
                     configure();
                 }
 
@@ -692,14 +729,11 @@ final class CameraController {
                 configureStandard();
                 return;
             }
-            CameraCaps.ResOption base = caps.resolutions.get(0);
-            jpegReader = ImageReader.newInstance(base.size.getWidth(), base.size.getHeight(), ImageFormat.JPEG, 2);
-            jpegReader.setOnImageAvailableListener(this::onJpegImage, handler);
-            rawReader = ImageReader.newInstance(caps.rawSize.getWidth(), caps.rawSize.getHeight(), ImageFormat.RAW_SENSOR, 2);
+            // RAW+: só RAW do sensor; a revelação é toda nossa (RawIsp)
+            rawReader = ImageReader.newInstance(caps.rawSize.getWidth(), caps.rawSize.getHeight(), ImageFormat.RAW_SENSOR, 8);
             rawReader.setOnImageAvailableListener(this::onRawImage, handler);
-            outs.add(new OutputConfiguration(jpegReader.getSurface()));
             outs.add(new OutputConfiguration(rawReader.getSurface()));
-            description = "RAW · DNG " + CameraCaps.mp(caps.rawSize) + " + JPEG " + base.label;
+            description = "RAW+ · revelação própria do sensor · " + CameraCaps.mp(caps.rawSize);
         } else {
             if (res == null) throw new CameraAccessException(CameraAccessException.CAMERA_ERROR, "sem tamanhos JPEG");
             jpegReader = ImageReader.newInstance(res.size.getWidth(), res.size.getHeight(), ImageFormat.JPEG, 2);
@@ -894,7 +928,7 @@ final class CameraController {
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO);
         if (caps.awbLock) b.set(CaptureRequest.CONTROL_AWB_LOCK, awbLocked);
-        b.set(CaptureRequest.CONTROL_ZOOM_RATIO, maxRes ? 1f : zoom);
+        b.set(CaptureRequest.CONTROL_ZOOM_RATIO, maxRes ? 1f : deviceZoom());
 
         if (still) {
             // Quadro único: "leve" por padrão. A redução HIGH_QUALITY da OPPO apaga textura em ISO alto
@@ -950,7 +984,7 @@ final class CameraController {
             if (physNow != null) lastPhys = physNow;
             if (af != null && af != lastAfState) onTapAf(af);
             if (af != null) lastAfState = af;
-            updateLensHint();
+            // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
                 android.hardware.camera2.params.Face best = null;
@@ -1196,6 +1230,10 @@ final class CameraController {
         if (img == null) return;
         try {
             Job j = job;
+            if (j != null && !j.done && j.rawFrames != null) {
+                onRawPlus(j, img);
+                return;
+            }
             if (j == null || j.done || !j.needsRaw) return;
             int w = img.getWidth(), h = img.getHeight();
             Image.Plane p = img.getPlanes()[0];
@@ -1256,6 +1294,191 @@ final class CameraController {
                 main.post(() -> listener.onSaved(uri, summary));
             } catch (Exception e) {
                 error("Não foi possível salvar: " + e.getMessage());
+            }
+        });
+    }
+
+    // ---- RAW+: ISP próprio a partir do RAW do sensor ----------------------------------
+
+    private void rawBurst() {
+        try {
+            Job j = newJob("raw_isp");
+            j.rawFrames = new ArrayList<>();
+            // 25 MB por quadro (12 MP × 16 bits): de 3 (luz boa) a 8 (pouca luz)
+            j.rawTarget = lastIso >= 1600 ? 8 : lastIso >= 800 ? 6 : lastIso >= 200 ? 4 : 3;
+            j.sheet.put("quadros_pedidos", j.rawTarget);
+            j.sheet.put("tamanho_raw", caps.rawSize.toString());
+            job = j;
+            long exp = 0;
+            int iso = 0;
+            if (!isManual() && caps.manualSensor && lastIso >= 400 && lastExposure > 0 && caps.isoRange != null && caps.exposureRange != null) {
+                // a fusão RAW alinha o tremor: cada quadro expõe mais (até 1/30 s) com ISO menor
+                long target = Math.min(Math.min(lastExposure * 4, 33_333_333L), caps.exposureRange.getUpper());
+                if (target > lastExposure * 1.2) {
+                    iso = Math.max(caps.isoRange.getLower(), (int) Math.round((double) lastIso * lastExposure / target));
+                    exp = target;
+                    j.sheet.put("raw_exposicao_ns", exp);
+                    j.sheet.put("raw_iso", iso);
+                }
+            }
+            List<CaptureRequest> list = new ArrayList<>();
+            for (int i = 0; i < j.rawTarget; i++) {
+                CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                b.addTarget(rawReader.getSurface());
+                applyCommon(b, true, false);
+                b.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON);
+                if (exp > 0) {
+                    b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
+                    b.set(CaptureRequest.SENSOR_SENSITIVITY, iso);
+                    b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exp);
+                    b.set(CaptureRequest.SENSOR_FRAME_DURATION, exp);
+                }
+                list.add(b.build());
+            }
+            busy("RAW+: segure firme…", 0f);
+            session.captureBurst(list, new CameraCaptureSession.CaptureCallback() {
+                @Override
+                public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult result) {
+                    if (j.result == null) j.result = result;
+                }
+            }, handler);
+            final int gen = generation;
+            handler.postDelayed(() -> {
+                if (gen != generation || job != j || j.done) return;
+                if (j.rawFrames.size() >= 1 && j.result != null) finishRawPlus(j);
+                else fail("A câmera não entregou os quadros RAW.");
+            }, 10000);
+        } catch (Exception e) {
+            fail("Falha no RAW+: " + e.getMessage());
+        }
+    }
+
+    private void onRawPlus(Job j, Image img) {
+        if (j.rawFrames.size() >= j.rawTarget) return;
+        try {
+            int w = img.getWidth(), h = img.getHeight();
+            Image.Plane p = img.getPlanes()[0];
+            java.nio.ShortBuffer src = p.getBuffer().order(java.nio.ByteOrder.nativeOrder()).asShortBuffer();
+            int rowShorts = p.getRowStride() / 2;
+            short[] d = new short[w * h];
+            for (int y = 0; y < h; y++) {
+                src.position(y * rowShorts);
+                src.get(d, y * w, w);
+            }
+            RawIsp.Frame f = new RawIsp.Frame(d, w, h);
+            f.timestampNs = img.getTimestamp();
+            j.rawFrames.add(f);
+        } catch (OutOfMemoryError oom) {
+            j.rawTarget = j.rawFrames.size();
+        }
+        int k = j.rawFrames.size();
+        busy("RAW+: quadro " + k + "/" + j.rawTarget + " — segure firme", 0.3f * k / j.rawTarget);
+        if (k >= j.rawTarget && j.result != null) finishRawPlus(j);
+        else if (k >= j.rawTarget) handler.postDelayed(() -> { if (!j.done && j.result != null) finishRawPlus(j); }, 300);
+    }
+
+    /** Metadados da revelação a partir do resultado da captura e das características do sensor. */
+    private RawIsp.Meta rawMeta(TotalCaptureResult r) throws Exception {
+        RawIsp.Meta m = new RawIsp.Meta();
+        CameraCharacteristics ch = caps.ch;
+        Integer cfa = ch.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+        m.cfa = cfa != null && cfa <= 3 ? cfa : 0;
+        float[] dyn = r.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL);
+        if (dyn != null && dyn.length == 4) {
+            m.black = dyn.clone();
+        } else {
+            android.hardware.camera2.params.BlackLevelPattern bp = ch.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN);
+            if (bp != null) m.black = new float[]{bp.getOffsetForIndex(0, 0), bp.getOffsetForIndex(1, 0), bp.getOffsetForIndex(0, 1), bp.getOffsetForIndex(1, 1)};
+        }
+        Integer dw = r.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL);
+        Integer sw = ch.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
+        m.white = dw != null && dw > 0 ? dw : sw != null ? sw : 1023;
+        android.hardware.camera2.params.RggbChannelVector g = r.get(CaptureResult.COLOR_CORRECTION_GAINS);
+        if (g != null) {
+            float gg = (g.getGreenEven() + g.getGreenOdd()) / 2f;
+            m.wb = new float[]{g.getRed() / gg, 1f, g.getBlue() / gg};
+        }
+        android.hardware.camera2.params.ColorSpaceTransform t = r.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+        if (t != null) {
+            for (int row = 0; row < 3; row++) for (int col = 0; col < 3; col++) m.ccm[row * 3 + col] = t.getElement(col, row).floatValue();
+        }
+        Boolean shadingApplied = ch.get(CameraCharacteristics.SENSOR_INFO_LENS_SHADING_APPLIED);
+        android.hardware.camera2.params.LensShadingMap sm = r.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
+        if (sm != null && (shadingApplied == null || !shadingApplied)) {
+            int cw = sm.getColumnCount(), rh = sm.getRowCount();
+            m.shadingW = cw;
+            m.shadingH = rh;
+            m.shading = new float[3][cw * rh];
+            for (int y = 0; y < rh; y++) {
+                for (int x = 0; x < cw; x++) {
+                    m.shading[0][y * cw + x] = sm.getGainFactor(android.hardware.camera2.params.RggbChannelVector.RED, x, y);
+                    m.shading[1][y * cw + x] = (sm.getGainFactor(android.hardware.camera2.params.RggbChannelVector.GREEN_EVEN, x, y)
+                            + sm.getGainFactor(android.hardware.camera2.params.RggbChannelVector.GREEN_ODD, x, y)) / 2f;
+                    m.shading[2][y * cw + x] = sm.getGainFactor(android.hardware.camera2.params.RggbChannelVector.BLUE, x, y);
+                }
+            }
+        }
+        android.util.Pair<Double, Double>[] np = r.get(CaptureResult.SENSOR_NOISE_PROFILE);
+        if (np != null && np.length > 0) {
+            double s = 0, o = 0;
+            for (android.util.Pair<Double, Double> pr : np) {
+                s += pr.first;
+                o += pr.second;
+            }
+            m.noiseS = s / np.length;
+            m.noiseO = o / np.length;
+        }
+        // zoom: o RAW é o sensor inteiro da lente física em uso; recorta o que falta (sem ampliar)
+        String phys = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
+        float lensRatio = 1f;
+        if (phys != null && caps.mainId != null && caps.physLens.containsKey(phys) && caps.physLens.containsKey(caps.mainId)) {
+            lensRatio = caps.physLens.get(phys)[0] / caps.physLens.get(caps.mainId)[0];
+        }
+        Float zr = r.get(CaptureResult.CONTROL_ZOOM_RATIO);
+        m.crop = Math.max(1f, (zr != null ? zr : zoom) / lensRatio);
+        return m;
+    }
+
+    private void finishRawPlus(Job j) {
+        j.done = true;
+        job = null;
+        aeLocked = false;
+        startRepeating();
+        afRelease();
+        final List<RawIsp.Frame> frames = new ArrayList<>(j.rawFrames);
+        j.rawFrames.clear();
+        fillResult(j.sheet, j.result);
+        worker.execute(() -> {
+            try {
+                RawIsp.Meta m = rawMeta(j.result);
+                j.sheet.put("raw_cfa", m.cfa);
+                j.sheet.put("raw_preto", java.util.Arrays.toString(m.black));
+                j.sheet.put("raw_branco", m.white);
+                j.sheet.put("raw_balanco_branco", java.util.Arrays.toString(m.wb));
+                j.sheet.put("raw_matriz_cor", java.util.Arrays.toString(m.ccm));
+                j.sheet.put("raw_sombreamento", m.shading != null ? m.shadingW + "×" + m.shadingH : "não aplicado (sensor já corrige ou sem mapa)");
+                j.sheet.put("raw_ruido_s_o", m.noiseS + " / " + m.noiseO);
+                j.sheet.put("raw_recorte_zoom", round2(m.crop));
+                RawIsp.Result res = RawIsp.process(frames, m, (label, p) -> busy("RAW+: " + label, 0.35f + 0.6f * p));
+                frames.clear();
+                j.sheet.put("quadros_recebidos", res.framesIn);
+                j.sheet.put("quadro_referencia", res.reference);
+                j.sheet.put("aproveitamento_medio", round2(res.meanWeight));
+                j.sheet.put("deslocamento_max_px", res.maxShift);
+                j.sheet.put("raw_ganho_exposicao", round2(res.exposureGain));
+                j.sheet.put("tempo_fusao_raw_ms", res.mergeMs);
+                j.sheet.put("tempo_revelacao_ms", res.developMs);
+                j.sheet.put("tempo_acabamento_ms", res.finishMs);
+                j.sheet.put("tempo_total_ms", res.millis);
+                j.sheet.put("tamanho", res.frame.width + "x" + res.frame.height);
+                quickPreview(res.frame, j.orientation);
+                busy("Gravando…", 0.97f);
+                saveYuv(j, res.frame);
+            } catch (Throwable t) {
+                frames.clear();
+                Log.w(TAG, "RAW+", t);
+                error("RAW+ falhou: " + t.getMessage());
+                idle();
             }
         });
     }

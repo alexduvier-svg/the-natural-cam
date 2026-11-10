@@ -134,3 +134,16 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Fluidez medida no visor parado: 0,9 % de quadros lentos, 99 % abaixo de 13 ms.
 - Falta testar na mão: aviso da tele perto/longe, foco em cada lente, troca de lentes e edição.
 - Próximo grande: ISP próprio a partir do RAW (fusão RAW, revelação tipo Hasselblad).
+
+## Feito na 1.17.0 (2026-11-10) — tele de verdade e ISP RAW próprio
+- Vídeo do usuário: na mesma distância a câmera nativa usa a tele e o nosso app ficava no recorte
+  da principal (a câmera lógica não troca para a tele no app). Agora a partir de 3,45× o app abre
+  a tele DIRETO (câmera pública "4"); abaixo disso volta à lógica. Razão calculada pela focal
+  equivalente (80 ÷ 23 mm), não pela focal real (dava 2,2×). Troca ≈ fecha/abre a câmera.
+- Avisos de distância removidos do visor a pedido (continuam na ficha: aviso_lente, aviso_foco).
+- RAW+ (modo de volta na lista): rajada RAW 3–8 quadros alinhada e somada no domínio Bayer com
+  recusa de movimento pelo modelo de ruído do sensor; preto, sombreamento (só se o sensor não
+  aplica), WB e matriz do próprio resultado, demosaico Malvar–He–Cutler, curva tipo filme com
+  ombro longo (branco da cena = 243, não estoura), acabamento leve. RawIspTest: 5 testes.
+- NÃO testado no aparelho: troca para a tele em 3,5× (log confirma "câmera 4 a partir de
+  3,45×"), RAW+ (cor, exposição, sombreamento nas bordas, tempo) — comparar com Foto.

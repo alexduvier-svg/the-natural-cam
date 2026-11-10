@@ -59,7 +59,7 @@ final class CameraCaps {
     final boolean raw;
     final Size rawSize;
     final float minFocus;
-    /** Lentes físicas: id → {focal mm, foco mínimo em dioptrias}. */
+    /** Lentes físicas: id → {focal equivalente 35 mm, foco mínimo em dioptrias}. */
     final java.util.Map<String, float[]> physLens = new java.util.HashMap<>();
     /** Tele (maior focal) e principal; null se a câmera não for multi-lente. */
     final String teleId, mainId;
@@ -140,7 +140,11 @@ final class CameraCaps {
                     CameraCharacteristics pc = manager.getCameraCharacteristics(pid);
                     float[] fl = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
                     Float pm = pc.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
-                    float focal = fl != null && fl.length > 0 ? fl[0] : 0;
+                    // focal EQUIVALENTE (35 mm): os sensores têm tamanhos diferentes — tele 12,19 mm
+                    // ÷ principal 5,56 mm daria 2,2×, mas o campo de visão real é 80 ÷ 23 ≈ 3,5×
+                    android.util.SizeF ps = pc.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                    float raw = fl != null && fl.length > 0 ? fl[0] : 0;
+                    float focal = ps != null && ps.getWidth() > 0 ? (float) (raw * 43.27 / Math.hypot(ps.getWidth(), ps.getHeight())) : raw;
                     float minD = pm != null ? pm : 0;
                     physLens.put(pid, new float[]{focal, minD});
                     if (focal > tFocal) {
@@ -224,6 +228,22 @@ final class CameraCaps {
     private static boolean hasExtensionOutput(CameraExtensionCharacteristics ext, int extension) {
         return !ext.getExtensionSupportedSizes(extension, ImageFormat.JPEG).isEmpty()
                 || !ext.getExtensionSupportedSizes(extension, ImageFormat.YUV_420_888).isEmpty();
+    }
+
+    /**
+     * Tele aberta DIRETAMENTE (id público próprio, ex.: "4" no Reno16 Pro). A câmera lógica não
+     * troca para a tele no app (fica no recorte ampliado da principal, foto degradada), então no
+     * zoom da tele o app abre a lente física sozinho. null se ela não for pública.
+     */
+    static CameraCaps teleOf(CameraManager manager, CameraCaps logical) {
+        if (logical == null || logical.teleId == null || logical.teleRatio < 1.5f) return null;
+        try {
+            for (String id : manager.getCameraIdList()) {
+                if (id.equals(logical.teleId)) return new CameraCaps(manager, id, manager.getCameraCharacteristics(id));
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /** Escolhe a câmera traseira principal, preferindo a câmera "lógica" (que recebe o melhor processamento). */
