@@ -181,6 +181,12 @@ public final class EditorActivity extends Activity {
         maskScroll = Ui.horizontal(this, maskRow);
         sliders = Ui.column(this);
         sliders.setPadding(dp(16), dp(10), dp(16), dp(10));
+        // cabeçalho da ferramenta FIXO (fora da rolagem): "‹ Ferramentas" sempre à mão, mesmo
+        // depois de rolar uma ferramenta longa como a Curva de Tons
+        toolHeadBox = new FrameLayout(this);
+        toolHeadBox.setPadding(dp(16), dp(8), dp(16), 0);
+        toolHeadBox.setVisibility(View.GONE);
+        panel.addView(toolHeadBox, new LinearLayout.LayoutParams(-1, -2));
         sliderScroll = new android.widget.ScrollView(this);
         sliderScroll.addView(sliders);
         panel.addView(sliderScroll, new LinearLayout.LayoutParams(-1, dp(300)));
@@ -386,7 +392,8 @@ public final class EditorActivity extends Activity {
             v.setGravity(Gravity.CENTER);
             if (on) v.setBackground(Ui.rounded(this, 0xFF2A2B30, dp(22)));
             v.setOnClickListener(x -> {
-                if (!t[0].equals(tab)) {
+                // tocar em "Ferramentas" de dentro de uma ferramenta volta para a grade
+                if (!t[0].equals(tab) || tool != null) {
                     tab = t[0];
                     closeTool();
                 }
@@ -423,8 +430,12 @@ public final class EditorActivity extends Activity {
         updateMarker();
     }
 
+    private FrameLayout toolHeadBox;
+
     private void buildSliders() {
         sliders.removeAllViews();
+        toolHeadBox.removeAllViews();
+        toolHeadBox.setVisibility(TAB_TOOLS.equals(tab) && tool != null ? View.VISIBLE : View.GONE);
         buildTabs();
         if (TAB_STYLES.equals(tab)) {
             addHeader("Estilos");
@@ -458,9 +469,9 @@ public final class EditorActivity extends Activity {
         final String id = tool;
         reset.setOnClickListener(v -> resetTool(id));
         head.addView(reset, new FrameLayout.LayoutParams(-2, dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
-        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, dp(44));
-        hp.setMargins(dp(4), 0, dp(4), dp(6));
-        sliders.addView(head, hp);
+        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, dp(44));
+        hp.setMargins(dp(4), 0, dp(4), 0);
+        toolHeadBox.addView(head, hp);
         switch (tool) {
             case "luz":
                 addSlider("Exposição", recipe.exposure, -1f, 1f, v -> recipe.exposure = v);
