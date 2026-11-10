@@ -228,3 +228,15 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   fechada nas trocas. Agora a volta automática só ocorre se foi a principal que mediu perto, e a
   troca por falha da tele só uma vez por escolha de zoom. Se o acabamento falhar (memória), salva
   a fusão já aprovada. Teste: 8× no escuro salvou normalmente.
+
+## Feito na 1.21.0 (2026-11-10)
+- Ajustes em cards no estilo do editor (Captura · Visor · Sobre o Aparelho), card "Luz ambiente" com
+  a temperatura de cor ao vivo (sensor TCS3720).
+- Laboratório de tempo: ficha ganha tempo_etapa_* (verificador, limpeza leve, sombras, nitidez,
+  ampliação). Medido: 1× ~10 s (fusão 4,7), 8× ~12–16 s (super-res 5,3–5,7), Máxima ~25 s (SR 12,7).
+- Super-resolução pula amostras com d² > 1,2 px² (peso < 0,75 %): teste no PC −33 % de tempo com
+  a mesma imagem (dif. máx 1 nível); no celular uma foto 8× não mostrou ganho claro (5,7 s) — medir mais.
+- Codex (worktree próprio, pacote separado): diretriz de 50 milhões só de referência; vale trazer o
+  CameraMotionMeter (giroscópio) para o tempo por quadro.
+- Pendente: teste de cor do piso de taco com o sensor espectral vs câmera OPPO; referência X8 Ultra
+  8× (desfoque natural sob a aba, trama do tecido nítida) — comparar com o nosso 8× no mesmo enquadramento.

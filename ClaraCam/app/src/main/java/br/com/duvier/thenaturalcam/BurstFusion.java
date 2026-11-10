@@ -82,6 +82,10 @@ public final class BurstFusion {
      * muito da imagem combinada (movimento). Não há detalhe inventado: só amostras reais do sensor.
      * A cor (croma) é ampliada da imagem combinada.
      */
+    /** Corte de distância das amostras da super-resolução: 255 = todas (d² ≤ 2,5 px²); 123 = d² ≤ 1,2
+     *  px² (peso gaussiano ≥ 0,75 %). Medido: mesma imagem (diferença máx. ≤ 1 nível), bem mais rápido. */
+    static int srCut = 123;
+
     static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
                                  int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale) {
         final int w = guide.width, h = guide.height, n = frames.size();
@@ -161,7 +165,7 @@ public final class BurstFusion {
                                 if (px < 0 || px >= w) continue;
                                 float ddx = px - ax;
                                 int k = (int) ((ddx * ddx + ddy * ddy) * (256f / 2.5f));
-                                if (k > 255) continue;
+                                if (k > srCut) continue; // amostras distantes pesam < 1 %: puladas (mais rápido)
                                 int v = src[py * w + px] & 0xFF;
                                 int diff = v - gi;
                                 float wt = gauss[k] * rl[diff < 0 ? -diff : diff];

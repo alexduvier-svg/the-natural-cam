@@ -815,86 +815,119 @@ public final class MainActivity extends Activity implements CameraController.Lis
         return t;
     }
 
+    /** Card de ajuste (estilo da grade do editor): ícone, nome, valor atual em laranja; toque alterna. */
+    private static final class SettingCard {
+        final String icon, name;
+        final java.util.function.Supplier<String> value;
+        final Runnable tap;
+
+        SettingCard(String icon, String name, java.util.function.Supplier<String> value, Runnable tap) {
+            this.icon = icon;
+            this.name = name;
+            this.value = value;
+            this.tap = tap;
+        }
+    }
+
+    private static final int SET_TILE_BG = 0xFF0B0C0E, SET_TILE_LINE = 0xFF26272B;
+
+    /** Seção da tela de Ajustes: título laranja centralizado + grade de cards (2 por linha, sem vazios). */
+    private void settingsGrid(LinearLayout root, String title, List<SettingCard> cards) {
+        TextView h = Ui.text(this, title, 16, Ui.ACCENT);
+        h.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        h.setGravity(Gravity.CENTER);
+        h.setPadding(0, dp(root.getChildCount() == 0 ? 2 : 16), 0, dp(10));
+        root.addView(h, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout box = Ui.column(this);
+        box.setBackground(Ui.rounded(this, SET_TILE_LINE, dp(14)));
+        box.setClipToOutline(true);
+        int cols = 2;
+        for (int i = 0; i < cards.size(); i += cols) {
+            LinearLayout row = Ui.row(this);
+            int inRow = Math.min(cols, cards.size() - i); // última linha incompleta divide a largura
+            for (int c = 0; c < inRow; c++) {
+                SettingCard sc = cards.get(i + c);
+                LinearLayout tile = Ui.column(this);
+                tile.setGravity(Gravity.CENTER);
+                tile.setBackgroundColor(SET_TILE_BG);
+                tile.setPadding(dp(8), dp(10), dp(8), dp(10));
+                TextView icon = Ui.text(this, sc.icon, 22, Ui.TEXT);
+                icon.setGravity(Gravity.CENTER);
+                tile.addView(icon);
+                TextView name = Ui.text(this, sc.name, 12, Ui.TEXT);
+                name.setGravity(Gravity.CENTER);
+                name.setPadding(0, dp(6), 0, dp(2));
+                tile.addView(name);
+                TextView val = Ui.text(this, sc.value.get(), 12, Ui.ACCENT);
+                val.setGravity(Gravity.CENTER);
+                tile.addView(val);
+                if (sc.tap != null) {
+                    tile.setOnClickListener(v -> {
+                        sc.tap.run();
+                        val.setText(sc.value.get());
+                    });
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(104), 1);
+                lp.setMargins(c == 0 ? 0 : dp(1), i == 0 ? 0 : dp(1), 0, 0);
+                row.addView(tile, lp);
+            }
+            box.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        root.addView(box, new LinearLayout.LayoutParams(-1, -2));
+    }
+
     private void showSettings() {
         LinearLayout root = Ui.column(this);
-        LinearLayout content = settingsSection(root, "Captura");
+        String[] flashNames = {"Desligado", "Automático", "Ligado"};
+        String[] stackNames = {"Automático", "Desligado", "Máximo"};
+        List<SettingCard> captura = new ArrayList<>();
         if (caps != null && caps.flash) {
-            content.addView(settingsLabel("Flash"));
-            LinearLayout r = Ui.row(this);
-            String[] names = {"Desligado", "Automático", "Ligado"};
-            List<TextView> pills = new ArrayList<>();
-            for (int i = 0; i < 3; i++) {
-                final int f = i;
-                TextView t = Ui.pill(this, names[i], flash == i);
-                t.setOnClickListener(v -> {
-                    flash = f;
-                    camera.setFlash(f);
-                    for (int k = 0; k < pills.size(); k++) Ui.select(this, pills.get(k), k == flash);
-                });
-                pills.add(t);
-                r.addView(t, Ui.pillParams(this));
-            }
-            content.addView(r);
+            captura.add(new SettingCard("ϟ", "Flash", () -> flashNames[flash], () -> {
+                flash = (flash + 1) % 3;
+                camera.setFlash(flash);
+            }));
         }
         if (caps != null && !caps.resolutions.isEmpty()) {
-            content.addView(settingsLabel("Resolução (Foto e Pro)"));
-            LinearLayout r = Ui.row(this);
-            List<TextView> pills = new ArrayList<>();
-            for (int i = 0; i < caps.resolutions.size(); i++) {
-                final int idx = i;
-                CameraCaps.ResOption o = caps.resolutions.get(i);
-                TextView t = Ui.pill(this, o.label + (i == 0 ? " · menos ruído" : ""), resIndex == i);
-                t.setOnClickListener(v -> {
-                    setResolution(idx);
-                    for (int k = 0; k < pills.size(); k++) Ui.select(this, pills.get(k), k == resIndex);
-                });
-                pills.add(t);
-                r.addView(t, Ui.pillParams(this));
-            }
-            content.addView(Ui.horizontal(this, r), new LinearLayout.LayoutParams(-1, dp(48)));
+            captura.add(new SettingCard("▦", "Resolução",
+                    () -> caps.resolutions.get(Math.min(resIndex, caps.resolutions.size() - 1)).label + (resIndex == 0 ? " · menos ruído" : ""),
+                    () -> setResolution((resIndex + 1) % caps.resolutions.size())));
         }
-        content.addView(settingsLabel("Empilhamento de Quadros (Foto 12 MP e Noite)"));
-        LinearLayout stackRow = Ui.row(this);
-        String[] stackNames = {"Automático", "Desligado", "Máximo"};
-        List<TextView> stackPills = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
-            final int p = i;
-            TextView t = Ui.pill(this, stackNames[i], stackPolicy == i);
-            t.setOnClickListener(v -> {
-                stackPolicy = p;
-                camera.setStackPolicy(p);
-                for (int k = 0; k < stackPills.size(); k++) Ui.select(this, stackPills.get(k), k == stackPolicy);
-            });
-            stackPills.add(t);
-            stackRow.addView(t, Ui.pillParams(this));
-        }
-        content.addView(stackRow);
-        content.addView(note("Automático junta 3 a 8 quadros conforme a luz, com redução de ruído mínima em cada um: "
-                + "mantém a textura e reduz o ruído pela média. Desligado usa um único JPEG da câmera."));
-        content = settingsSection(root, "Visor");
-        content.addView(toggle("Focus peaking (contornos em foco, só na tela)", peaking, on -> {
-            peaking = on;
-            if (on) startPeaking();
+        captura.add(new SettingCard("❏", "Empilhamento", () -> stackNames[stackPolicy], () -> {
+            stackPolicy = (stackPolicy + 1) % 3;
+            camera.setStackPolicy(stackPolicy);
+            refreshModes();
+        }));
+        captura.add(new SettingCard("◐", "Sombras", () -> "limpeza automática", null));
+        settingsGrid(root, "Captura", captura);
+        root.addView(note("Empilhamento automático junta 3 a 10 quadros conforme a luz; Máximo usa 10–12 e super-resolução. "
+                + "A limpeza de ruído é forte só nas sombras e áreas lisas, leve no resto e respeita a pele."));
+        List<SettingCard> visor = new ArrayList<>();
+        visor.add(new SettingCard("◎", "Focus peaking", () -> peaking ? "Ligado" : "Desligado", () -> {
+            peaking = !peaking;
+            if (peaking) startPeaking();
             else overlay.peakPts = null;
             overlay.invalidate();
         }));
-        content.addView(toggle("Grade de composição", grid, on -> {
-            grid = on;
+        visor.add(new SettingCard("▤", "Grade", () -> grid ? "Ligada" : "Desligada", () -> {
+            grid = !grid;
             overlay.invalidate();
         }));
-        content.addView(toggle("Mostrar ISO e velocidade no visor", liveInfo, on -> {
-            liveInfo = on;
-            exposureLine.setVisibility(on ? View.VISIBLE : View.INVISIBLE);
+        visor.add(new SettingCard("ⓘ", "ISO e velocidade", () -> liveInfo ? "No visor" : "Ocultos", () -> {
+            liveInfo = !liveInfo;
+            exposureLine.setVisibility(liveInfo ? View.VISIBLE : View.INVISIBLE);
         }));
-        content = settingsSection(root, "Sobre o Aparelho");
-        content.addView(note("The Natural Cam " + BuildConfigInfo.VERSION + " · fotos em " + MediaSaver.PHOTO_DIR
-                + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
-        if (caps != null) {
-            content.addView(note("Câmera " + caps.id + (caps.logicalMultiCamera ? " (lógica)" : "")
-                    + " · Noite do sistema: " + (caps.extNight ? "sim" : "não, usa fusão própria")
-                    + " · HDR do sistema: " + (caps.extHdr ? "sim" : "não")
-                    + " · RAW: " + (caps.raw ? "sim" : "não")));
-        }
+        visor.add(new SettingCard("◑", "Luz ambiente", () -> {
+            float k = camera.ambient.cct();
+            return k > 0 ? Math.round(k) + " K" : (camera.ambient.available() ? "medindo…" : "sem sensor");
+        }, null));
+        settingsGrid(root, "Visor", visor);
+        List<SettingCard> sobre = new ArrayList<>();
+        sobre.add(new SettingCard("✦", "Versão", () -> BuildConfigInfo.VERSION, null));
+        sobre.add(new SettingCard("▣", "Câmera", () -> caps == null ? "—" : caps.id + (caps.logicalMultiCamera ? " (lógica)" : ""), null));
+        sobre.add(new SettingCard("◫", "RAW", () -> caps != null && caps.raw ? "Disponível (RAW+)" : "Não", null));
+        sobre.add(new SettingCard("☾", "Noite", () -> caps != null && caps.extNight ? "Sistema + própria" : "Fusão própria", null));
+        settingsGrid(root, "Sobre o Aparelho", sobre);
+        root.addView(note("Fotos em " + MediaSaver.PHOTO_DIR + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
         Ui.sheet(this, "Ajustes", root).show();
     }
 

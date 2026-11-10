@@ -2003,6 +2003,7 @@ final class CameraController {
                 }
                 // Verificador de qualidade: a fusão só vira a foto final se mantiver o detalhe
                 // e a forma das bordas do quadro mais nítido; senão salva esse quadro limpo.
+                final long[] tt = {System.currentTimeMillis()};
                 busy("Verificando qualidade…", 0.92f);
                 YuvFrame refFrame = fr.referenceFrame != null ? fr.referenceFrame : frames.get(Math.max(0, Math.min(frames.size() - 1, fr.reference)));
                 // ruído da fusão na grade da referência (a redução por área da super-res o divide pela escala)
@@ -2069,6 +2070,7 @@ final class CameraController {
                 j.sheet.put("tempo_acabamento_ms", fr.finishMs);
                 j.sheet.put("tempo_fusao_ms", fr.millis);
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
+                stamp(j, "tempo_etapa_verificador_ms", tt);
                 busy("Gravando…", 0.95f);
                 if (j.denoise > 0 && fr.noiseAfter > 0.8) {
                     // limpeza decidida pela diretriz (por luz): preserva bordas, tira o grão das áreas
@@ -2081,6 +2083,7 @@ final class CameraController {
                     j.sheet.put("limpeza_diretriz", j.denoise * 0.6f);
                     // ...e FORTE só nas sombras e áreas lisas (memória das sombras)
                     if (fr.noiseAfter > 1.5) {
+                        stamp(j, "tempo_etapa_limpeza_leve_ms", tt);
                         busy("Limpando sombras…", 0.935f);
                         float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
                         j.sheet.put("limpeza_sombras", "forte em áreas escuras/lisas · " + Math.round(part * 100) + "% da imagem");
@@ -2089,6 +2092,7 @@ final class CameraController {
                 if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {
                     // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
                     // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
+                    stamp(j, "tempo_etapa_sombras_ms", tt);
                     busy("Nitidez do zoom…", 0.95f);
                     BurstFusion.sharpenScaled(finalFrame, fr.scale, 0.6f, (float) Math.max(1.0, fr.noiseAfter));
                     j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,6");
@@ -2099,6 +2103,7 @@ final class CameraController {
                     // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
                     // bicúbica com nitidez na escala certa, só para completar o tamanho.
                     float k = 4096f / longSide;
+                    stamp(j, "tempo_etapa_nitidez_zoom_ms", tt);
                     busy("Ajustando para 12 MP…", 0.955f);
                     finalFrame = QualityCheck.upscale(finalFrame, k);
                     BurstFusion.sharpenScaled(finalFrame, k, 0.5f, (float) Math.max(1.0, fr.noiseAfter));
@@ -2111,6 +2116,7 @@ final class CameraController {
                     BurstFusion.sharpenScaled(finalFrame, up, 0.9f, (float) fr.noiseAfter);
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,9");
                 }
+                stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
@@ -2144,6 +2150,16 @@ final class CameraController {
                 }
             }
         });
+    }
+
+    /** Tempo da etapa anterior na ficha (laboratório: medir antes de otimizar). */
+    private static void stamp(Job j, String key, long[] t) {
+        long now = System.currentTimeMillis();
+        try {
+            j.sheet.put(key, now - t[0]);
+        } catch (Exception ignored) {
+        }
+        t[0] = now;
     }
 
     /** Executa na thread de trabalho. */
