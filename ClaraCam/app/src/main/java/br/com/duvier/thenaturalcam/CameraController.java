@@ -256,6 +256,8 @@ final class CameraController {
         boolean superRes;
         /** Ampliação do recorte digital da principal (1 = sem recorte). */
         float cropUpscale = 1f;
+        /** Zoom por super-resolução: fator do recorte central feito pelo app (1 = não). */
+        float srCrop = 1f;
         LongExposure longExp;
         int longCount;
         /** Quadros entregues pela câmera (somados ou pulados) e somas ainda na fila. */
@@ -1595,8 +1597,35 @@ final class CameraController {
             j.sheet.put("quadros_pedidos", burstTarget);
             // super-resolução só na Máxima: sobre o recorte já ampliado pelo ISP ela custava ~25 s
             // e quase não somava detalhe; o recorte ganha nitidez na escala da ampliação (abaixo)
-            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && stackPolicy == STACK_MAX && !teleFallback();
+            j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && stackPolicy == STACK_MAX;
             j.cropUpscale = teleFallback() ? zoom : 1f;
+            // DIRETRIZ DE CAPTURA: decide quadros, tempo por quadro e zoom por super-resolução para
+            // o ambiente medido agora (luz × zoom × lente × distância × rosto × modo).
+            CaptureDirector.Plan plan = null;
+            if (mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.NOITE) {
+                CaptureDirector.Scene sc = new CaptureDirector.Scene();
+                sc.iso = lastIso;
+                sc.exposureNs = lastExposure;
+                sc.zoom = zoom;
+                sc.tele = onTele;
+                sc.lensCrop = onTele ? deviceZoom() : Math.max(1f, zoom);
+                sc.focusCm = lastFocusDistance > 0 ? Math.round(100f / lastFocusDistance) : 100;
+                sc.face = currentFaces() != null;
+                sc.kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
+                sc.maxPolicy = stackPolicy == STACK_MAX;
+                sc.stackOff = stackPolicy == STACK_OFF && mode != Mode.NOITE;
+                sc.manual = isManual();
+                plan = CaptureDirector.decide(sc);
+                burstTarget = plan.frames;
+                j.superRes = plan.srScale > 1f;
+                if (plan.srCrop > 1f) {
+                    // os quadros vêm sem a ampliação do ISP; o app recorta e amplia com amostras reais
+                    j.srCrop = plan.srCrop;
+                    j.cropUpscale = 1f;
+                }
+                j.sheet.put("quadros_pedidos", burstTarget);
+                j.sheet.put("diretriz", plan.reason);
+            }
             lastShotCrop = mode == Mode.FOTO && teleFallback();
             if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal recortada + nitidez na escala da ampliação");
             if (mode == Mode.LONGA) {
@@ -1636,12 +1665,16 @@ final class CameraController {
                 nightExp = Math.max(caps.exposureRange.getLower(), lastExposure >> longProtect);
                 nightIso = lastIso;
                 j.sheet.put("longa_exposicao_quadro_ns", nightExp);
-            } else if (mode != Mode.LONGA && !isManual() && caps.manualSensor && lastIso >= 400 && lastExposure > 0
-                    && caps.isoRange != null && caps.exposureRange != null) {
-                long cap = mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
-                long target = Math.min(lastExposure * 4, cap);
-                target = Math.min(target, caps.exposureRange.getUpper());
-                if (target > lastExposure * 1.2) {
+            } else if (mode != Mode.LONGA && !isManual() && caps.manualSensor && lastExposure > 0
+                    && caps.isoRange != null && caps.exposureRange != null && (lastIso >= 400 || plan != null)) {
+                long cap = plan != null && plan.maxFrameExposureNs > 0 ? plan.maxFrameExposureNs
+                        : mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
+                // pouca luz: alonga até o limite (menos ISO); zoom longo/rosto: encurta até o limite
+                long target = Math.min(lastIso >= 400 ? lastExposure * 4 : lastExposure, cap);
+                target = Math.max(caps.exposureRange.getLower(), Math.min(target, caps.exposureRange.getUpper()));
+                boolean change = target > lastExposure * 1.2 || target < lastExposure * 0.83;
+                if (change && (long) Math.round((double) lastIso * lastExposure / target) > caps.isoRange.getUpper()) change = false;
+                if (change) {
                     int iso = (int) Math.round((double) lastIso * lastExposure / target);
                     nightIso = Math.max(caps.isoRange.getLower(), iso);
                     nightExp = target;
@@ -1654,6 +1687,7 @@ final class CameraController {
                 CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 b.addTarget(yuvReader.getSurface());
                 applyCommon(b, true, false);
+                if (j.srCrop > 1f) b.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1f); // sem ampliação do ISP
                 if (nightExp > 0) {
                     b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
                     b.set(CaptureRequest.SENSOR_SENSITIVITY, nightIso);
@@ -1868,11 +1902,20 @@ final class CameraController {
         }
         burstResults.clear();
         fillResult(j.sheet, j.result);
+        if (j.srCrop > 1f) {
+            // recorte central de cada quadro (o zoom que o ISP faria, mas sem ampliar)
+            for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropCenter(frames.get(i), j.srCrop));
+        }
         if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
         worker.execute(() -> {
             try {
                 boolean superRes = j.superRes;
-                BurstFusion.Result fr = new BurstFusion(0.30f, true, superRes ? 1.5f : 1f).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                float scale = j.srCrop > 1f ? Math.min(2.5f, j.srCrop) : superRes ? 1.5f : 1f;
+                BurstFusion.Result fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                if (j.srCrop > 1f && fr.scale <= 1f) {
+                    // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
+                    j.cropUpscale = j.srCrop;
+                }
                 if (fr.scale > 1f) {
                     j.sheet.put("super_resolucao", "1,5× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
                     j.sheet.put("tempo_super_resolucao_ms", fr.superResMs);
@@ -1919,8 +1962,9 @@ final class CameraController {
                 if (j.cropUpscale > 1.5f) {
                     // recorte ampliado da principal: nitidez na escala da ampliação
                     busy("Nitidez do recorte…", 0.94f);
-                    BurstFusion.sharpenScaled(finalFrame, j.cropUpscale, 0.9f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(j.cropUpscale * 0.55f)) + " px, força 0,9");
+                    float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
+                    BurstFusion.sharpenScaled(finalFrame, up, 0.9f, (float) fr.noiseAfter);
+                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,9");
                 }
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {

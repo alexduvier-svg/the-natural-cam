@@ -162,3 +162,13 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   no limite de perto (≥ 96 % do foco mínimo). EV estava em −5 (−0,8 EV): foto escura.
 - Fusão descarta quadros com < 70 % da nitidez (resolução cheia) do melhor quadro.
 - Foto de perto pela principal gera também _OPTICA_TELE (fundo levemente desfocado, f/8 simulado).
+
+## Feito na 1.19.0 (2026-11-10) — zooms 3,5× a 8× e diretriz de captura
+- Usuário usa mais 3,5×, 6×, 7×, 8×. 6–8× = recorte da tele; o ISP ampliava e amolecia.
+- ZOOM POR SUPER-RESOLUÇÃO: quadros pedidos com zoom 1,0 (grade nativa da lente), o app recorta o
+  centro (YuvFrame.cropCenter) e a fusão amplia até 2,5× com amostras reais de 8+ quadros.
+- CaptureDirector: diretriz por eixos (luz × tempo × zoom × lente × distância × rosto × modo ×
+  política × manual) decide quadros, tempo máximo por quadro (regra 1/focal folgada; rosto ≤ 1/60;
+  rua ≤ 1/250), super-resolução e acabamento. CaptureDirectorTest verifica 1.075.200 cenários.
+- Corrigidos: falha "Index 0" com super-resolução; barra de EV mudando sem querer.
+- NÃO testado na mão: 3,5/6/7/8× com o zoom por super-resolução (tempo e nitidez de rótulo).
