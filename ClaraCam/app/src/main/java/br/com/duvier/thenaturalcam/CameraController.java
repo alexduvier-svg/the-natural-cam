@@ -2056,6 +2056,13 @@ final class CameraController {
                 }
                 j.sheet.put("verificador_qualidade", qj);
                 safe[0] = finalFrame;
+                if (isDebuggable()) {
+                    // laboratório: a imagem ANTES do acabamento, para comparar ajustes no PC
+                    try {
+                        saver.saveYuv(j.name + "_DBG_PRE", finalFrame, j.orientation, new JSONObject().put("ruido_depois", fr.noiseAfter));
+                    } catch (Throwable ignored) {
+                    }
+                }
                 frames.clear();
                 j.sheet.put("quadros_recebidos", fr.framesIn);
                 j.sheet.put("quadros_usados", fr.framesUsed);

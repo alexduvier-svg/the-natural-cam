@@ -240,3 +240,13 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   CameraMotionMeter (giroscópio) para o tempo por quadro.
 - Pendente: teste de cor do piso de taco com o sensor espectral vs câmera OPPO; referência X8 Ultra
   8× (desfoque natural sob a aba, trama do tecido nítida) — comparar com o nosso 8× no mesmo enquadramento.
+
+## Laboratório boné 8× vs Find X8 Ultra 8× (2026-11-10)
+- Enquadramento 3,5×/8× confere com o visor (a foto escura anterior era cena sem luz).
+- Logo, pontos do bordado e costuras da aba: bons, sem aspecto digital. Trama do tecido da copa: a
+  X8 Ultra mostra, nós não. Medido (LabTexturaTest sobre _DBG_PRE): a trama já não existe antes do
+  acabamento (textura 0,56) e nem na 3,5× nativa — limite óptico: a X8 Ultra usa periscópica 6× de
+  50 MP; nossa 8× é recorte 2,3× da tele de 80 mm. Limpeza das sombras não é a causa (variantes iguais).
+- Desfoque sob a aba na X8U é óptico (focal ~131 mm). Opção: simular a profundidade de campo da focal
+  equivalente com o motor de Retrato (gradual, sem halo). Não inventar textura (regra: sem IA generativa).
+- Ferramentas: _DBG_PRE (imagem antes do acabamento, só na versão de teste), LabTexturaTest.

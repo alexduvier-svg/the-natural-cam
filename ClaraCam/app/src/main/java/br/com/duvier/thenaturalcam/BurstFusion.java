@@ -953,7 +953,7 @@ public final class BurstFusion {
             for (int xx = 0; xx < w2; xx++) {
                 int i = yy * w2 + xx;
                 float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
-                float flat = 1 - smooth01((sd - 1.5f * sig) / (5f * sig));      // liso → 1, textura → 0
+                float flat = 1 - smooth01((sd - flatLo * sig) / (flatSpan * sig)); // liso → 1, textura → 0
                 float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
                 // escuro e liso: força total; claro e liso: um terço; textura: quase nada
                 float base = flat * (0.33f + 0.67f * dark);
@@ -996,6 +996,9 @@ public final class BurstFusion {
         for (double v : rowSum) sum += v;
         return (float) (sum / ((double) w * h));
     }
+
+    /** Limiar do "liso" na limpeza das sombras, em múltiplos do ruído (ajustável no laboratório). */
+    static float flatLo = 1.5f, flatSpan = 5f;
 
     /** Proteção de pele na limpeza das sombras (desligável só para comparação em teste). */
     static boolean skinProtect = true;
