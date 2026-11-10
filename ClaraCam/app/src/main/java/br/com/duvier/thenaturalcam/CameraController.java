@@ -643,6 +643,7 @@ final class CameraController {
             if (capturing || device == null || (session == null && ext == null)) return;
             capturing = true;
             lastShotCrop = false;
+            lastShotZoom = 0f;
             busy("Capturando…", -1);
             try {
                 if (ext != null) {
@@ -1131,6 +1132,13 @@ final class CameraController {
      */
     /** A última foto saiu da principal recortada no zoom da tele (objeto perto demais)? */
     private volatile boolean lastShotCrop;
+
+    /** Zoom da última foto no modo Foto (0 = outro modo), para a versão de lente longa. */
+    private volatile float lastShotZoom;
+
+    float lastShotZoom() {
+        return lastShotZoom;
+    }
 
     boolean lastShotWasCrop() {
         return lastShotCrop;
@@ -1707,6 +1715,7 @@ final class CameraController {
                 j.denoise = lastIso > 1600 ? 0.42f : lastIso > 400 ? 0.3f : 0.2f;
             }
             lastShotCrop = mode == Mode.FOTO && teleFallback();
+            lastShotZoom = mode == Mode.FOTO ? zoom : 0f;
             if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal recortada + nitidez na escala da ampliação");
             if (mode == Mode.LONGA) {
                 j.longExp = new LongExposure(longTrails);

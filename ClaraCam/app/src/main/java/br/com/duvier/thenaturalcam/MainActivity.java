@@ -1039,6 +1039,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
             // de uma tele de verdade — gradual, sem contorno
             makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele");
+        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
+            // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
+            // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
+            // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
+            // original fica. 8× → f/5,6 simulado; 6–7× → f/8 (mais leve).
+            float z = camera.lastShotZoom();
+            makePortrait(uri, z >= 7.5f ? 5.6f : 8f, "_OPTICA_LONGA", "óptica de lente longa");
         }
         lastUri = uri;
         busy = false;

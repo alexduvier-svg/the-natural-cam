@@ -250,3 +250,11 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Desfoque sob a aba na X8U é óptico (focal ~131 mm). Opção: simular a profundidade de campo da focal
   equivalente com o motor de Retrato (gradual, sem halo). Não inventar textura (regra: sem IA generativa).
 - Ferramentas: _DBG_PRE (imagem antes do acabamento, só na versão de teste), LabTexturaTest.
+
+## Feito na 1.22.0 (2026-11-10) — óptica de lente longa
+- Foto em 6×–8× (modo Foto) gera também _OPTICA_LONGA: desfoque gradual da profundidade de campo de
+  uma lente longa (motor do Retrato: profundidade + recorte do sujeito tocado), 8× → f/5,6, 6–7× →
+  f/8. Original intacta (arquivo separado); processamento normal não muda.
+- Teste inválido: o celular foi movido (estava no WhatsApp) e o toque de foco caiu na parede, então a
+  versão longa desfocou o boné. Refazer com o celular parado e o boné tocado. Cuidado: não dirigir o
+  celular sem checar se o usuário está usando (aconteceu aqui).
