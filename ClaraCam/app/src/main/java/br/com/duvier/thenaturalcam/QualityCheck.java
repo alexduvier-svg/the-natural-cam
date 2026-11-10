@@ -47,6 +47,16 @@ public final class QualityCheck {
             // na MESMA escala — antes a 2,5× a comparação era injusta e reprovava fusões boas
             fused = downTo(fused, ref.width, ref.height);
         }
+        if (noise > 4) {
+            // Pouca luz (tele em ISO 2000+, ruído 7–10): no tamanho original a medida nas bordas é
+            // quase só ruído e reprovava justamente a fusão limpa (salvando o quadro mais ruidoso).
+            // Reduz as duas imagens na mesma proporção: o ruído cai, a estrutura das bordas fica.
+            int k = (int) Math.min(4, Math.ceil(noise / 2.5));
+            ref = downTo(ref, ref.width / k, ref.height / k);
+            fused = downTo(fused, ref.width, ref.height);
+            noise /= k;
+            noiseFused /= k;
+        }
         Report r = new Report();
         int w = ref.width, h = ref.height;
         float sx = fused.width / (float) w, sy = fused.height / (float) h;

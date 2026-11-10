@@ -113,6 +113,26 @@ public class QualityCheckTest {
         assertTrue("reserva ampliada no tamanho da fusão", big.width == r.frame.width && big.height == r.frame.height);
     }
 
+    /** Mesma cena com ruído forte (σ ≈ 9, como a tele em ISO 3000). */
+    private static YuvFrame noisy(YuvFrame clean, double sigma, long seed) {
+        Random rnd = new Random(seed);
+        YuvFrame f = QualityCheck.copy(clean);
+        for (int i = 0; i < f.y.length; i++) f.y[i] = (byte) Math.max(0, Math.min(255, (clean.y[i] & 255) + (int) Math.round(rnd.nextGaussian() * sigma)));
+        return f;
+    }
+
+    @Test
+    public void poucaLuzFusaoLimpaPassaEBorraoReprova() {
+        // visto no aparelho: tele em ISO 2400–3300 reprovava a fusão limpa (0,08–0,17)
+        YuvFrame clean = label(800, 600, 1, 0);
+        YuvFrame ref = noisy(clean, 9, 5);
+        QualityCheck.Report ok = QualityCheck.compare(ref, noisy(clean, 3, 6), 9, 3);
+        QualityCheck.Report bad = QualityCheck.compare(ref, blur(clean, 3), 9, 1);
+        System.out.println("pouca luz: limpa " + ok.detailRatio + "/" + ok.edgeCorrelation + " · borrada " + bad.detailRatio + "/" + bad.edgeCorrelation);
+        assertTrue("fusão limpa aprovada: " + ok.reason, ok.passed);
+        assertFalse("borrão reprovado", bad.passed);
+    }
+
     @Test
     public void superResolucaoFielPassa() {
         // fusão 2× maior e fiel (cada pixel vira um bloco 2×2): reduzida de volta, é a mesma imagem

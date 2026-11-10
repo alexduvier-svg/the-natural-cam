@@ -147,6 +147,17 @@ final class CameraController {
         if (wanted) openCamera();
     }
 
+    /** Última distância (dioptrias) medida com foco pela principal, e quando. */
+    private volatile float mainFd;
+    private volatile long mainFdAt;
+
+    /** A principal mediu há pouco (≤ 10 s) o objeto mais perto que o mínimo da tele (+15 %)? */
+    private boolean mainNearNow() {
+        if (teleCaps == null || mainFd <= 0 || SystemClock.elapsedRealtime() - mainFdAt > 10_000) return false;
+        float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f; // 2,5 dpt = 40 cm
+        return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
+    }
+
     private void checkNearFar(Integer af, Float fd) {
         if (capturing || logicalCaps == null || teleCaps == null) return;
         long now = SystemClock.elapsedRealtime();
@@ -159,28 +170,16 @@ final class CameraController {
             nearSince = farSince = 0;
             return;
         }
-        if (onTele) {
-            // tele sem foco com a lente no limite de perto → objeto está perto demais
-            boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
-                    || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
-            boolean nearLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.85f;
-            // lente encostada no limite de perto: mesmo que o AF diga "focado", a tele está no
-            // fio da navalha ali (foco caça entre quadros) — a principal entrega melhor
-            boolean atLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.96f;
-            if ((unfocused && nearLimit) || atLimit) {
-                if (nearSince == 0) nearSince = now;
-                else if (now - nearSince > 700) {
-                    nearMode = true;
-                    handler.post(() -> switchLens(false));
-                }
-            } else {
-                nearSince = 0;
-            }
-        } else if (nearMode && zoom >= logicalCaps.teleRatio * 0.97f) {
-            // na principal: objeto além de ~55 cm por 1,5 s → a tele já foca, volta para ela
+        boolean focused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                || af == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED);
+        if (!onTele && focused && fd != null && fd > 0) {
+            // distância medida pela principal (coerente neste aparelho, ao contrário da tele)
+            mainFd = fd;
+            mainFdAt = now;
+        }
+        if (!onTele && nearMode && zoom >= logicalCaps.teleRatio * 0.97f) {
+            // na principal por estar perto: objeto além de ~55 cm por 1,5 s → a tele já foca
             float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
-            boolean focused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
-                    || af == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED);
             if (focused && fd != null && fd > 0 && fd < teleMin * 0.72f) {
                 if (farSince == 0) farSince = now;
                 else if (now - farSince > 1500) {
@@ -191,6 +190,23 @@ final class CameraController {
                 farSince = 0;
             }
         }
+        if (onTele) {
+            // Só o ESTADO do AF decide: a distância informada pela tele NÃO é calibrada neste
+            // aparelho (o sistema declara UNCALIBRATED) — a regra "lente no limite" trocava para a
+            // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
+            boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+                    || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
+            if (unfocused) {
+                if (nearSince == 0) nearSince = now;
+                else if (now - nearSince > 2500) {
+                    nearMode = true; // tele não consegue focar: objeto perto demais para ela
+                    handler.post(() -> switchLens(false));
+                }
+            } else {
+                nearSince = 0;
+            }
+        }
+        // a volta para a tele acontece ao escolher um zoom de novo (setZoom zera nearMode)
     }
 
     /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
@@ -371,8 +387,14 @@ final class CameraController {
     void setZoom(float z) {
         handler.post(() -> {
             if (caps == null || logicalCaps == null) return;
+            float before = zoom;
             zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
-            if (zoom < logicalCaps.teleRatio * 0.97f) nearMode = false; // saiu do zoom da tele
+            // escolher um zoom de novo sempre tenta a tele outra vez (antes ficava presa na principal)
+            if (Math.abs(zoom - before) > 0.01f || zoom < logicalCaps.teleRatio * 0.97f) nearMode = false;
+            // A tele deste aparelho diz "foco travado" (e distâncias falsas) mesmo com o objeto mais
+            // perto que o mínimo dela — a foto sai toda desfocada. A PRINCIPAL mede a distância de forma
+            // coerente: se ela acabou de medir o objeto perto (< ~46 cm), fica na principal.
+            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && mainNearNow()) nearMode = true;
             boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
             if (wantTele != onTele && !capturing) {
                 switchLens(wantTele);
@@ -1175,7 +1197,7 @@ final class CameraController {
         final int gen = generation;
         handler.postDelayed(() -> {
             if (gen == generation && (preState == PRE_WAIT_START || preState == PRE_WAIT_DONE)) runPreAction();
-        }, 1800);
+        }, 2300);
     }
 
     private void stepPrecapture(Integer ae) {
@@ -1183,7 +1205,11 @@ final class CameraController {
         long elapsed = SystemClock.elapsedRealtime() - preStartedAt;
         int st = ae != null ? ae : -1;
         // espera o foco confirmar quando foi disparado (limite 1,2 s para não travar o disparo)
-        boolean focusReady = !afTriggered || afDone(lastAfState) || elapsed > 1200;
+        // Espera também a varredura de um TOQUE em andamento (a tele é lenta): disparar no meio dela
+        // fazia cada quadro sair com um foco diferente e a fusão era reprovada (6×/8×). Limite 2 s.
+        boolean scanningNow = tapScanning || lastAfState == CameraMetadata.CONTROL_AF_STATE_ACTIVE_SCAN
+                || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_SCAN;
+        boolean focusReady = elapsed > 2000 || (!scanningNow && (!afTriggered || afDone(lastAfState)));
         switch (preState) {
             case PRE_WAIT_START:
                 if (st == CameraMetadata.CONTROL_AE_STATE_PRECAPTURE) {
@@ -1256,6 +1282,10 @@ final class CameraController {
         } catch (Exception e) {
             fail("Falha ao capturar: " + e.getMessage());
         }
+    }
+
+    private boolean isDebuggable() {
+        return (context.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
     /** Sensor de cor da luz ambiente (temperatura de cor), lido junto com a foto. */
@@ -1958,6 +1988,14 @@ final class CameraController {
                 qj.put("aprovada", q.passed);
                 qj.put("motivo", q.reason);
                 YuvFrame finalFrame = fr.frame;
+                if (!q.passed && fr.framesIn > 1 && isDebuggable()) {
+                    // versão de teste: guarda também a fusão reprovada e a referência, para conferir o verificador
+                    try {
+                        saver.saveYuv(j.name + "_DBG_FUSAO", fr.frame, j.orientation, new JSONObject().put("verificador", qj));
+                        saver.saveYuv(j.name + "_DBG_REF", refFrame, j.orientation, new JSONObject().put("verificador", qj));
+                    } catch (Throwable ignored) {
+                    }
+                }
                 if (!q.passed && fr.framesIn > 1) {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);

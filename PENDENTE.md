@@ -184,3 +184,15 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Troca tele/principal só depois de 1,5 s aberta e com o AF assentado (foco "agarrava" ao abrir).
 - Integrados os arquivos do Codex (PhotoKnowledge/PhotoScenarioSpace): keySet() → keys() (Android).
 - Usuário: 3,5× com boa nitidez; ruído vinha do quadro único (fusão reprovada) — corrigido.
+
+## Feito na 1.19.4–1.19.7 (2026-11-10) — testes feitos pelo app no celular (frasco)
+- Descoberto com imagens de depuração (_DBG_FUSAO/_DBG_REF, só na versão de teste): a tele diz
+  "foco travado" e distâncias falsas (chegou a 25 m) com o objeto abaixo de 40 cm — tudo desfocado.
+- Decisão de lente agora pela distância da PRINCIPAL (coerente: 24–38 cm medidos): ao escolher zoom
+  de tele, se a principal mediu < ~46 cm, fica na principal + zoom por super-resolução; volta para a
+  tele quando a principal mede > ~55 cm. Reserva: tele sem foco por 2,5 s → principal.
+- Disparo espera a varredura do foco tocado (até 2 s); verificador reduz as imagens em pouca luz
+  (ruído alto) antes de comparar; nitidez só acima de 2,5σ do ruído (diretriz do Codex).
+- Resultado 3,5× a 27 cm: fusão aprovada (0,85), 2924×2194, rótulo inteiro legível.
+- Codex: diretriz de 50 milhões (assets/knowledge, PhotoKnowledge, PhotoScenarioSpace) — referência,
+  não usada na captura; regras úteis aproveitadas (limiar de nitidez, estados de foco).

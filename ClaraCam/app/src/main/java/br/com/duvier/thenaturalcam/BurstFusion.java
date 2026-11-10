@@ -914,7 +914,8 @@ public final class BurstFusion {
         float[] y = new float[n];
         for (int i = 0; i < n; i++) y[i] = f.y[i] & 0xFF;
         final float[] bl = PortraitEngine.box(PortraitEngine.box(y, w, h, r), w, h, r);
-        final float thr = Math.max(1.5f, noise * 1.2f), lim = 14f;
+        // detalhe só acima de ~2,5σ do ruído residual (diretriz): o grão do fundo não é realçado
+        final float thr = Math.max(2f, noise * 2.5f), lim = 14f;
         IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
             int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
             for (int i = i0; i < i1; i++) {
