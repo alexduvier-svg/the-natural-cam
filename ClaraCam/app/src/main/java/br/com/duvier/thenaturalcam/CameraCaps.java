@@ -91,7 +91,11 @@ final class CameraCaps {
 
         StreamConfigurationMap map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
         List<Size> jpeg = sorted(map != null ? map.getOutputSizes(ImageFormat.JPEG) : null);
-        List<Size> yuv = sorted(map != null ? map.getOutputSizes(ImageFormat.YUV_420_888) : null);
+        // inclui os tamanhos de "alta resolução" (quadros um pouco mais lentos): a tele só oferece
+        // 4096×3072 nessa lista — sem ela o app usava 3264×2448 (8 MP) e as fotos saíam pequenas
+        List<Size> yuv = sorted(concat(map != null ? map.getOutputSizes(ImageFormat.YUV_420_888) : null,
+                map != null && contains(caps, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE)
+                        ? map.getHighResolutionOutputSizes(ImageFormat.YUV_420_888) : null));
         List<Size> tex = sorted(map != null ? map.getOutputSizes(SurfaceTexture.class) : null);
 
         // Resoluções: padrão com pixels agrupados (~12 MP) primeiro — é a que tem menos ruído.
@@ -316,6 +320,14 @@ final class CameraCaps {
     static String mp(Size s) {
         double m = area(s) / 1_000_000.0;
         return m < 9.5 ? String.format(Locale.ROOT, "%.1f MP", m) : String.format(Locale.ROOT, "%d MP", Math.round(m));
+    }
+
+    static Size[] concat(Size[] a, Size[] b) {
+        if (a == null) return b;
+        if (b == null || b.length == 0) return a;
+        Size[] o = Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, o, a.length, b.length);
+        return o;
     }
 
     static List<Size> sorted(Size[] sizes) {

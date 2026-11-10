@@ -196,3 +196,13 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Resultado 3,5× a 27 cm: fusão aprovada (0,85), 2924×2194, rótulo inteiro legível.
 - Codex: diretriz de 50 milhões (assets/knowledge, PhotoKnowledge, PhotoScenarioSpace) — referência,
   não usada na captura; regras úteis aproveitadas (limiar de nitidez, estados de foco).
+
+## Feito na 1.19.8–1.20.0 (2026-11-10) — testes no boné/cadeira a ~2 m (tele)
+- 3,5×/6×/7×/8× pela tele aprovadas. Reserva da super-resolução: refaz a fusão simples dos mesmos
+  quadros (antes caía num quadro único ISO 6000 cheio de pontos coloridos); quadros só são
+  liberados em saídas > 20 MP. Regra de tempo por quadro 6/focal (8× = 1/31 s, ISO ~1/3 menor).
+- Memória das sombras (BurstFusion.shadowDenoise): limpeza forte em áreas escuras e lisas, leve no
+  resto, textura quase intacta (teste: sombra −72% de ruído, rótulo mantém 91% do detalhe).
+- Resolução: a tele só lista 4096×3072 em getHighResolutionOutputSizes — agora incluído (antes
+  3264×2448). Saída mínima 4096×3072 (ampliação final bicúbica + nitidez na escala). JPEG 97.
+- Resultado: 3,5× e 8× em 4096×3072, ~2,5 MB em interior escuro (ISO 5000–7000).

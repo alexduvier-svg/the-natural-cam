@@ -55,9 +55,9 @@ public class CaptureDirectorTest {
             if (p.maxFrameExposureNs < 1_000_000L) fail("tempo de quadro irreal: " + c);
             if (s.face && p.maxFrameExposureNs > 16_666_666L) fail("rosto acima de 1/60 s borra: " + c);
             if (s.kind == CaptureDirector.Kind.RUA && p.maxFrameExposureNs > 4_000_000L) fail("rua acima de 1/250 s: " + c);
-            // zoom longo nunca pode pedir mais tempo que a regra 1/focal folgada 4×
+            // zoom longo nunca pode pedir mais tempo que a regra 1/focal folgada 6×
             float eq = 23f * Math.max(0.6f, s.zoom);
-            if (p.maxFrameExposureNs > 4e9 / eq + 1) fail("tempo longo demais para o zoom (tremido): " + c);
+            if (p.maxFrameExposureNs > 6e9 / eq + 1) fail("tempo longo demais para o zoom (tremido): " + c);
         }
         if (p.sharpen > 0.35f) fail("nitidez excessiva (regra do usuário): " + c);
         if (s.zoom >= 6f && !s.manual && !s.stackOff && s.kind == CaptureDirector.Kind.FOTO && p.srCrop <= 1f)

@@ -392,7 +392,9 @@ public final class BurstFusion {
             long ts = System.currentTimeMillis();
             fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
             // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
-            frames.clear(); // libera ~230 MB de quadros antes do acabamento em 28 MP
+            // só nas fotos gigantes: libera ~230 MB antes do acabamento em 28 MP; nas menores os quadros
+            // ficam para a reserva poder refazer a fusão sem super-resolução
+            if ((long) fin.width * fin.height > 20_000_000L) frames.clear();
             tSr = System.currentTimeMillis() - ts;
         }
         final YuvFrame outF = fin;
@@ -908,6 +910,64 @@ public final class BurstFusion {
      * vários pixels, então o realce usa raio proporcional à ampliação. Só no brilho, com limiar
      * acima do ruído e reforço limitado (sem halo/contorno) — natural, como pede o usuário.
      */
+    /**
+     * "Memória das sombras" (ideia do usuário): limpeza FORTE só onde o ruído aparece e não há
+     * detalhe a perder — áreas escuras E lisas (sombra embaixo da mesa, fundo escuro) —; nas demais,
+     * leve; onde há textura (letras, frisos, tecido), quase nada. A máscara é medida na versão já
+     * limpa (o ruído não se passa por textura) e é suave: sem contorno entre as regiões.
+     * Retorna a fração média da imagem tratada com força (para a ficha).
+     */
+    static float shadowDenoise(YuvFrame f, float[] model, float strong) {
+        final int w = f.width, h = f.height, n = w * h;
+        YuvFrame c = QualityCheck.copy(f);
+        lumaDenoise(c, model, strong);
+        lumaDenoiseCoarse(c, model, strong);
+        chromaFilter(c, model[8] * 2f);
+        // textura: desvio local (raio 2) medido na versão limpa
+        float[] y = new float[n], y2 = new float[n];
+        for (int i = 0; i < n; i++) {
+            float v = c.y[i] & 0xFF;
+            y[i] = v;
+            y2[i] = v * v;
+        }
+        float[] m1 = PortraitEngine.box(y, w, h, 2), m2 = PortraitEngine.box(y2, w, h, 2);
+        final float sig = Math.max(1f, model[8]);
+        final float[] mask = new float[n];
+        IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
+            int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
+            for (int i = i0; i < i1; i++) {
+                float sd = (float) Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
+                float flat = 1 - smooth01((sd - 1.5f * sig) / (5f * sig));      // liso → 1, textura → 0
+                float dark = 1 - smooth01((m1[i] - 50f) / 90f);                 // < 50 → 1, > 140 → 0
+                // escuro e liso: força total; claro e liso: um terço; textura: quase nada
+                mask[i] = flat * (0.33f + 0.67f * dark);
+            }
+        });
+        // suaviza a máscara (transição gradual, sem contorno)
+        final float[] ms = PortraitEngine.box(PortraitEngine.box(mask, w, h, 3), w, h, 3);
+        double sum = 0;
+        for (int i = 0; i < n; i++) {
+            float k = ms[i];
+            sum += k;
+            f.y[i] = (byte) Math.round((f.y[i] & 0xFF) * (1 - k) + (c.y[i] & 0xFF) * k);
+        }
+        final int cw = f.chromaWidth, ch = f.chromaHeight;
+        for (int yy = 0; yy < ch; yy++) {
+            for (int xx = 0; xx < cw; xx++) {
+                float k = ms[Math.min(h - 1, 2 * yy) * w + Math.min(w - 1, 2 * xx)];
+                int ci = yy * cw + xx;
+                f.u[ci] = (byte) Math.round((f.u[ci] & 0xFF) * (1 - k) + (c.u[ci] & 0xFF) * k);
+                f.v[ci] = (byte) Math.round((f.v[ci] & 0xFF) * (1 - k) + (c.v[ci] & 0xFF) * k);
+            }
+        }
+        return (float) (sum / n);
+    }
+
+    private static float smooth01(float t) {
+        t = Math.max(0, Math.min(1, t));
+        return t * t * (3 - 2 * t);
+    }
+
     static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise) {
         final int w = f.width, h = f.height, n = w * h;
         int r = Math.max(1, Math.round(upscale * 0.55f));

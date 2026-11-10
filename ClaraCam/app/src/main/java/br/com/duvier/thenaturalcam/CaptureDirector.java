@@ -80,7 +80,9 @@ public final class CaptureDirector {
         if (!s.manual) {
             float eq = MAIN_EQ_MM * Math.max(0.6f, s.zoom);
             // regra 1/focal, folgada 4× porque o alinhamento corrige parte do tremor
-            long shake = (long) (4e9 / eq);
+            // regra 1/focal folgada 6×: a tele tem estabilizador óptico e a fusão alinha o tremor
+            // (com 4× a 8× ficava em 1/46 s e o ISO subia a 6000 em interiores)
+            long shake = (long) (6e9 / eq);
             long cap = s.kind == Kind.NOITE ? 66_666_666L : 33_333_333L;
             if (s.kind == Kind.RUA) cap = 4_000_000L;
             if (s.face) cap = Math.min(cap, 16_666_666L); // pessoa se mexe: 1/60 s no máximo

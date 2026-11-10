@@ -1996,10 +1996,25 @@ final class CameraController {
                     } catch (Throwable ignored) {
                     }
                 }
-                if (!q.passed && fr.framesIn > 1) {
+                BurstFusion.Result plain = null;
+                if (!q.passed && fr.scale > 1f && frames.size() >= 3) {
+                    // 1ª reserva: a super-resolução falhou, mas a fusão NORMAL dos mesmos quadros ainda
+                    // tira o ruído (o quadro único a ISO 6000 saía cheio de pontos coloridos)
+                    busy("Refazendo a fusão…", 0.9f);
+                    plain = new BurstFusion(0.30f, true, 1f).fuse(frames, null);
+                    QualityCheck.Report q2 = QualityCheck.compare(refFrame, plain.frame, fr.noiseBefore, plain.noiseAfter);
+                    qj.put("reserva_fusao_simples", round2(q2.detailRatio) + " / " + round2(q2.edgeCorrelation));
+                    if (!q2.passed) plain = null;
+                }
+                if (plain != null) {
+                    finalFrame = QualityCheck.upscale(plain.frame, fr.scale);
+                    j.cropUpscale = fr.scale; // nitidez na escala da ampliação
+                    qj.put("decisao", "fusao_sem_super_resolucao (super-resolução reprovada)");
+                } else if (!q.passed && fr.framesIn > 1) {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);
-                    BurstFusion.lumaDenoise(finalFrame, model, 0.3f);
+                    // limpeza proporcional ao ruído do quadro (ISO alto pede mais)
+                    BurstFusion.lumaDenoise(finalFrame, model, (float) Math.min(0.85, 0.3 + fr.noiseBefore / 20.0));
                     BurstFusion.chromaFilter(finalFrame, model[8]);
                     if (j.srCrop > 1f && fr.scale > 1f) {
                         // recorte do zoom: entrega no mesmo tamanho da fusão (antes saía pequeno)
@@ -2033,9 +2048,16 @@ final class CameraController {
                     // lisas (mesa, parede) — o usuário viu fundo com ruído
                     busy("Limpando ruído…", 0.93f);
                     float[] model = BurstFusion.noiseModel(finalFrame);
-                    BurstFusion.lumaDenoise(finalFrame, model, j.denoise);
+                    // limpeza LEVE no geral (preserva textura em todo lugar)...
+                    BurstFusion.lumaDenoise(finalFrame, model, j.denoise * 0.6f);
                     BurstFusion.chromaFilter(finalFrame, model[8]);
-                    j.sheet.put("limpeza_diretriz", j.denoise);
+                    j.sheet.put("limpeza_diretriz", j.denoise * 0.6f);
+                    // ...e FORTE só nas sombras e áreas lisas (memória das sombras)
+                    if (fr.noiseAfter > 1.5) {
+                        busy("Limpando sombras…", 0.935f);
+                        float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
+                        j.sheet.put("limpeza_sombras", "forte em áreas escuras/lisas · " + Math.round(part * 100) + "% da imagem");
+                    }
                 }
                 if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {
                     // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
@@ -2043,6 +2065,17 @@ final class CameraController {
                     busy("Nitidez do zoom…", 0.95f);
                     BurstFusion.sharpenScaled(finalFrame, fr.scale, 0.6f, (float) Math.max(1.0, fr.noiseAfter));
                     j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,6");
+                }
+                int longSide = Math.max(finalFrame.width, finalFrame.height);
+                if (longSide < 4000 && longSide >= 1000) {
+                    // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
+                    // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
+                    // bicúbica com nitidez na escala certa, só para completar o tamanho.
+                    float k = 4096f / longSide;
+                    busy("Ajustando para 12 MP…", 0.955f);
+                    finalFrame = QualityCheck.upscale(finalFrame, k);
+                    BurstFusion.sharpenScaled(finalFrame, k, 0.5f, (float) Math.max(1.0, fr.noiseAfter));
+                    j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
                 if (j.cropUpscale > 1.5f) {
                     // recorte ampliado da principal: nitidez na escala da ampliação
