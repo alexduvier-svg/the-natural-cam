@@ -74,6 +74,21 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void fusaoDescartaQuadrosDesfocadosEPassaNoVerificador() {
+        // foco "caçando": 2 de 6 quadros desfocados não podem borrar a foto
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            YuvFrame f = label(800, 600, 20 + i, 0);
+            frames.add(i == 1 || i == 4 ? blur(f, 2) : f);
+        }
+        BurstFusion.Result r = new BurstFusion(0f, false).fuse(frames, null);
+        QualityCheck.Report q = QualityCheck.compare(frames.get(r.reference), r.frame, 3);
+        System.out.println("quadros usados " + r.framesUsed + "/" + r.framesIn + " · detalhe " + q.detailRatio);
+        assertTrue("desfocados ficam fora", r.framesUsed == 4);
+        assertTrue(q.reason, q.passed);
+    }
+
+    @Test
     public void superResolucaoFielPassa() {
         // fusão 1,5× maior: amostrada nas coordenadas correspondentes
         YuvFrame ref = label(600, 450, 1, 0);

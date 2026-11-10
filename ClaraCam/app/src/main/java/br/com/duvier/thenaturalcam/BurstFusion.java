@@ -44,6 +44,8 @@ public final class BurstFusion {
     }
 
     static final int TILE = 128;
+    /** Quadro entra na fusão só se tiver ≥ 70 % da nitidez do melhor. */
+    static final double MIN_SHARP_RATIO = 0.7;
     private static final int BINS = 16;
     private static final int BAND = 64; // linhas por tarefa paralela
 
@@ -218,13 +220,37 @@ public final class BurstFusion {
         final int[][] l4 = new int[n][];
         final int[][] l16 = new int[n][];
         final double[] sharp = new double[n];
+        final double[] fine = new double[n];
         IntStream.range(0, n).parallel().forEach(i -> {
             l4[i] = down4(frames.get(i).y, w, h);
             l16[i] = down4(l4[i], w4, h4);
             sharp[i] = sharpness(l4[i], w4, h4);
+            fine[i] = fineSharpness(frames.get(i).y, w, h);
         });
         int refIdx = 0;
         for (int i = 1; i < n; i++) if (sharp[i] > sharp[refIdx]) refIdx = i;
+        // Quadros bem menos nítidos que o melhor (foco "caçando" no limite da lente, tremor
+        // forte) borram a média: ficam de fora. Só a fusão dos nítidos entra na foto.
+        double bestFine = 0;
+        for (double v : fine) bestFine = Math.max(bestFine, v);
+        if (n > 1) {
+            List<YuvFrame> keep = new java.util.ArrayList<>();
+            List<Integer> map = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                if (fine[i] >= bestFine * MIN_SHARP_RATIO) {
+                    keep.add(frames.get(i));
+                    map.add(i);
+                }
+            }
+            if (keep.size() < n) {
+                Result rr = fuse(keep, progress);
+                rr.framesIn = n;
+                rr.framesUsed = keep.size();
+                rr.reference = map.get(rr.reference);
+                rr.millis = System.currentTimeMillis() - t0;
+                return rr;
+            }
+        }
         final int ref = refIdx;
         final YuvFrame r = frames.get(ref);
 
@@ -446,6 +472,22 @@ public final class BurstFusion {
             }
         }
         return out;
+    }
+
+    /**
+     * Nitidez em resolução cheia (laplaciano no miolo de 60 %): é a escala em que o desfoque de
+     * foco "caçando" aparece; na pirâmide reduzida a diferença sumia.
+     */
+    static double fineSharpness(byte[] y, int w, int h) {
+        double s = 0;
+        for (int yy = h / 5; yy < h - h / 5; yy += 2) {
+            int r = yy * w;
+            for (int x = w / 5; x < w - w / 5; x += 2) {
+                int c = y[r + x] & 0xFF;
+                s += Math.abs(4 * c - (y[r + x - 1] & 0xFF) - (y[r + x + 1] & 0xFF) - (y[r + x - w] & 0xFF) - (y[r + x + w] & 0xFF));
+            }
+        }
+        return s;
     }
 
     static double sharpness(int[] img, int w, int h) {

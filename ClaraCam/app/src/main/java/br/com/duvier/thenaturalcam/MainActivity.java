@@ -998,7 +998,12 @@ public final class MainActivity extends Activity implements CameraController.Lis
     @Override
     public void onSaved(Uri uri, String summary) {
         if (mode == CameraController.Mode.RETRATO && !summary.startsWith("retrato")) {
-            makePortrait(uri);
+            makePortrait(uri, aperture, "_RETRATO", "retrato");
+        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotWasCrop()) {
+            // de perto no zoom da tele a foto vem da principal (profundidade de campo de grande-
+            // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
+            // de uma tele de verdade — gradual, sem contorno
+            makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele");
         }
         lastUri = uri;
         busy = false;
@@ -1346,14 +1351,14 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * Cria a versão com desfoque a partir da foto recém-gravada (que fica preservada).
      * Plano em foco = último toque no visor (ou o centro, um pouco acima, onde costuma estar o rosto).
      */
-    private void makePortrait(Uri original) {
+    private void makePortrait(Uri original, float apIn, String suffix, String kind) {
         final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
         final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
-        final float ap = aperture;
+        final float ap = apIn;
         busy = true;
         shutter.invalidate();
         thumbBusy.setVisibility(View.VISIBLE);
-        status.setText("Criando retrato " + PortraitEngine.label(ap) + "…");
+        status.setText("Criando " + kind + " " + PortraitEngine.label(ap) + "…");
         portraitWorker.execute(() -> {
             try {
                 long t0 = System.currentTimeMillis();
@@ -1393,12 +1398,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 sheet.put("retrato_tempo_camadas_ms", tLayers - tDepth);
                 sheet.put("retrato_tempo_aplicar_ms", tApply - tLayers);
                 sheet.put("retrato_resolucao", w + "x" + h);
-                Uri out = new MediaSaver(this).saveBitmap(MediaSaver.newName() + "_RETRATO", full, 0, 0, 0, sheet, original);
+                sheet.put("tipo", kind);
+                Uri out = new MediaSaver(this).saveBitmap(MediaSaver.newName() + suffix, full, 0, 0, 0, sheet, original);
                 android.util.Log.i("TNC", "retrato: decodificar " + (tDecode - t0) + " ms, profundidade " + depth.millis
                         + " ms (rede " + depth.inferMs + "), camadas " + (tLayers - tDepth) + " ms, aplicar " + (tApply - tLayers)
                         + " ms, salvar " + (System.currentTimeMillis() - tApply) + " ms, " + w + "x" + h);
                 full.recycle();
-                main.post(() -> onSaved(out, "retrato " + PortraitEngine.label(ap) + " · original mantido"));
+                main.post(() -> onSaved(out, kind + " " + PortraitEngine.label(ap) + " · original mantido"));
             } catch (Throwable e) {
                 main.post(() -> {
                     busy = false;

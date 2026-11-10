@@ -153,7 +153,10 @@ final class CameraController {
             boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
                     || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
             boolean nearLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.85f;
-            if (unfocused && nearLimit) {
+            // lente encostada no limite de perto: mesmo que o AF diga "focado", a tele está no
+            // fio da navalha ali (foco caça entre quadros) — a principal entrega melhor
+            boolean atLimit = fd != null && teleCaps.minFocus > 0 && fd >= teleCaps.minFocus * 0.96f;
+            if ((unfocused && nearLimit) || atLimit) {
                 if (nearSince == 0) nearSince = now;
                 else if (now - nearSince > 700) {
                     nearMode = true;
@@ -584,6 +587,7 @@ final class CameraController {
         handler.post(() -> {
             if (capturing || device == null || (session == null && ext == null)) return;
             capturing = true;
+            lastShotCrop = false;
             busy("Capturando…", -1);
             try {
                 if (ext != null) {
@@ -1069,6 +1073,13 @@ final class CameraController {
      * (degradado) da principal — quase sempre porque o objeto está mais perto que o foco mínimo
      * da tele. Avisa na hora, antes de fotografar.
      */
+    /** A última foto saiu da principal recortada no zoom da tele (objeto perto demais)? */
+    private volatile boolean lastShotCrop;
+
+    boolean lastShotWasCrop() {
+        return lastShotCrop;
+    }
+
     private boolean teleFallback() {
         return caps != null && caps.teleId != null && caps.teleRatio > 1.5f && lastPhys != null
                 && zoom >= caps.teleRatio * 0.97f && !lastPhys.equals(caps.teleId);
@@ -1583,6 +1594,7 @@ final class CameraController {
             // super-resolução também no recorte da principal (objeto perto demais para a tele):
             // vários quadros deslocados pelo tremor recuperam detalhe real em vez de só ampliar
             j.superRes = (mode == Mode.FOTO || mode == Mode.RETRATO) && (stackPolicy == STACK_MAX || teleFallback());
+            lastShotCrop = mode == Mode.FOTO && teleFallback();
             if (teleFallback()) j.sheet.put("recorte_principal", "objeto perto da tele: principal + super-resolução");
             if (mode == Mode.LONGA) {
                 j.longExp = new LongExposure(longTrails);
@@ -1881,13 +1893,14 @@ final class CameraController {
                     BurstFusion.chromaFilter(finalFrame, model[8]);
                     qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
                     final String why = q.reason;
-                    main.post(() -> listener.onNotice("Qualidade: " + why + " — salvo o quadro mais nítido."));
+                    main.post(() -> listener.onNotice("Os quadros variaram (" + why + "); salvei o mais nítido."));
                 } else {
                     qj.put("decisao", "fusao");
                 }
                 j.sheet.put("verificador_qualidade", qj);
                 frames.clear();
                 j.sheet.put("quadros_recebidos", fr.framesIn);
+                j.sheet.put("quadros_usados", fr.framesUsed);
                 j.sheet.put("quadro_referencia", fr.reference);
                 j.sheet.put("ruido_estimado_antes", round2(fr.noiseBefore));
                 j.sheet.put("ruido_estimado_depois", round2(fr.noiseAfter));

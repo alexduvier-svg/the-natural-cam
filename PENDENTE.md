@@ -155,3 +155,10 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Na principal recortada, a foto usa super-resolução de vários quadros (detalhe real).
 - A nativa usa recorte do sensor de 200 MP, que não é acessível a apps; nosso recorte parte do
   modo 12 MP. NÃO testado ainda na mão: a troca automática e a qualidade de perto.
+
+## Feito na 1.18.0 (2026-11-10)
+- Fichas das fotos do usuário (1.17.2, 3,5×, 38 cm): a tele ficou aberta com AF "focado" no limite
+  (2,6 dpt, mínimo 2,5) — por isso a troca não acontecia; agora troca também quando a lente encosta
+  no limite de perto (≥ 96 % do foco mínimo). EV estava em −5 (−0,8 EV): foto escura.
+- Fusão descarta quadros com < 70 % da nitidez (resolução cheia) do melhor quadro.
+- Foto de perto pela principal gera também _OPTICA_TELE (fundo levemente desfocado, f/8 simulado).
