@@ -329,6 +329,9 @@ final class CameraController {
         /** Claridade da tela: histograma do quadro com exposição automática do sistema (pedido antes da rajada). */
         boolean wantToneRef, toneRefSeen;
         int[] toneRefHist;
+        /** Zoom e quadro da régua (= prévia), para recortar a foto onde a prévia estava. */
+        float refZoom = 1f;
+        YuvFrame refView;
         int streamSeen, streamQueued, streamSkipped;
         /** Foto feita pela tele (para a proteção de foco perto demais). */
         boolean onTeleShot;
@@ -1865,7 +1868,9 @@ final class CameraController {
                 CaptureRequest.Builder rb = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 rb.addTarget(yuvReader.getSurface());
                 applyCommon(rb, true, false);
-                if (j.srCrop > 1f) rb.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1f);
+                // régua no MESMO zoom da prévia: serve também para achar onde a prévia está no quadro
+                // completo (o sistema nem sempre centraliza) e recortar a foto ali
+                j.refZoom = deviceZoom();
                 j.wantToneRef = true;
                 refRequest = rb.build();
             } else {
@@ -1964,7 +1969,8 @@ final class CameraController {
                 // 1º quadro da rajada = régua de claridade (exposição automática do sistema): não entra na fusão
                 j.toneRefSeen = true;
                 YuvFrame rf = copy(img);
-                j.toneRefHist = ToneMatch.histogram(rf, j.srCrop);
+                j.toneRefHist = ToneMatch.histogram(rf, j.srCrop > 1f ? Math.max(1f, j.srCrop / Math.max(1f, j.refZoom)) : 1f);
+                if (j.srCrop > 1f && j.refZoom > 1.01f) j.refView = rf;
                 return;
             }
             if (j.stream != null) {
@@ -2115,6 +2121,27 @@ final class CameraController {
         handler.post(() -> longSeconds = s);
     }
 
+    /**
+     * Centro do recorte = onde a PRÉVIA estava no quadro completo (o que você vê é o que sai); sem
+     * régua ou sem achar com segurança, o centro do sensor.
+     */
+    private float[] previewCenter(Job j, YuvFrame full) {
+        if (j.refView == null || full == null) return new float[]{0.5f, 0.5f};
+        try {
+            float[] c = FrameLocate.locate(full, j.refView, j.refZoom);
+            if (c == null) {
+                j.sheet.put("recorte_no_ponto_da_previa", "não achado com segurança: centro do sensor");
+                return new float[]{0.5f, 0.5f};
+            }
+            j.sheet.put("recorte_no_ponto_da_previa", String.format(java.util.Locale.ROOT, "centro (%.3f; %.3f), erro %.2f", c[0], c[1], c[2]));
+            return c;
+        } catch (Throwable t) {
+            return new float[]{0.5f, 0.5f};
+        } finally {
+            j.refView = null; // libera 18 MB
+        }
+    }
+
     private void finishBurst(Job j) {
         j.done = true;
         job = null;
@@ -2136,7 +2163,8 @@ final class CameraController {
         fillResult(j.sheet, j.result);
         if (j.srCrop > 1f) {
             // recorte central de cada quadro (o zoom que o ISP faria, mas sem ampliar)
-            for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropCenter(frames.get(i), j.srCrop));
+            float[] at = previewCenter(j, frames.isEmpty() ? null : frames.get(0));
+            for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropAt(frames.get(i), j.srCrop, at[0], at[1]));
         }
         if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
         final YuvFrame[] safe = new YuvFrame[1]; // fusão aprovada, antes do acabamento
@@ -2153,8 +2181,9 @@ final class CameraController {
                     if (j.srCrop > 1f) {
                         // Noite escuro com zoom: soma em pixel cheio, recorte depois (ampliado abaixo
                         // com nitidez na escala certa) — menos ruído que a super-resolução no escuro
-                        fr.frame = YuvFrame.cropCenter(fr.frame, j.srCrop);
-                        if (fr.referenceFrame != null) fr.referenceFrame = YuvFrame.cropCenter(fr.referenceFrame, j.srCrop);
+                        float[] at = previewCenter(j, fr.frame);
+                        fr.frame = YuvFrame.cropAt(fr.frame, j.srCrop, at[0], at[1]);
+                        if (fr.referenceFrame != null) fr.referenceFrame = YuvFrame.cropAt(fr.referenceFrame, j.srCrop, at[0], at[1]);
                         j.sheet.put("zoom_noite", "recorte " + j.srCrop + "× depois da soma de " + fr.framesUsed + " quadros (sem super-resolução: escuro)");
                     }
                 } else {
@@ -2318,8 +2347,9 @@ final class CameraController {
                     // recorte ampliado da principal: nitidez na escala da ampliação
                     busy("Nitidez do recorte…", 0.94f);
                     float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
-                    BurstFusion.sharpenScaled(finalFrame, up, 0.9f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,9");
+                    // pedido do usuário: um pouco mais de nitidez no recorte ampliado (só acima do ruído; limite anti-halo)
+                    BurstFusion.sharpenScaled(finalFrame, up, 1.15f, (float) fr.noiseAfter);
+                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 1,15");
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 saveYuv(j, finalFrame);

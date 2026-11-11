@@ -30,8 +30,14 @@ public final class YuvFrame {
 
     /** Recorte central 1/factor (zoom feito por nós, na grade nativa do sensor). */
     public static YuvFrame cropCenter(YuvFrame f, float factor) {
+        return cropAt(f, factor, 0.5f, 0.5f);
+    }
+
+    /** Recorte de 1/factor do quadro centrado em (cx, cy) normalizados (limitado às bordas). */
+    public static YuvFrame cropAt(YuvFrame f, float factor, float cx, float cy) {
         int cw = Math.max(64, Math.round(f.width / factor)) & ~1, ch = Math.max(64, Math.round(f.height / factor)) & ~1;
-        int x0 = ((f.width - cw) / 2) & ~1, y0 = ((f.height - ch) / 2) & ~1;
+        int x0 = Math.max(0, Math.min(f.width - cw, Math.round(cx * f.width - cw / 2f))) & ~1;
+        int y0 = Math.max(0, Math.min(f.height - ch, Math.round(cy * f.height - ch / 2f))) & ~1;
         YuvFrame c = new YuvFrame(cw, ch);
         for (int y = 0; y < ch; y++) System.arraycopy(f.y, (y0 + y) * f.width + x0, c.y, y * cw, cw);
         for (int y = 0; y < c.chromaHeight; y++) {

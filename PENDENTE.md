@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.2** (versionCode 66),
-APK: `The_Natural_Cam_1.29.2_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.3** (versionCode 67),
+APK: `The_Natural_Cam_1.29.3_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -376,3 +376,9 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   ~5 % deslocada (na foto o objeto fica mais à direita/abaixo que na prévia) — provável recorte do
   ISP descentralizado na câmera lógica a 3,15×; medir o SCALER_CROP_REGION da prévia vs o recorte
   central do app e alinhar (bateria 8 % no teste).
+- 1.29.3: "o que você vê é o que sai" — a régua de claridade é capturada no MESMO zoom da prévia e
+  FrameLocate acha onde ela está no quadro completo (correlação de brilho normalizado, pirâmide ÷8;
+  PC: erro 0,3 %, 0,19 s); o recorte (stream e super-res) é feito nesse ponto (YuvFrame.cropAt).
+  Aparelho: Foto 3,5× perto, centro achado (0,528; 0,490) erro 0,05 — prévia e foto com o frasco na
+  mesma posição e tamanho. Nitidez do recorte ampliado 0,9 → 1,15 (pedido do usuário; anti-halo
+  mantido). JPEG 97 também no caminho Bitmap (a fusão já salvava a 97); 12 MP, ~2,2 MB.

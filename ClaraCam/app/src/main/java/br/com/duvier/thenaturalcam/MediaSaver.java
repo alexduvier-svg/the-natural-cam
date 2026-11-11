@@ -112,7 +112,7 @@ final class MediaSaver {
 
     Uri saveBitmap(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs, JSONObject sheet, Uri exifFrom) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream(8 * 1024 * 1024);
-        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 95, bos)) throw new IOException("Falha ao codificar JPEG.");
+        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 97, bos)) throw new IOException("Falha ao codificar JPEG.");
         File tmp = new File(context.getCacheDir(), name + ".jpg");
         try {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
