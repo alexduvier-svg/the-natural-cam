@@ -99,6 +99,23 @@ public class CaptureQualityRegressionTest {
         assertEquals(2000,BurstExposurePolicy.equivalentIso(4000,20_000_000L,40_000_000L,100,19200));
     }
 
+    @Test public void photoKeepsFastRenoPreviewExposureAndNightCanSpendMoreTime() {
+        long preview = 8_333_001L; // 3,5×, ISO 619, frasco no primeiro plano
+        assertEquals(preview, BurstExposurePolicy.targetExposure(619, preview, 33_333_333L, false));
+        assertEquals(12_000_000L, BurstExposurePolicy.targetExposure(619, 33_333_333L, 12_000_000L, false));
+        assertEquals(20_000_000L, BurstExposurePolicy.targetExposure(619, preview, 20_000_000L, true));
+        assertEquals(preview, BurstExposurePolicy.targetExposure(155, preview, 20_000_000L, true));
+    }
+
+    @Test public void publishedPhotoPlanKeepsPreviewCropWhenActivePhysicalGridDiffers() {
+        CaptureDirector.Scene scene = new CaptureDirector.Scene();
+        scene.zoom = 3.5f;
+        scene.lensCrop = 3.5f;
+        scene.maxPolicy = true;
+        scene.nativeGridSafe = false;
+        assertEquals(1f, CaptureDirector.decidePublished(scene).srCrop, 0f);
+    }
+
     @Test public void publishedPhotoBaselineIsUnaffectedByUnvalidatedPreviewMotion() {
         CaptureDirector.Scene s=new CaptureDirector.Scene();
         s.iso=6000;s.exposureNs=100_000_000L;s.zoom=3.5f;s.lensCrop=3.5f;s.maxPolicy=true;

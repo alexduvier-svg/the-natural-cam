@@ -2,6 +2,13 @@ package br.com.duvier.thenaturalcam;
 
 /** Do not transfer a logical main-camera ISO/time pair to a different physical sensor. */
 final class BurstExposurePolicy {
+    /** A cap is a limit. Only Night may trade a longer exposure for lower gain. */
+    static long targetExposure(int previewIso, long previewNs, long capNs, boolean night) {
+        if (previewNs <= 0 || capNs <= 0) return previewNs;
+        if (!night || previewIso < 400 || capNs <= previewNs) return Math.min(previewNs, capNs);
+        return previewNs <= capNs / 4 ? previewNs * 4 : capNs;
+    }
+
     static boolean allowAutomaticManual(boolean logical, String mainId, String activeId) {
         return !logical || (mainId != null && mainId.equals(activeId));
     }

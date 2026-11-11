@@ -154,7 +154,7 @@ public final class CaptureDirector {
         if (s.stackOff) frames = 1;
         // ---- zoom por super-resolução ------------------------------------------------------
         boolean srKind = s.kind == Kind.FOTO || s.kind == Kind.RETRATO || s.kind == Kind.NOITE;
-        if (srKind && s.lensCrop >= 1.3f && !s.manual && !s.stackOff) {
+        if (srKind && s.lensCrop >= 1.3f && s.nativeGridSafe && !s.manual && !s.stackOff) {
             p.srCrop = s.lensCrop;
             p.srScale = Math.min(2.5f, s.lensCrop);
             frames = Math.max(frames, 8); // a super-resolução precisa de amostras de vários quadros

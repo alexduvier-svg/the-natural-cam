@@ -28,15 +28,17 @@ public class RegionalPhotoProtocolTest {
     }
     @Test public void localLiftAnchorsBlackAndProtectsHighlights() {
         YuvFrame f=frame(320,240,50,128,128);
-        for(int y=0;y<16;y++)for(int x=0;x<16;x++) f.y[y*320+x]=(byte)248;
-        for(int y=224;y<240;y++)for(int x=0;x<16;x++) f.y[y*320+x]=0;
+        for(int y=0;y<16;y++)for(int x=288;x<320;x++) f.y[y*320+x]=(byte)248;
+        for(int y=224;y<240;y++)for(int x=288;x<320;x++) f.y[y*320+x]=0;
         RegionalPhotoProtocol.Context c=new RegionalPhotoProtocol.Context();
-        c.allowTone=true; c.ev100=3; c.night=true; c.sharpen=0; c.denoiseCeiling=0;
+        c.allowTone=true; c.ev100=3; c.sharpen=0; c.denoiseCeiling=0;
+        c.locateSubject = ignored -> rightSide(.35f);
         RegionalPhotoProtocol.Result result=RegionalPhotoProtocol.apply(f,c);
         assertTrue(result.frame.luma(160,120)>60);
-        assertEquals(0,result.frame.luma(4,232));
-        assertTrue(result.frame.luma(4,4)>=247 && result.frame.luma(4,4)<=249);
-        assertTrue(result.maxLiftEv<=1.1);
+        assertEquals(0,result.frame.luma(308,232));
+        assertEquals(50,result.frame.luma(4,4));
+        assertTrue(result.frame.luma(308,4)>=248 && result.frame.luma(308,4)<255);
+        assertTrue(result.maxLiftEv<=.65);
         assertEquals(50,f.luma(160,120));
         c.allowTone=false;
         assertArrayEquals(f.y,RegionalPhotoProtocol.apply(f,c).frame.y);
@@ -47,6 +49,7 @@ public class RegionalPhotoProtocolTest {
         YuvFrame f=frame(160,120,64,112,151);
         RegionalPhotoProtocol.Context c=new RegionalPhotoProtocol.Context();
         c.allowTone=true; c.face=true; c.ev100=4; c.sharpen=0; c.denoiseCeiling=0;
+        c.locateSubject = ignored -> rightSide(.35f);
         RegionalPhotoProtocol.Result result=RegionalPhotoProtocol.apply(f,c);
         double[] before=linearRgb(f),after=linearRgb(result.frame);
         assertTrue(result.maxLiftEv<=.5);
@@ -66,11 +69,52 @@ public class RegionalPhotoProtocolTest {
     @Test public void unusableBlackCaptureIsNotPresentedAsRecoverableShadowDetail() {
         YuvFrame f=frame(96,128,0,128,128);
         RegionalPhotoProtocol.Context c=new RegionalPhotoProtocol.Context();
-        c.allowTone=true; c.ev100=3; c.night=true;
+        c.allowTone=true; c.ev100=3;
+        c.locateSubject = ignored -> rightSide(.35f);
         RegionalPhotoProtocol.Result result=RegionalPhotoProtocol.apply(f,c);
         assertEquals(0,result.maxLiftEv,0);
         assertArrayEquals(f.y,result.frame.y);
         assertFalse(result.detail.measurable);
+    }
+
+    @Test public void backlitSubjectGainsLightAndKeepsFineTextAndCapGrooves() {
+        YuvFrame f = frame(640, 480, 185, 128, 128);
+        for (int y = 0; y < f.height; y++) for (int x = 396; x < f.width; x++) {
+            boolean groove = y < 210 && x % 8 < 3;
+            boolean ink = y >= 210 && x % 12 < 4 && y % 14 < 10;
+            f.y[y * f.width + x] = (byte)(groove ? 68 : ink ? 44 : 82);
+        }
+        RegionalPhotoProtocol.Context c = new RegionalPhotoProtocol.Context();
+        c.allowTone = true; c.targeted = true; c.ev100 = 12; c.sharpen = 0; c.denoiseCeiling = 0;
+        c.locateSubject = ignored -> rightSide(.63f);
+        RegionalPhotoProtocol.Result result = RegionalPhotoProtocol.apply(f, c);
+        assertTrue(result.liftDecision, result.maxLiftEv > .4);
+        assertEquals(185, result.frame.luma(80, 260));
+        assertTrue(result.frame.luma(532, 180) >= 92);
+        assertTrue(result.frame.luma(532, 180) - result.frame.luma(529, 180) >= 14);
+        assertTrue(result.frame.luma(534, 286) - result.frame.luma(528, 286) >= 38);
+        assertTrue(result.liftDetail.passed);
+        assertTrue(result.liftDetail.weakestRegionContrast >= .9);
+    }
+
+    @Test public void ambiguousOrMissingSubjectDoesNotLiftTheWholePhoto() {
+        YuvFrame f = frame(320, 240, 64, 128, 128);
+        RegionalPhotoProtocol.Context c = new RegionalPhotoProtocol.Context();
+        c.allowTone = true; c.ev100 = 4; c.sharpen = 0; c.denoiseCeiling = 0;
+        c.locateSubject = ignored -> rightSide(0);
+        RegionalPhotoProtocol.Result result = RegionalPhotoProtocol.apply(f, c);
+        assertEquals(0, result.maxLiftEv, 0);
+        assertArrayEquals(f.y, result.frame.y);
+        assertArrayEquals(f.u, result.frame.u);
+        assertArrayEquals(f.v, result.frame.v);
+    }
+
+    private static RegionalPhotoProtocol.Subject rightSide(float boundary) {
+        int w = 64, h = 48;
+        float[] weights = new float[w * h];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            weights[y * w + x] = x / (float) w >= boundary ? 1 : 0;
+        return RegionalPhotoProtocol.Subject.from(weights, w, h, .78f, .5f);
     }
     private double error(YuvFrame f) {
         double sum=0;int n=0;

@@ -23,12 +23,22 @@ public final class QualityCheck {
         public int edgePixels;
         public boolean passed = true;
         public boolean measurable;
+        public int measuredRegions;
+        public int rejectedRegions;
+        public double weakestRegionContrast = Double.NaN;
         public String reason = "ok";
     }
 
     static final double MIN_DETAIL = 0.7, MIN_CORRELATION = 0.9;
     /** Com menos que isso de bordas (cena lisa, céu, parede) não há o que medir: aprova. */
     static final int MIN_EDGES = 2000;
+    private static final int REGION_COLS = 8, REGION_ROWS = 6;
+    private static final int MIN_REGION_EDGES = 64;
+
+    private static final class Region {
+        int edges;
+        double referenceEnergy, outputEnergy, agreement;
+    }
 
     private QualityCheck() {
     }
@@ -66,8 +76,11 @@ public final class QualityCheck {
         double edgeThr = Math.max(10, 5 * noise);
         double lapRef = 0, lapFus = 0, gxy = 0, gxx = 0, gyy = 0;
         int count = 0;
+        Region[] regions = new Region[REGION_COLS * REGION_ROWS];
+        for (int i = 0; i < regions.length; i++) regions[i] = new Region();
         int step = Math.max(1, Math.min(w, h) / 1200); // ~1,4 M amostras no máximo
         for (int y = Math.max(2, y0); y < Math.min(h - 2, y1); y += step) {
+            int regionRow = (y * REGION_ROWS / h) * REGION_COLS;
             for (int x = Math.max(2, x0); x < Math.min(w - 2, x1); x += step) {
                 int c = ref.luma(x, y);
                 int gx = ref.luma(x + 1, y) - ref.luma(x - 1, y);
@@ -84,14 +97,36 @@ public final class QualityCheck {
                 double lf = 4 * fc - left - right - up - down;
                 lapRef += Math.abs(lr);
                 lapFus += Math.abs(lf);
-                gxy += gx * (double) fgx + gy * (double) fgy;
-                gxx += gx * (double) gx + gy * (double) gy;
-                gyy += fgx * (double) fgx + fgy * (double) fgy;
+                double agreement = gx * fgx + gy * fgy;
+                double referenceEnergy = gx * (double) gx + gy * (double) gy;
+                double outputEnergy = fgx * fgx + fgy * fgy;
+                gxy += agreement;
+                gxx += referenceEnergy;
+                gyy += outputEnergy;
+                Region region = regions[regionRow + x * REGION_COLS / w];
+                region.edges++;
+                region.referenceEnergy += referenceEnergy;
+                region.outputEnergy += outputEnergy;
+                region.agreement += agreement;
                 count++;
             }
         }
         r.edgePixels = count;
-        if (count < MIN_EDGES) {
+        // Uma borda forte em outro ponto pode esconder a perda de letras na média global.
+        double referenceNoise = 4 * noise * noise, outputNoise = 4 * noiseFused * noiseFused;
+        for (Region region : regions) {
+            if (region.edges < MIN_REGION_EDGES) continue;
+            double refSignal = region.referenceEnergy / region.edges - referenceNoise;
+            if (refSignal < Math.max(100, 45 * noise * noise)) continue;
+            double outSignal = Math.max(0, region.outputEnergy / region.edges - outputNoise);
+            double contrast = Math.sqrt(outSignal / refSignal);
+            double correlation = region.outputEnergy > 0
+                    ? region.agreement / Math.sqrt(region.referenceEnergy * region.outputEnergy) : 0;
+            if (r.measuredRegions == 0 || contrast < r.weakestRegionContrast) r.weakestRegionContrast = contrast;
+            r.measuredRegions++;
+            if (contrast < 0.74 || correlation < 0.83) r.rejectedRegions++;
+        }
+        if (count < MIN_EDGES && r.measuredRegions == 0) {
             r.reason = "cena sem bordas suficientes para medir";
             return r;
         }
@@ -104,10 +139,13 @@ public final class QualityCheck {
         double sigRef = Math.max(1e-3, meanRef - nRef), sigFus = Math.max(0, meanFus - nFus);
         r.detailRatio = meanRef > nRef * 1.2 ? sigFus / sigRef : (meanRef > 0 ? meanFus / meanRef : 1);
         r.edgeCorrelation = gxx > 0 && gyy > 0 ? gxy / Math.sqrt(gxx * gyy) : 1;
-        if (r.detailRatio < MIN_DETAIL) {
+        if (r.rejectedRegions > 0) {
+            r.passed = false;
+            r.reason = "perda de contraste ou forma em bordas locais";
+        } else if (count >= MIN_EDGES && r.detailRatio < MIN_DETAIL) {
             r.passed = false;
             r.reason = "fusão perdeu detalhe (borrão/aquarela)";
-        } else if (r.edgeCorrelation < MIN_CORRELATION) {
+        } else if (count >= MIN_EDGES && r.edgeCorrelation < MIN_CORRELATION) {
             r.passed = false;
             r.reason = "bordas duplicadas ou fantasma (movimento entre quadros)";
         }

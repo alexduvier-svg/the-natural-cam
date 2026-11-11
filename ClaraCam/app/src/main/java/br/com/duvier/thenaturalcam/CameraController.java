@@ -1437,12 +1437,29 @@ final class CameraController {
         j.orientation = jpegOrientation;
         j.pipeline = pipeline;
         j.regional = new RegionalPhotoProtocol.Context();
-        j.regional.night = mode == Mode.NOITE;
-        j.regional.face = mode == Mode.RETRATO || currentFaces() != null;
+        MeteringRectangle[] faces = currentFaces();
+        j.regional.face = mode == Mode.RETRATO || faces != null;
         j.regional.allowTone = !isManual() && ev == 0 && mode != Mode.LONGA && mode != Mode.ASTRO;
         j.regional.ev100 = lastAperture > 0 && lastExposure > 0 && lastIso > 0
                 ? Math.log(lastAperture * lastAperture / (lastExposure / 1e9) * 100 / lastIso) / Math.log(2)
                 : Double.NaN;
+        if (j.regional.allowTone) {
+            float[] seed = {.5f, .5f};
+            if (regions != null) {
+                seed = toSensor(caps.sensorOrientation, tapX, tapY);
+                j.regional.targeted = true;
+            } else if (faces != null) {
+                Rect visible = visibleSensorRect();
+                Rect face = faces[0].getRect();
+                if (visible != null && visible.contains(face.centerX(), face.centerY())) {
+                    seed[0] = (face.exactCenterX() - visible.left) / visible.width();
+                    seed[1] = (face.exactCenterY() - visible.top) / visible.height();
+                    j.regional.targeted = true;
+                }
+            }
+            final float seedX = seed[0], seedY = seed[1];
+            j.regional.locateSubject = frame -> locateForeground(frame, j.orientation, seedX, seedY);
+        }
         try {
             j.sheet.put("app", "The Natural Cam " + BuildConfigInfo.VERSION);
             j.sheet.put("aparelho", Build.MANUFACTURER + " " + Build.MODEL);
@@ -1466,6 +1483,7 @@ final class CameraController {
             j.sheet.put("processo", pipeline);
             j.sheet.put("zoom", zoom);
             j.sheet.put("ev", ev);
+            j.sheet.put("ev_compensacao_passos_ev", round2(ev * caps.evStep.doubleValue()));
             j.sheet.put("iso_manual", isManual() ? manualIso : 0);
             j.sheet.put("exposicao_manual_ns", isManual() ? manualExposureNs : 0);
             j.sheet.put("flash", flash);
@@ -1856,19 +1874,10 @@ final class CameraController {
             // o ambiente medido agora (luz × zoom × lente × distância × rosto × modo).
             CaptureDirector.Plan plan = null;
             if (mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.NOITE) {
-                CaptureDirector.Scene sc = new CaptureDirector.Scene();
-                sc.iso = lastIso;
-                sc.exposureNs = lastExposure;
-                sc.zoom = zoom;
-                sc.tele = onTele;
-                sc.lensCrop = onTele ? deviceZoom() : Math.max(1f, zoom);
-                sc.focusCm = lastFocusDistance > 0 ? Math.round(100f / lastFocusDistance) : 100;
-                sc.face = currentFaces() != null;
-                sc.kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
-                sc.maxPolicy = stackPolicy == STACK_MAX;
-                sc.stackOff = stackPolicy == STACK_OFF && mode != Mode.NOITE;
-                sc.manual = isManual();
-                sc.shakeRadS = Double.isFinite(sc.angularRmsRad) ? (float)sc.angularRmsRad : -1f;
+                CaptureDirector.Kind kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE
+                        : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
+                CaptureDirector.Scene sc = captureScene(kind);
+                sc.nativeGridSafe = BurstExposurePolicy.allowAutomaticManual(caps.logicalMultiCamera, caps.mainId, lastPhys);
                 j.sheet.put("tremor_rad_s", round2(Math.max(0, sc.shakeRadS)));
                 plan = mode == Mode.NOITE ? CaptureDirector.decide(sc) : CaptureDirector.decidePublished(sc);
                 burstTarget = plan.frames;
@@ -1898,11 +1907,11 @@ final class CameraController {
             j.sheet.put("tamanho", caps.nightYuvSize.toString());
             j.sheet.put("reducao_ruido_por_quadro", caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL) ? "MINIMAL" : "FAST");
             job = j;
-            // Fusão: o alinhamento compensa o tremor entre quadros, então cada quadro pode expor mais
-            // (Foto até 1/30 s, Noite até 1/15 s) com ISO proporcionalmente menor = menos ruído por quadro.
+            // Alinhamento corrige o deslocamento entre quadros. Noite pode expor mais por quadro
+            // quando o movimento observado permite; Foto preserva um obturador já rápido.
             long nightExp = 0;
             int nightIso = 0;
-            if (mode == Mode.RUA && !isManual() && caps.manualSensor && lastIso > 0 && lastExposure > 0
+            if (mode == Mode.RUA && !isManual() && canOverrideBurstExposure() && lastIso > 0 && lastExposure > 0
                     && caps.isoRange != null && caps.exposureRange != null) {
                 // Rua: congela movimento — obturador até 1/250 s, compensado com ISO (máx. 6400)
                 long target = Math.max(caps.exposureRange.getLower(), 4_000_000L);
@@ -1919,7 +1928,7 @@ final class CameraController {
                     j.sheet.put("rua_exposicao_ns", nightExp);
                     j.sheet.put("rua_iso", nightIso);
                 }
-            } else if (mode == Mode.LONGA && longProtect > 0 && !isManual() && caps.manualSensor && lastIso > 0
+            } else if (mode == Mode.LONGA && longProtect > 0 && !isManual() && canOverrideBurstExposure() && lastIso > 0
                     && lastExposure > 0 && caps.exposureRange != null) {
                 // Longa: cada quadro N EV mais escuro (luzes não estouram); a soma clareia de volta
                 nightExp = Math.max(caps.exposureRange.getLower(), lastExposure >> longProtect);
@@ -1929,10 +1938,12 @@ final class CameraController {
                     && caps.isoRange != null && caps.exposureRange != null && (lastIso >= 400 || plan != null)) {
                 long cap = plan != null && plan.maxFrameExposureNs > 0 ? plan.maxFrameExposureNs
                         : mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
-                // pouca luz: alonga até o limite (menos ISO); zoom longo/rosto: encurta até o limite
-                long target = Math.min(lastIso >= 400 ? lastExposure * 4 : lastExposure, cap);
+                // Um limite de 1/30 s não deve substituir uma exposição já rápida, como 1/120 s.
+                long target = BurstExposurePolicy.targetExposure(lastIso, lastExposure, cap, mode == Mode.NOITE);
                 target = Math.max(caps.exposureRange.getLower(), Math.min(target, caps.exposureRange.getUpper()));
-                boolean change = target > lastExposure * 1.2 || target < lastExposure * 0.83;
+                boolean change = target < lastExposure * 0.83 || mode == Mode.NOITE && target > lastExposure * 1.2;
+                j.sheet.put("exposicao_alvo_quadro_ns", target);
+                j.sheet.put("politica_obturador", mode == Mode.NOITE ? "limite_noite_por_movimento" : "preserva_ae_rapida");
                 int matchingIso = BurstExposurePolicy.equivalentIso(lastIso,lastExposure,target,
                         caps.isoRange.getLower(),caps.isoRange.getUpper());
                 if(change && !canOverrideBurstExposure()) {
@@ -2221,7 +2232,7 @@ final class CameraController {
             try {
                 boolean superRes = j.superRes;
                 float scale = j.srCrop > 1f ? Math.min(2.5f, j.srCrop) : superRes ? 1.5f : 1f;
-                BurstFusion.Result fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                BurstFusion.Result fr = new BurstFusion(0f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
                 if (j.srCrop > 1f && fr.scale <= 1f) {
                     // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
                     j.cropUpscale = j.srCrop;
@@ -2241,10 +2252,15 @@ final class CameraController {
                 qj.put("detalhe_vs_referencia", round2(q.detailRatio));
                 qj.put("forma_das_bordas", round2(q.edgeCorrelation));
                 qj.put("pixels_de_borda", q.edgePixels);
+                qj.put("regioes_com_detalhe", q.measuredRegions);
+                qj.put("regioes_reprovadas", q.rejectedRegions);
+                qj.put("contraste_regional_minimo", q.measuredRegions > 0 ? round2(q.weakestRegionContrast) : JSONObject.NULL);
                 qj.put("aprovada", q.measurable ? q.passed : JSONObject.NULL);
                 qj.put("medicao_conclusiva", q.measurable);
                 qj.put("motivo", q.reason);
                 YuvFrame finalFrame = fr.frame;
+                double finishNoise = fr.noiseAfter;
+                boolean temporalNoiseMeasured = true;
                 if (!q.passed && fr.framesIn > 1 && isDebuggable()) {
                     // versão de teste: guarda também a fusão reprovada e a referência, para conferir o verificador
                     try {
@@ -2258,27 +2274,38 @@ final class CameraController {
                     // 1ª reserva: a super-resolução falhou, mas a fusão NORMAL dos mesmos quadros ainda
                     // tira o ruído (o quadro único a ISO 6000 saía cheio de pontos coloridos)
                     busy("Refazendo a fusão…", 0.9f);
-                    plain = new BurstFusion(0.30f, true, 1f).fuse(frames, null);
+                    plain = new BurstFusion(0f, true, 1f).fuse(frames, null);
                     QualityCheck.Report q2 = QualityCheck.compare(refFrame, plain.frame, fr.noiseBefore, plain.noiseAfter);
                     qj.put("reserva_fusao_simples", round2(q2.detailRatio) + " / " + round2(q2.edgeCorrelation));
                     if (!q2.passed) plain = null;
                 }
                 if (plain != null) {
                     finalFrame = QualityCheck.upscale(plain.frame, fr.scale);
+                    finishNoise = plain.noiseAfter;
                     j.cropUpscale = fr.scale; // nitidez na escala da ampliação
                     qj.put("decisao", "fusao_sem_super_resolucao (super-resolução reprovada)");
                 } else if (!q.passed && fr.framesIn > 1) {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);
                     // limpeza proporcional ao ruído do quadro (ISO alto pede mais)
-                    BurstFusion.lumaDenoise(finalFrame, model, (float) Math.min(0.85, 0.3 + fr.noiseBefore / 20.0));
+                    if (model[8] > 1.5f) {
+                        BurstFusion.lumaDenoise(finalFrame, model, (float) Math.min(0.55, 0.2 + fr.noiseBefore / 24.0));
+                    }
                     BurstFusion.chromaFilter(finalFrame, model[8]);
+                    finishNoise = BurstFusion.noiseModel(finalFrame)[8];
+                    QualityCheck.Report fallback = QualityCheck.compare(refFrame, finalFrame, model[8], finishNoise);
+                    if (!fallback.passed) {
+                        finalFrame = QualityCheck.copy(refFrame);
+                        finishNoise = model[8];
+                    }
+                    temporalNoiseMeasured = false;
                     if (j.srCrop > 1f && fr.scale > 1f) {
                         // recorte do zoom: entrega no mesmo tamanho da fusão (antes saía pequeno)
                         finalFrame = QualityCheck.upscale(finalFrame, fr.scale);
                         j.cropUpscale = fr.scale; // e ganha a nitidez na escala da ampliação
                     }
-                    qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
+                    qj.put("decisao", fallback.passed ? "quadro_unico_limpo (fusão reprovada)"
+                            : "quadro_unico_preservado (limpeza reprovada)");
                     final String why = q.reason;
                     Log.w(TAG, "verificador: " + why + " — usado o quadro mais nítido"); // sem aviso na tela (pedido do usuário)
                 } else {
@@ -2309,56 +2336,43 @@ final class CameraController {
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 stamp(j, "tempo_etapa_verificador_ms", tt);
                 busy("Gravando…", 0.95f);
-                if (j.denoise > 0 && fr.noiseAfter > 0.8) {
-                    // limpeza decidida pela diretriz (por luz): preserva bordas, tira o grão das áreas
-                    // lisas (mesa, parede) — o usuário viu fundo com ruído
-                    busy("Limpando ruído…", 0.93f);
-                    float[] model = BurstFusion.noiseModel(finalFrame);
-                    // limpeza LEVE no geral (preserva textura em todo lugar)...
-                    BurstFusion.lumaDenoise(finalFrame, model, j.denoise * 0.6f);
-                    BurstFusion.chromaFilter(finalFrame, model[8]);
-                    j.sheet.put("limpeza_diretriz", j.denoise * 0.6f);
-                    // ...e FORTE só nas sombras e áreas lisas (memória das sombras)
-                    if (fr.noiseAfter > 1.5) {
-                        stamp(j, "tempo_etapa_limpeza_leve_ms", tt);
-                        busy("Limpando sombras…", 0.935f);
-                        float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
-                        j.sheet.put("limpeza_sombras", "forte em áreas escuras/lisas · " + Math.round(part * 100) + "% da imagem");
+                if (j.denoise > 0 && finishNoise > 1.5) {
+                    busy("Limpando sombras…", 0.935f);
+                    float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
+                    QualityCheck.Report cleaning = QualityCheck.compare(safe[0], finalFrame, finishNoise);
+                    if (cleaning.passed) {
+                        j.sheet.put("limpeza_sombras", "áreas escuras e lisas · " + Math.round(part * 100) + "% da imagem");
+                    } else {
+                        finalFrame = safe[0];
+                        j.sheet.put("limpeza_sombras_reserva", cleaning.reason);
                     }
-                }
-                if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {
-                    // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
-                    // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
                     stamp(j, "tempo_etapa_sombras_ms", tt);
-                    busy("Nitidez do zoom…", 0.95f);
-                    BurstFusion.sharpenScaledRegional(finalFrame, fr.scale, 0.6f, (float) Math.max(1.0, fr.noiseAfter));
-                    j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,6");
                 }
+                float detailScale = Math.max(j.cropUpscale, fr.scale);
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
                 if (longSide < 4000 && longSide >= 1000) {
                     // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
                     // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
                     // bicúbica com nitidez na escala certa, só para completar o tamanho.
                     float k = 4096f / longSide;
-                    stamp(j, "tempo_etapa_nitidez_zoom_ms", tt);
                     busy("Ajustando para 12 MP…", 0.955f);
                     finalFrame = QualityCheck.upscale(finalFrame, k);
-                    BurstFusion.sharpenScaledRegional(finalFrame, k, 0.5f, (float) Math.max(1.0, fr.noiseAfter));
+                    detailScale *= k;
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
-                }
-                if (j.cropUpscale > 1.5f) {
-                    // recorte ampliado da principal: nitidez na escala da ampliação
-                    busy("Nitidez do recorte…", 0.94f);
-                    float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
-                    BurstFusion.sharpenScaledRegional(finalFrame, up, 0.9f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,9");
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 j.referenceFinish = true;
-                j.regional.refineResidual = true;
+                j.regional.refineResidual = finishNoise > 1.5;
                 j.regional.denoiseCeiling = 0;
                 j.regional.sharpen = 0;
-                finalFrame = finishRegions(j, finalFrame, fr.noiseAfter);
+                finalFrame = finishRegions(j, finalFrame, temporalNoiseMeasured ? finishNoise : Double.NaN);
+                // Um único realce, na escala de entrega e com limite de halo.
+                float sharpness = j.regional.face ? .24f : .42f;
+                float noise = (float) Math.max(1.0, Math.max(finishNoise, BurstFusion.noiseModel(finalFrame)[8]));
+                BurstFusion.sharpenScaledRegional(finalFrame, Math.min(4f, detailScale), sharpness, noise);
+                j.sheet.put("nitidez_final", "uma passagem por escala, limitada pelo ruído e pelo contorno");
+                j.sheet.put("grade_quadro_referencia", refFrame.width + "×" + refFrame.height);
+                stamp(j, "tempo_etapa_nitidez_final_ms", tt);
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
@@ -2418,17 +2432,27 @@ final class CameraController {
                 regions.put("peso_residual_luminancia", result.denoiseAccepted ? round2(result.residual.meanLumaWeight) : 0);
                 regions.put("peso_residual_cor", result.denoiseAccepted ? round2(result.residual.meanChromaWeight) : 0);
                 regions.put("tempo_residual_ms", result.residual.millis);
-                regions.put("nitidez_por_area", "realce por escala apenas acima do ruído; limpeza por semelhança de pequenas regiões, sem novo realce final");
+                regions.put("limpeza_por_area", "limpeza por semelhança de pequenas regiões");
             }
             regions.put("detalhe_mensuravel", result.detail.measurable);
             regions.put("detalhe_vs_entrada", result.detail.measurable ? round2(result.detail.detailRatio) : JSONObject.NULL);
             regions.put("correlacao_bordas", result.detail.measurable ? round2(result.detail.edgeCorrelation) : JSONObject.NULL);
+            regions.put("regioes_com_detalhe", result.detail.measuredRegions);
+            regions.put("regioes_reprovadas", result.detail.rejectedRegions);
             regions.put("mediana_y", result.median);
             regions.put("p95_y", result.p95);
             regions.put("fracao_sombras", round2(result.shadowFraction));
             regions.put("fracao_luzes_saturadas", round2(result.clippedFraction));
             regions.put("clareamento_maximo_ev", round2(result.maxLiftEv));
-            regions.put("ganho", "RGB linear comum, limitado pela margem das altas luzes; não altera WB por conta própria");
+            regions.put("luz_primeiro_plano", result.liftDecision);
+            regions.put("fracao_mascara_sujeito", round2(result.subjectCoverage));
+            regions.put("mediana_sujeito_y", result.subjectMedian >= 0 ? result.subjectMedian : JSONObject.NULL);
+            if (result.liftDetail != null && result.liftDetail.measurable) {
+                regions.put("luz_detalhe_vs_entrada", round2(result.liftDetail.detailRatio));
+                regions.put("luz_correlacao_bordas", round2(result.liftDetail.edgeCorrelation));
+                regions.put("luz_contraste_regional_minimo", result.liftDetail.measuredRegions > 0
+                        ? round2(result.liftDetail.weakestRegionContrast) : JSONObject.NULL);
+            }
             regions.put("tempo_ms", result.millis);
             j.sheet.put("protocolo_regional", regions);
             return result.frame;
@@ -2510,22 +2534,60 @@ final class CameraController {
         idle();
     }
 
+    private static YuvFrame sampleFrame(YuvFrame f, int step) {
+        if (step == 1) return f;
+        YuvFrame s = new YuvFrame(Math.max(1, f.width / step), Math.max(1, f.height / step));
+        for (int y = 0; y < s.height; y++) {
+            for (int x = 0; x < s.width; x++) s.y[y * s.width + x] = f.y[(y * step) * f.width + x * step];
+        }
+        for (int y = 0; y < s.chromaHeight; y++) {
+            int sy = Math.min(f.chromaHeight - 1, y * step);
+            for (int x = 0; x < s.chromaWidth; x++) {
+                int sx = Math.min(f.chromaWidth - 1, x * step);
+                s.u[y * s.chromaWidth + x] = f.u[sy * f.chromaWidth + sx];
+                s.v[y * s.chromaWidth + x] = f.v[sy * f.chromaWidth + sx];
+            }
+        }
+        return s;
+    }
+
+    private RegionalPhotoProtocol.Subject locateForeground(YuvFrame frame, int rotation, float seedX, float seedY) {
+        YuvFrame small = sampleFrame(frame, (Math.max(frame.width, frame.height) + 639) / 640);
+        int w = small.width, h = small.height;
+        if (w < 2 || h < 2) return null;
+        int[] sensorPixels = BurstFusion.toArgb(small);
+        boolean quarterTurn = rotation == 90 || rotation == 270;
+        int uprightW = quarterTurn ? h : w, uprightH = quarterTurn ? w : h;
+        int[] upright = new int[sensorPixels.length];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            upright[rotatedIndex(x, y, w, h, rotation)] = sensorPixels[y * w + x];
+        float[] seed = toSensor((360 - rotation) % 360, seedX, seedY);
+        try (SubjectMask model = new SubjectMask(context, false, 0f)) {
+            float[] mask = model.mask(upright, uprightW, uprightH, seed[0], seed[1]);
+            mask = SubjectMask.refine(mask, upright, uprightW, uprightH);
+            float[] weights = new float[mask.length];
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                weights[y * w + x] = mask[rotatedIndex(x, y, w, h, rotation)];
+            return RegionalPhotoProtocol.Subject.from(weights, w, h, seedX, seedY);
+        } catch (Exception | LinkageError error) {
+            Log.w(TAG, "Luz do primeiro plano sem máscara", error);
+            return null;
+        }
+    }
+
+    private static int rotatedIndex(int x, int y, int w, int h, int rotation) {
+        switch (rotation) {
+            case 90: return x * h + h - 1 - y;
+            case 180: return (h - 1 - y) * w + w - 1 - x;
+            case 270: return (w - 1 - x) * h + y;
+            default: return y * w + x;
+        }
+    }
+
     /** Miniatura imediata a partir do primeiro quadro (antes da fusão terminar). */
     private void quickPreview(YuvFrame f, int rotation) {
         try {
-            int step = Math.max(1, f.width / 640);
-            YuvFrame s = new YuvFrame(f.width / step, f.height / step);
-            for (int y = 0; y < s.height; y++) {
-                for (int x = 0; x < s.width; x++) s.y[y * s.width + x] = f.y[(y * step) * f.width + x * step];
-            }
-            for (int y = 0; y < s.chromaHeight; y++) {
-                int sy = Math.min(f.chromaHeight - 1, y * step);
-                for (int x = 0; x < s.chromaWidth; x++) {
-                    int sx = Math.min(f.chromaWidth - 1, x * step);
-                    s.u[y * s.chromaWidth + x] = f.u[sy * f.chromaWidth + sx];
-                    s.v[y * s.chromaWidth + x] = f.v[sy * f.chromaWidth + sx];
-                }
-            }
+            YuvFrame s = sampleFrame(f, Math.max(1, f.width / 640));
             Bitmap b = Bitmap.createBitmap(BurstFusion.toArgb(s), s.width, s.height, Bitmap.Config.ARGB_8888);
             postPreview(rotate(b, rotation));
         } catch (Throwable ignored) {

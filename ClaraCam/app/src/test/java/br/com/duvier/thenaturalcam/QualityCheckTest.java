@@ -74,6 +74,19 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void textoApagadoLocalmenteReprovaMesmoComBoaMediaGlobal() {
+        YuvFrame ref = label(960, 720, 83, 0);
+        YuvFrame fused = QualityCheck.copy(ref);
+        for (int y = 240; y < 360; y++)
+            java.util.Arrays.fill(fused.y, y * ref.width + 480, y * ref.width + 600, (byte)170);
+        QualityCheck.Report r = QualityCheck.compare(ref, fused, 3);
+        assertTrue(r.detailRatio >= QualityCheck.MIN_DETAIL);
+        assertTrue(r.edgeCorrelation >= QualityCheck.MIN_CORRELATION);
+        assertTrue(r.rejectedRegions > 0);
+        assertFalse(r.passed);
+    }
+
+    @Test
     public void fusaoDescartaQuadrosDesfocadosEPassaNoVerificador() {
         // foco "caçando": 2 de 6 quadros desfocados não podem borrar a foto
         java.util.List<YuvFrame> frames = new java.util.ArrayList<>();

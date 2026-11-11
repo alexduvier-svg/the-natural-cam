@@ -1620,17 +1620,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
         final GestureDetector gestures;
         final ScaleGestureDetector pinch;
 
-        // deslize horizontal = exposição (em qualquer ponto do visor)
+        // A exposição só responde à régua visível ou ao controle EV.
         private static final int IDLE = 0, UNDECIDED = 1, EV_DRAG = 2;
         private int drag = IDLE;
-        private float downX, downY, startFraction, dragFraction = 0.5f;
+        private float dragFraction = 0.5f;
         private long evShownUntil;
         private long lastBarTap;
 
         Overlay(Activity a) {
             super(a);
             setClickable(true);
-            setContentDescription("Visor. Toque para foco, segure para travar; deslize para os lados para ajustar a exposição.");
+            setContentDescription("Visor. Toque para focar e segure para travar. Ajuste a exposição no controle EV.");
             gestures = new GestureDetector(a, new GestureDetector.SimpleOnGestureListener() {
                 @Override
                 public boolean onDown(MotionEvent e) {
@@ -1645,6 +1645,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     lock.selected(false);
                     camera.focusAt(x / getWidth(), y / getHeight());
                     startFocusTracker(x / getWidth(), y / getHeight());
+                    evShownUntil = SystemClock.uptimeMillis() + 1500;
                     invalidate();
                     return true;
                 }
@@ -1748,12 +1749,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
             boolean evAvailable = evHigh() > evLow();
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    downX = e.getX();
-                    downY = e.getY();
-                    startFraction = fraction(ev);
-                    // a barra só responde ao toque se já estiver ativa (aberta por um arraste lateral):
-                    // antes, encostar nela sem querer (perto dos botões de zoom) mudava o EV
-                    if (evAvailable && onBar(downX, downY) && SystemClock.uptimeMillis() < evShownUntil) {
+                    boolean rulerVisible = ev != 0 || SystemClock.uptimeMillis() < evShownUntil;
+                    if (evAvailable && rulerVisible && onBar(e.getX(), e.getY())) {
                         long now = SystemClock.uptimeMillis();
                         if (now - lastBarTap < 350) {
                             // toque duplo na barra: exposição volta a 0
@@ -1765,27 +1762,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
                             return true;
                         }
                         lastBarTap = now;
-                        // tocar direto na barra: posiciona o valor ali e segue o dedo
+                        // O toque sozinho mantém o valor. O arraste move o cursor da régua.
                         drag = EV_DRAG;
-                        applyFraction(fracAtX(downX));
+                        dragFraction = fraction(ev);
+                        invalidate();
                         return true;
                     }
                     drag = UNDECIDED;
                     break;
                 case MotionEvent.ACTION_MOVE:
-                    if (drag == UNDECIDED && evAvailable) {
-                        float dx = e.getX() - downX, dy = e.getY() - downY;
-                        if (Math.abs(dx) > dp(32) && Math.abs(dx) > Math.abs(dy) * 2f) {
-                            drag = EV_DRAG;
-                            downX = e.getX();
-                            cancelGestures(e);
-                        }
-                    }
                     if (drag == EV_DRAG) {
-                        // atravessar ~75% da largura do visor percorre toda a faixa de exposição
-                        float dx = e.getX() - downX;
-                        applyFraction(startFraction + dx / (getWidth() * 0.75f));
-                        if (onBar(downX, downY)) applyFraction(fracAtX(e.getX()));
+                        applyFraction(fracAtX(e.getX()));
                         return true;
                     }
                     break;

@@ -13,6 +13,7 @@ Montada em 09/11/2026, sem alterar o código do app (`ClaraCam/`).
 | [novidades_git_reddit_2026_11_10.md](novidades_git_reddit_2026_11_10.md) | Pesquisa atualizada de GitHub/Reddit e prioridades para foco, fusão, RAW e redução de ruído |
 | [referencias_retrato_usuario_2026_11_10.md](referencias_retrato_usuario_2026_11_10.md) | Links enviados pelo usuário, manual H5D e critérios de retrato, pele, cor e bokeh suave |
 | [Protocolo de ruído e empilhamento](../PROTOCOLO_RUIDO_E_EMPILHAMENTO.md) | Tratamento por área, Noite adaptativa e distinção entre média, HDR e foco, com fontes Adobe/Google/Huawei |
+| [Luz localizada e legibilidade](protocolo_laboratorio_legibilidade.md) | Medições da referência em 3,5× e ensaio de nitidez, cor e ruído por distância focal |
 | [OPPO IA e pipeline híbrido](oppo_ia_e_pipeline_hibrido_2026_11_10.md) | Ensaio real na Galeria, pesquisa das comunidades e avaliação de alternativas de restauração móvel |
 | [dados_adb/](dados_adb/) | Resumo das características e nomes de vendor tags por aparelho |
 

@@ -4,12 +4,45 @@ import java.util.stream.IntStream;
 
 /** Measured, local finishing of an already aligned photograph. No generated detail or WB guesses. */
 final class RegionalPhotoProtocol {
-    static final String VERSION = "1.1.0";
+    static final String VERSION = "1.2.0";
+    @FunctionalInterface
+    interface SubjectLocator {
+        Subject locate(YuvFrame frame);
+    }
+
+    /** Soft subject weights in the frame's orientation. */
+    static final class Subject {
+        final float[] weights;
+        final int width, height;
+        final double coverage;
+
+        private Subject(float[] weights, int width, int height, double coverage) {
+            this.weights = weights;
+            this.width = width;
+            this.height = height;
+            this.coverage = coverage;
+        }
+
+        static Subject from(float[] weights, int width, int height, float x, float y) {
+            if (width < 2 || height < 2 || weights.length != width * height) return null;
+            int inside = 0;
+            for (float weight : weights) {
+                if (!Float.isFinite(weight)) return null;
+                if (weight >= .75f) inside++;
+            }
+            double coverage = inside / (double) weights.length;
+            float seed = sample(weights, width, height, x * (width - 1), y * (height - 1));
+            if (coverage < .015 || coverage > .85 || seed < .65f) return null;
+            return new Subject(weights, width, height, coverage);
+        }
+    }
+
     static final class Context {
-        boolean night, face, allowTone, refineResidual;
+        boolean face, allowTone, refineResidual, targeted;
         double ev100 = Double.NaN;
         float denoiseCeiling = .42f, sharpen = .18f;
         double temporalNoise = Double.NaN;
+        SubjectLocator locateSubject;
     }
     static final class Result {
         YuvFrame frame;
@@ -19,6 +52,10 @@ final class RegionalPhotoProtocol {
         float meanCleaningWeight;
         double noiseBefore, noiseAfter, maxLiftEv;
         int median, p95;
+        int subjectMedian = -1;
+        double subjectCoverage;
+        String liftDecision = "dispensado";
+        QualityCheck.Report liftDetail;
         double shadowFraction, clippedFraction;
         long millis;
         ResidualNoiseRefiner.Report residual;
@@ -71,14 +108,9 @@ final class RegionalPhotoProtocol {
         result.p95 = percentile(histogram, samples, .95);
         result.shadowFraction = shadows / (double)samples;
         result.clippedFraction = clipped / (double)samples;
-        // Dark objects must remain dark: only a low-light observation + dark distribution permits lift.
-        if (context.allowTone && Double.isFinite(context.ev100) && context.ev100 < 7
-                && result.median < 90 && result.p95 > 16 && result.p95 < 195 && result.clippedFraction < .01) {
-            double under = Math.min(1, Math.max(0, (100-result.median)/70.0));
-            result.maxLiftEv = (context.night ? 1.1 : .7) * under;
-            if (context.face) result.maxLiftEv = Math.min(.5, result.maxLiftEv);
-            localTone(out, result.maxLiftEv, result.noiseAfter);
-        }
+        if (context.allowTone && context.locateSubject != null && result.p95 > 16
+                && Double.isFinite(context.ev100) && (context.targeted || context.ev100 < 8 && result.median < 115))
+            out = lightSubject(out, context, result, step);
         // One modest, noise-thresholded luma sharpening pass, after cleaning and tone mapping.
         if (context.sharpen > 0) BurstFusion.sharpenLuma(out, Math.min(.24f,context.sharpen),
                 (float)Math.max(2, result.noiseAfter * 3 * Math.pow(2,result.maxLiftEv*.5)));
@@ -93,48 +125,97 @@ final class RegionalPhotoProtocol {
         return 255;
     }
 
-    /** Common gain in linear RGB preserves channel ratios; local gain varies smoothly at 16-px scale. */
-    private static void localTone(YuvFrame f, double liftEv, double sigma) {
-        if(liftEv<=0) return;
-        final int stride=16, gw=(f.width+stride-1)/stride, gh=(f.height+stride-1)/stride;
-        float[] base=new float[gw*gh];
-        for(int by=0;by<gh;by++) for(int bx=0;bx<gw;bx++) {
-            int sum=0,n=0;
-            for(int y=by*stride;y<Math.min(f.height,(by+1)*stride);y++)
-                for(int x=bx*stride;x<Math.min(f.width,(bx+1)*stride);x++) {sum+=f.luma(x,y);n++;}
-            base[by*gw+bx]=sum/(float)n;
+    private static YuvFrame lightSubject(YuvFrame source, Context context, Result result, int step) {
+        Subject subject = context.locateSubject.locate(source);
+        if (subject == null) {
+            result.liftDecision = "sujeito sem máscara confiável";
+            return source;
         }
-        final float[] smooth=PortraitEngine.box(base,gw,gh,1);
-        final int levels=64;
-        final int[][] lut=new int[levels+1][256];
-        final int[] headroom=new int[256];
-        for(int value=0;value<256;value++) {
-            double linear=linear(value/255.0);
-            headroom[value]=linear<=0 ? levels : Math.max(0,Math.min(levels,(int)Math.floor(-Math.log(linear)/Math.log(2)/liftEv*levels)));
-            for(int level=0;level<=levels;level++)
-                lut[level][value]=(int)Math.round(255*srgb(Math.min(1,linear*Math.pow(2,liftEv*level/levels))));
+        result.subjectCoverage = subject.coverage;
+        int[] histogram = new int[256];
+        int count = 0;
+        for (int y = 0; y < source.height; y += step) for (int x = 0; x < source.width; x += step) {
+            if (subjectWeight(subject, source, x, y) < .75f) continue;
+            histogram[source.luma(x, y)]++;
+            count++;
         }
+        if (count == 0) return source;
+        result.subjectMedian = percentile(histogram, count, .5);
+        int bright = percentile(histogram, count, .95);
+        double lift = (context.face ? .5 : .65) * smooth01((135 - result.subjectMedian) / 70.0);
+        if (bright > 0) lift = Math.min(lift, -.8 * Math.log(ForegroundLight.lin(bright)) / Math.log(2));
+        if (bright < Math.max(24, result.noiseAfter * 5) || lift < .08) {
+            result.liftDecision = "tons do sujeito fora da faixa de correção";
+            return source;
+        }
+        for (int attempt = 0; attempt < 2; attempt++, lift *= .5) {
+            YuvFrame lit = QualityCheck.copy(source);
+            applySubjectLight(lit, subject, lift, result.noiseAfter);
+            QualityCheck.Report detail = QualityCheck.compare(source, lit, result.noiseAfter, result.noiseAfter);
+            result.liftDetail = detail;
+            if (!detail.measurable || (detail.passed && detail.detailRatio >= .94 && detail.edgeCorrelation >= .98
+                    && (detail.measuredRegions == 0 || detail.weakestRegionContrast >= .90))) {
+                result.maxLiftEv = lift;
+                result.liftDecision = attempt == 0 ? "aplicado" : "ganho reduzido para preservar bordas";
+                return lit;
+            }
+        }
+        result.liftDecision = "bordas preservadas sem ganho";
+        return source;
+    }
+
+    /** Same linear RGB multiplier for all channels, with no spatial filtering of the output. */
+    private static void applySubjectLight(YuvFrame f, Subject subject, double liftEv, double sigma) {
+        final int levels = 64;
+        final float[][] scale = new float[levels+1][256];
+        for (int level = 1; level <= levels; level++) {
+            float gain = (float)Math.pow(2, liftEv * level / levels);
+            scale[level][0] = 1;
+            for (int value = 1; value < 256; value++) {
+                // Reduce the gain smoothly near white, where small differences carry highlight texture.
+                float headroom = 1 - ForegroundLight.lin(value);
+                scale[level][value] = 1 + (gain - 1) * headroom * headroom;
+            }
+        }
+        final double[] visibleSignal = new double[256];
+        for (int y = 0; y < visibleSignal.length; y++)
+            visibleSignal[y] = smooth01((y - 5 - sigma) / Math.max(12, 3 * sigma));
         IntStream.range(0,f.chromaHeight).parallel().forEach(cy->{
             for(int cx=0;cx<f.chromaWidth;cx++) {
+                float weight = subjectWeight(subject, f, 2*cx+.5f, 2*cy+.5f);
+                if (weight <= .01f) continue;
                 int ci=cy*f.chromaWidth+cx, cb=(f.u[ci]&255)-128, cr=(f.v[ci]&255)-128;
-                float local=sample(smooth,gw,gh,(2*cx+.5f)/stride-.5f,(2*cy+.5f)/stride-.5f);
-                double weight=1-smooth01((local-100)/95.0);
+                int rDelta = (91881 * cr + 32768) >> 16;
+                int gDelta = (22554 * cb + 46802 * cr + 32768) >> 16;
+                int bDelta = (116130 * cb + 32768) >> 16;
                 int sumU=0,sumV=0,count=0;
                 for(int dy=0;dy<2 && 2*cy+dy<f.height;dy++) for(int dx=0;dx<2 && 2*cx+dx<f.width;dx++) {
                     int index=(2*cy+dy)*f.width+2*cx+dx, yy=f.y[index]&255;
-                    int r=clip((int)Math.round(yy+1.402*cr)), g=clip((int)Math.round(yy-.344136*cb-.714136*cr)), b=clip((int)Math.round(yy+1.772*cb));
-                    // Near-black values are not recovered signal; keep them anchored above the noise floor.
-                    int level=(int)Math.round(levels*weight*smooth01((yy-5)/Math.max(15,2.5*sigma))
-                            * (1-smooth01((yy-140)/80.0)));
-                    level=Math.min(level,headroom[Math.max(r,Math.max(g,b))]);
-                    int rr=lut[level][r],gg=lut[level][g],bb=lut[level][b];
-                    f.y[index]=(byte)clip((77*rr+150*gg+29*bb+128)>>8);
-                    sumU+=clip((int)Math.round(128-.168736*rr-.331264*gg+.5*bb));
-                    sumV+=clip((int)Math.round(128+.5*rr-.418688*gg-.081312*bb)); count++;
+                    int level=(int)Math.round(levels * weight * visibleSignal[yy]);
+                    count++;
+                    if (level <= 0) {
+                        sumU += 128 + cb;
+                        sumV += 128 + cr;
+                        continue;
+                    }
+                    int r = clip(yy + rDelta), g = clip(yy - gDelta), b = clip(yy + bDelta);
+                    float gain = scale[level][Math.max(r, Math.max(g,b))];
+                    int dr = ForegroundLight.encode(ForegroundLight.lin(r) * gain) - r;
+                    int dg = ForegroundLight.encode(ForegroundLight.lin(g) * gain) - g;
+                    int db = ForegroundLight.encode(ForegroundLight.lin(b) * gain) - b;
+                    f.y[index]=(byte)clip(yy+((19595*dr+38470*dg+7471*db+32768)>>16));
+                    sumU+=clip(128+cb+((-11058*dr-21710*dg+32768*db+32768)>>16));
+                    sumV+=clip(128+cr+((32768*dr-27439*dg-5329*db+32768)>>16));
                 }
                 f.u[ci]=(byte)((sumU+count/2)/count); f.v[ci]=(byte)((sumV+count/2)/count);
             }
         });
+    }
+
+    private static float subjectWeight(Subject subject, YuvFrame frame, float x, float y) {
+        return sample(subject.weights, subject.width, subject.height,
+                (x + .5f) * subject.width / frame.width - .5f,
+                (y + .5f) * subject.height / frame.height - .5f);
     }
     private static float sample(float[] a,int w,int h,float x,float y) {
         x=Math.max(0,Math.min(w-1,x)); y=Math.max(0,Math.min(h-1,y));
@@ -143,7 +224,5 @@ final class RegionalPhotoProtocol {
         return (a[y0*w+x0]*(1-tx)+a[y0*w+x1]*tx)*(1-ty)+(a[y1*w+x0]*(1-tx)+a[y1*w+x1]*tx)*ty;
     }
     private static double smooth01(double t) { t=Math.max(0,Math.min(1,t));return t*t*(3-2*t); }
-    private static double linear(double v) {return v<=.04045 ? v/12.92:Math.pow((v+.055)/1.055,2.4);}
-    private static double srgb(double v) {return v<=.0031308 ? 12.92*v:1.055*Math.pow(v,1/2.4)-.055;}
     private static int clip(int v) {return Math.max(0,Math.min(255,v));}
 }
