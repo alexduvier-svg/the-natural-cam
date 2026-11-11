@@ -186,23 +186,32 @@ public final class QualityCheck {
 
     private static void resample(byte[] s, int w, int h, byte[] d, int W, int H) {
         float sx = w / (float) W, sy = h / (float) H;
+        int[] columns = new int[W * 4];
+        float[] weightsX = new float[W * 4];
+        for (int x = 0; x < W; x++) {
+            float sourceX = (x + .5f) * sx - .5f;
+            int x0 = (int) Math.floor(sourceX);
+            float[] weights = cub(sourceX - x0);
+            for (int i = 0; i < 4; i++) {
+                columns[x * 4 + i] = Math.max(0, Math.min(w - 1, x0 - 1 + i));
+                weightsX[x * 4 + i] = weights[i];
+            }
+        }
         java.util.stream.IntStream.range(0, H).parallel().forEach(Y -> {
             float yr = (Y + .5f) * sy - .5f;
             int y0 = (int) Math.floor(yr);
             float ty = yr - y0;
             float[] wy = cub(ty);
+            int[] rows = new int[4];
+            for (int j = 0; j < 4; j++) rows[j] = Math.max(0, Math.min(h - 1, y0 - 1 + j)) * w;
             for (int X = 0; X < W; X++) {
-                float xr = (X + .5f) * sx - .5f;
-                int x0 = (int) Math.floor(xr);
-                float[] wx = cub(xr - x0);
                 float acc = 0;
+                int x = X * 4;
                 for (int j = 0; j < 4; j++) {
-                    int yy = Math.max(0, Math.min(h - 1, y0 - 1 + j));
+                    int rowOffset = rows[j];
                     float row = 0;
-                    for (int i = 0; i < 4; i++) {
-                        int xx = Math.max(0, Math.min(w - 1, x0 - 1 + i));
-                        row += wx[i] * (s[yy * w + xx] & 0xFF);
-                    }
+                    for (int i = x; i < x + 4; i++)
+                        row += weightsX[i] * (s[rowOffset + columns[i]] & 0xFF);
                     acc += wy[j] * row;
                 }
                 d[Y * W + X] = (byte) Math.max(0, Math.min(255, Math.round(acc)));

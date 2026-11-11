@@ -4,6 +4,9 @@ import java.util.stream.IntStream;
 
 /** Local residual cleanup on the chroma grid; returns corrections, never a resized photograph. */
 final class ResidualNoiseRefiner {
+    private static final int[] PATCH_X = {-3, 0, 3, -3, 3, -3, 0, 3};
+    private static final int[] PATCH_Y = {-3, -3, -3, 0, 0, 3, 3, 3};
+
     static final class Report {
         double sigma, meanLumaWeight, meanChromaWeight;
         long millis;
@@ -30,45 +33,25 @@ final class ResidualNoiseRefiner {
         final double[] weightsY=new double[h], weightsC=new double[h];
         final float[] exp=new float[1025];
         for(int i=0;i<exp.length;i++) exp[i]=(float)Math.exp(-i/128.0);
-        // Sparse 3x3 patch comparisons: neighbors along a groove match better than across it.
-        final int[] offsets={-3,0,3};
-        IntStream.range(0,h).parallel().forEach(cy->{
-            double wy=0,wc=0;
-            for(int cx=0;cx<w;cx++) {
-                int i=cy*w+cx;
-                float center=y[i], sig=sigma[Math.min(15,(int)center>>4)];
-                float noise2=sig*sig, bandwidth=Math.max(2.5f,noise2*2.2f);
-                float su=u[i]&255, sv=v[i]&255, sy=center, sw=1;
-                for(int dy:offsets) for(int dx:offsets) {
-                    if(dx==0 && dy==0)continue;
-                    int nx=cx+dx,ny=cy+dy;
-                    if(nx<0||nx>=w||ny<0||ny>=h)continue;
-                    int ni=ny*w+nx;
-                    float distance=0;
-                    for(int py=-1;py<=1;py++) for(int px=-1;px<=1;px++) {
-                        float d=y[bound(cy+py,h)*w+bound(cx+px,w)]
-                                -y[bound(ny+py,h)*w+bound(nx+px,w)];
-                        distance+=d*d;
-                    }
-                    float du=(u[i]&255)-(u[ni]&255),dv=(v[i]&255)-(v[ni]&255);
-                    float cost=Math.max(0,distance/9-2*noise2)/bandwidth
-                            +Math.max(0,du*du+dv*dv-4*noise2)/Math.max(12,noise2*10);
-                    float weight=exp[Math.min(1024,Math.round(cost*128))];
-                    sy+=weight*y[ni];su+=weight*(u[ni]&255);sv+=weight*(v[ni]&255);sw+=weight;
-                }
-                // Flat shadows receive more help; bright material and possible skin keep texture.
-                float support=(sw-1)/8;
-                float dark=1-smooth((center-45)/105f);
-                float skin=BurstFusion.skinCbCr(center,u[i]&255,v[i]&255);
-                float ky=(.42f+.3f*dark)*(1-.45f*skin)*smooth(support*2);
-                float kc=(.72f+.16f*dark)*smooth(support*2);
-                float delta=(sy/sw-center)*ky;
-                correction[i]=Math.max(-3*sig,Math.min(3*sig,delta));
-                f.u[i]=(byte)clip(Math.round((u[i]&255)+(su/sw-(u[i]&255))*kc));
-                f.v[i]=(byte)clip(Math.round((v[i]&255)+(sv/sw-(v[i]&255))*kc));
-                wy+=ky;wc+=kc;
+        // Reuse the horizontal sums of each 3x3 patch across adjacent rows.
+        final int[] columns = patchColumns(w, 0);
+        final int[][] shifted = {patchColumns(w, -3), columns, patchColumns(w, 3)};
+        int workers = Math.min(h, Math.max(1, Runtime.getRuntime().availableProcessors() * 2));
+        IntStream.range(0, workers).parallel().forEach(band -> {
+            int top = band * h / workers, bottom = (band + 1) * h / workers;
+            float[][] sums = new float[PATCH_X.length * 3][w];
+            for (int p = 0; p < PATCH_X.length; p++) {
+                int[] xAlt = shifted[(PATCH_X[p] + 3) / 3];
+                patchRow(y, w, h, top - 1, PATCH_Y[p], columns, xAlt, sums[p * 3]);
+                patchRow(y, w, h, top, PATCH_Y[p], columns, xAlt, sums[p * 3 + 1]);
             }
-            weightsY[cy]=wy;weightsC[cy]=wc;
+            for (int cy = top, previous = 0; cy < bottom; cy++, previous = (previous + 1) % 3) {
+                int middle = (previous + 1) % 3, next = (previous + 2) % 3;
+                for (int p = 0; p < PATCH_X.length; p++) {
+                    patchRow(y, w, h, cy + 1, PATCH_Y[p], columns, shifted[(PATCH_X[p] + 3) / 3], sums[p * 3 + next]);
+                }
+                refineRow(f, y, u, v, sigma, correction, weightsY, weightsC, exp, sums, cy, w, h);
+            }
         });
         coarseChroma(f,y,u,v,(float)report.sigma);
         IntStream.range(0,f.height).parallel().forEach(yy->{
@@ -89,6 +72,64 @@ final class ResidualNoiseRefiner {
         for(int row=0;row<h;row++){report.meanLumaWeight+=weightsY[row]/n;report.meanChromaWeight+=weightsC[row]/n;}
         report.millis=System.currentTimeMillis()-start;
         return report;
+    }
+
+    private static int[] patchColumns(int width, int shift) {
+        int[] columns = new int[width + 2];
+        for (int i = 0; i < columns.length; i++) columns[i] = bound(i - 1 + shift, width);
+        return columns;
+    }
+
+    private static void patchRow(float[] guide, int width, int height, int y, int dy,
+                                 int[] columns, int[] shifted, float[] sums) {
+        int row = bound(y, height) * width, alt = bound(y + dy, height) * width;
+        float a = guide[row + columns[0]] - guide[alt + shifted[0]];
+        float b = guide[row + columns[1]] - guide[alt + shifted[1]];
+        a *= a;
+        b *= b;
+        for (int x = 0; x < width; x++) {
+            float c = guide[row + columns[x + 2]] - guide[alt + shifted[x + 2]];
+            c *= c;
+            sums[x] = a + b + c;
+            a = b;
+            b = c;
+        }
+    }
+
+    private static void refineRow(YuvFrame f, float[] y, byte[] u, byte[] v, float[] sigma,
+                                  float[] correction, double[] weightsY, double[] weightsC,
+                                  float[] exp, float[][] sums, int cy, int w, int h) {
+            double wy=0,wc=0;
+            for(int cx=0;cx<w;cx++) {
+                int i=cy*w+cx;
+                float center=y[i], sig=sigma[Math.min(15,(int)center>>4)];
+                float noise2=sig*sig, bandwidth=Math.max(2.5f,noise2*2.2f);
+                float su=u[i]&255, sv=v[i]&255, sy=center, sw=1;
+                for (int p = 0; p < PATCH_X.length; p++) {
+                    int nx = cx + PATCH_X[p], ny = cy + PATCH_Y[p];
+                    if(nx<0||nx>=w||ny<0||ny>=h)continue;
+                    int ni=ny*w+nx;
+                    int k = p * 3;
+                    float distance = sums[k][cx] + sums[k + 1][cx] + sums[k + 2][cx];
+                    float du=(u[i]&255)-(u[ni]&255),dv=(v[i]&255)-(v[ni]&255);
+                    float cost=Math.max(0,distance/9-2*noise2)/bandwidth
+                            +Math.max(0,du*du+dv*dv-4*noise2)/Math.max(12,noise2*10);
+                    float weight=exp[Math.min(1024,Math.round(cost*128))];
+                    sy+=weight*y[ni];su+=weight*(u[ni]&255);sv+=weight*(v[ni]&255);sw+=weight;
+                }
+                // Flat shadows receive more help; bright material and possible skin keep texture.
+                float support=(sw-1)/8;
+                float dark=1-smooth((center-45)/105f);
+                float skin=BurstFusion.skinCbCr(center,u[i]&255,v[i]&255);
+                float ky=(.42f+.3f*dark)*(1-.45f*skin)*smooth(support*2);
+                float kc=(.72f+.16f*dark)*smooth(support*2);
+                float delta=(sy/sw-center)*ky;
+                correction[i]=Math.max(-3*sig,Math.min(3*sig,delta));
+                f.u[i]=(byte)clip(Math.round((u[i]&255)+(su/sw-(u[i]&255))*kc));
+                f.v[i]=(byte)clip(Math.round((v[i]&255)+(sv/sw-(v[i]&255))*kc));
+                wy+=ky;wc+=kc;
+            }
+            weightsY[cy]=wy;weightsC[cy]=wc;
     }
 
     /** Low-frequency color mottling needs a larger scale than adjacent-pixel grain. */

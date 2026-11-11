@@ -18,6 +18,11 @@ final class ColorSensorReading {
 
     float[] values() { return channels.clone(); }
     boolean fresh(long nowNs) { return timestampNs > 0 && nowNs >= timestampNs && nowNs - timestampNs <= 3_000_000_000L; }
+    double lux(long nowNs) {
+        if (!fresh(nowNs) || channels.length == 0) return Double.NaN;
+        float value = channels[0];
+        return Float.isFinite(value) && value >= 0 ? value : Double.NaN;
+    }
     double cctKelvin(long nowNs) {
         String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
         if (!n.contains("tcs3720") || !n.contains("cct") || !fresh(nowNs) || channels.length == 0 || accuracy == 0)

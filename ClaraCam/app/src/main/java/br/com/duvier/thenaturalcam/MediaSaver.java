@@ -40,6 +40,10 @@ final class MediaSaver {
 
     /** JPEG pronto (vindo da câmera): já traz EXIF e orientação. */
     Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet) throws IOException {
+        return saveJpeg(name, jpeg, sheet, 0L);
+    }
+
+    Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet, long shutterAtMs) throws IOException {
         if (sheet != null) {
             try {
                 android.graphics.BitmapFactory.Options size = new android.graphics.BitmapFactory.Options();
@@ -71,7 +75,13 @@ final class MediaSaver {
         ContentValues done = new ContentValues();
         done.put(MediaStore.Images.Media.IS_PENDING, 0);
         cr.update(uri, done, null, null);
-        if (sheet != null) saveSheet(name, sheet);
+        if (sheet != null) {
+            if (shutterAtMs > 0) {
+                try { sheet.put("tempo_disparo_ate_jpeg_ms", android.os.SystemClock.elapsedRealtime() - shutterAtMs); }
+                catch (org.json.JSONException ignored) { }
+            }
+            saveSheet(name, sheet);
+        }
         return uri;
     }
 
@@ -186,10 +196,12 @@ final class MediaSaver {
      * um bitmap ARGB do tamanho da foto — essencial para a saída de super-resolução (28 MP).
      */
     Uri saveYuv(String name, YuvFrame f, int exifDegrees, JSONObject sheet) throws IOException {
-        return saveYuv(name, f, exifDegrees, sheet, null);
+        return saveYuv(name, f, exifDegrees, sheet, null, 0L);
     }
 
-    Uri saveYuv(String name, YuvFrame f, int exifDegrees, JSONObject sheet, java.util.Map<String, String> tags) throws IOException {
+    Uri saveYuv(String name, YuvFrame f, int exifDegrees, JSONObject sheet,
+                java.util.Map<String, String> tags, long shutterAtMs) throws IOException {
+        long start = android.os.SystemClock.elapsedRealtime();
         int w = f.width & ~1, h = f.height & ~1;
         byte[] nv21 = new byte[w * h + (w * h) / 2];
         for (int y = 0; y < h; y++) System.arraycopy(f.y, y * f.width, nv21, y * w, w);
@@ -224,7 +236,11 @@ final class MediaSaver {
             exif.setAttribute(ExifInterface.TAG_COLOR_SPACE, "1");
             putAll(exif, tags);
             exif.saveAttributes();
-            return saveJpeg(name, Files.readAllBytes(tmp.toPath()), sheet);
+            if (sheet != null) {
+                try { sheet.put("tempo_codificacao_jpeg_ms", android.os.SystemClock.elapsedRealtime() - start); }
+                catch (org.json.JSONException ignored) { }
+            }
+            return saveJpeg(name, Files.readAllBytes(tmp.toPath()), sheet, shutterAtMs);
         } finally {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();

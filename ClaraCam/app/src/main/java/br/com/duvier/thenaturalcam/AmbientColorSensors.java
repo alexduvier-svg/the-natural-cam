@@ -18,6 +18,7 @@ final class AmbientColorSensors implements SensorEventListener {
     private final SensorManager manager;
     private final Handler handler;
     private final Sensor gyro;
+    private final Sensor light;
     private final CameraMotionMeter motion = new CameraMotionMeter();
     private final Map<Sensor, ColorSensorReading> readings = new LinkedHashMap<>();
     private final Map<Sensor, Boolean> registered = new LinkedHashMap<>();
@@ -27,11 +28,13 @@ final class AmbientColorSensors implements SensorEventListener {
         this.handler = handler;
         manager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
         gyro = manager == null ? null : manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        light = manager == null ? null : manager.getDefaultSensor(Sensor.TYPE_LIGHT);
         if (manager != null) for (Sensor sensor : manager.getSensorList(Sensor.TYPE_ALL)) {
             String name = sensor.getName().toLowerCase(Locale.ROOT);
             if ((name.contains("tcs3720") && name.contains("cct")) || name.contains("fusion rgb"))
                 readings.put(sensor, null);
         }
+        if (light != null) readings.putIfAbsent(light, null);
     }
 
     synchronized void start() {
@@ -77,7 +80,12 @@ final class AmbientColorSensors implements SensorEventListener {
                     item.put("canais_brutos", raw);
                     double cct = reading.cctKelvin(now);
                     item.put("cct_kelvin", Double.isFinite(cct) ? cct : JSONObject.NULL);
-                    item.put("layout", "CCT TCS3720: canal 0 observado como K no firmware CPH2863_17.0.0.100; demais canais preservados sem conversão");
+                    if (sensor == light) {
+                        double lux = reading.lux(now);
+                        item.put("iluminancia_lux", Double.isFinite(lux) ? lux : JSONObject.NULL);
+                    }
+                    if (sensor.getName().toLowerCase(Locale.ROOT).contains("tcs3720") && sensor != light)
+                        item.put("layout", "Canal 0 observado como K no CPH2863_17.0.0.100. Demais canais brutos.");
                 } else item.put("estado", "aguardando amostra");
                 sensors.put(item);
             }
@@ -93,7 +101,9 @@ final class AmbientColorSensors implements SensorEventListener {
         for (Map.Entry<Sensor, ColorSensorReading> entry : readings.entrySet()) {
             text.append(entry.getKey().getName());
             double cct = entry.getValue() != null ? entry.getValue().cctKelvin(now) : Double.NaN;
-            if (Double.isFinite(cct)) text.append(String.format(Locale.ROOT, " · %.0f K", cct));
+            double lux = entry.getKey() == light && entry.getValue() != null ? entry.getValue().lux(now) : Double.NaN;
+            if (Double.isFinite(lux)) text.append(String.format(Locale.ROOT, " · %.0f lux", lux));
+            else if (Double.isFinite(cct)) text.append(String.format(Locale.ROOT, " · %.0f K", cct));
             else text.append(entry.getValue() == null ? " · aguardando leitura" : " · canais brutos na ficha");
             text.append('\n');
         }

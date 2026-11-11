@@ -209,7 +209,21 @@ final class PortraitEngine {
     /** Média em caixa separável com somas corridas, O(n). */
     static float[] box(float[] src, int w, int h, int r) {
         float[] tmp = new float[w * h], out = new float[w * h];
-        IntStream.range(0, h).parallel().forEach(y -> {
+        IntStream.range(0, (h + 63) / 64).parallel().forEach(b ->
+                horizontalBox(src, tmp, w, r, b * 64, Math.min(h, (b + 1) * 64)));
+        IntStream.range(0, (w + 127) / 128).parallel().forEach(b ->
+                verticalBox(tmp, out, w, h, r, b * 128, Math.min(w, (b + 1) * 128)));
+        return out;
+    }
+
+    /** Scratch belongs to the caller so a strip can be filtered twice without extra full images. */
+    static void boxInPlace(float[] pixels, float[] scratch, int w, int h, int r) {
+        horizontalBox(pixels, scratch, w, r, 0, h);
+        verticalBox(scratch, pixels, w, h, r, 0, w);
+    }
+
+    private static void horizontalBox(float[] src, float[] tmp, int w, int r, int top, int bottom) {
+        for (int y = top; y < bottom; y++) {
             int row = y * w;
             double s = 0;
             int cnt = 0;
@@ -229,28 +243,30 @@ final class PortraitEngine {
                     cnt--;
                 }
             }
-        });
-        IntStream.range(0, w).parallel().forEach(x -> {
-            double s = 0;
-            int cnt = 0;
-            for (int y = 0; y <= Math.min(r, h - 1); y++) {
-                s += tmp[y * w + x];
-                cnt++;
+        }
+    }
+
+    private static void verticalBox(float[] tmp, float[] out, int w, int h, int r, int left, int right) {
+        double[] sum = new double[right - left];
+        int count = Math.min(r + 1, h);
+        for (int y = 0; y < count; y++) {
+            int row = y * w;
+            for (int x = left; x < right; x++) sum[x - left] += tmp[row + x];
+        }
+        for (int y = 0; y < h; y++) {
+            int row = y * w, add = y + r + 1, rem = y - r;
+            for (int x = left; x < right; x++) out[row + x] = (float) (sum[x - left] / count);
+            if (add < h) {
+                int next = add * w;
+                for (int x = left; x < right; x++) sum[x - left] += tmp[next + x];
+                count++;
             }
-            for (int y = 0; y < h; y++) {
-                out[y * w + x] = (float) (s / cnt);
-                int add = y + r + 1, rem = y - r;
-                if (add < h) {
-                    s += tmp[add * w + x];
-                    cnt++;
-                }
-                if (rem >= 0) {
-                    s -= tmp[rem * w + x];
-                    cnt--;
-                }
+            if (rem >= 0) {
+                int previous = rem * w;
+                for (int x = left; x < right; x++) sum[x - left] -= tmp[previous + x];
+                count--;
             }
-        });
-        return out;
+        }
     }
 
     // =====================================================================================

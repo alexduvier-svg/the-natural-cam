@@ -43,6 +43,40 @@ public final class BurstFusion {
         public long superResMs;
         /** Quadro de referência (sobrevive à liberação da lista na super-resolução). */
         public YuvFrame referenceFrame;
+        /** Fusão na grade de captura, disponível se a super-resolução perder detalhe. */
+        YuvFrame standardFrame;
+        boolean superResMemoryFallback;
+        boolean superResSameSamplingGrid;
+
+        VerifiedOutput verifyOutput() {
+            QualityCheck.Report primary = QualityCheck.compare(referenceFrame, frame, noiseBefore,
+                    noiseAfter / Math.max(1f, scale));
+            if (primary.passed || framesIn <= 1) {
+                return new VerifiedOutput(frame, scale, primary, null, false);
+            }
+            QualityCheck.Report standard = standardFrame == null ? null
+                    : QualityCheck.compare(referenceFrame, standardFrame, noiseBefore, noiseAfter);
+            if (standard != null && standard.passed) {
+                return new VerifiedOutput(standardFrame, 1f, primary, standard, false);
+            }
+            return new VerifiedOutput(referenceFrame, 1f, primary, standard, true);
+        }
+    }
+
+    static final class VerifiedOutput {
+        final YuvFrame frame;
+        final float scale;
+        final QualityCheck.Report primary, standard;
+        final boolean referenceOnly;
+
+        VerifiedOutput(YuvFrame frame, float scale, QualityCheck.Report primary,
+                       QualityCheck.Report standard, boolean referenceOnly) {
+            this.frame = frame;
+            this.scale = scale;
+            this.primary = primary;
+            this.standard = standard;
+            this.referenceOnly = referenceOnly;
+        }
     }
 
     static final int TILE = 128;
@@ -55,6 +89,7 @@ public final class BurstFusion {
     private final boolean finish;
     private final float scale;
     private final float denoiseCeiling;
+    private final boolean checkNativeSampling;
 
     public BurstFusion() {
         this(0.30f, true, 1f);
@@ -71,10 +106,15 @@ public final class BurstFusion {
     }
 
     public BurstFusion(float sharpenAmount, boolean finish, float scale, float denoiseCeiling) {
+        this(sharpenAmount, finish, scale, denoiseCeiling, false);
+    }
+
+    BurstFusion(float sharpenAmount, boolean finish, float scale, float denoiseCeiling, boolean checkNativeSampling) {
         this.sharpenAmount = sharpenAmount;
         this.finish = finish;
         this.scale = scale;
         this.denoiseCeiling = Math.max(0f, Math.min(0.5f, denoiseCeiling));
+        this.checkNativeSampling = checkNativeSampling;
     }
 
     // =====================================================================================
@@ -94,6 +134,12 @@ public final class BurstFusion {
 
     static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
                                  int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale) {
+        return superResolve(frames, ref, offX, offY, tilesX, tilesY, guide, sigma, scale, Double.NaN);
+    }
+
+    private static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
+                                         int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale,
+                                         double noiseAfterForSamplingCheck) {
         final int w = guide.width, h = guide.height, n = frames.size();
         final int W = Math.round(w * scale) & ~1, H = Math.round(h * scale) & ~1;
         final float sx = (float) w / W, sy = (float) h / H;
@@ -120,6 +166,8 @@ public final class BurstFusion {
                 fy[fi][t] = oy + subPixel(u, c, d);
             });
         }
+        if (Double.isFinite(noiseAfterForSamplingCheck)
+                && !hasDistinctSampling(guide, fx, fy, tilesX, tilesY, noiseAfterForSamplingCheck)) return guide;
 
         // pesos: distância (gaussiana, σ ≈ 0,35 px do sensor) e robustez (mais tolerante que a fusão)
         final float[] gauss = new float[256];
@@ -139,7 +187,8 @@ public final class BurstFusion {
         hr.exposureNs = guide.exposureNs;
         hr.timestampNs = guide.timestampNs;
         final byte[] hy = hr.y;
-        IntStream.range(0, (H + BAND - 1) / BAND).parallel().forEach(b -> {
+        if (!SuperResolutionGrid.render(guide, hr, ys, fx, fy, tilesX, tilesY, gauss, srCut, robust))
+            IntStream.range(0, (H + BAND - 1) / BAND).parallel().forEach(b -> {
             int Y0 = b * BAND, Y1 = Math.min(H, Y0 + BAND);
             for (int Y = Y0; Y < Y1; Y++) {
                 float yr = (Y + 0.5f) * sy - 0.5f;
@@ -207,6 +256,32 @@ public final class BurstFusion {
         if (den <= 0) return 0f;
         double s = 0.5 * (m - p) / den;
         return (float) Math.max(-0.5, Math.min(0.5, s));
+    }
+
+    /** Native-grid output benefits from a larger grid only when some real edges have distinct samples. */
+    private static boolean hasDistinctSampling(YuvFrame guide, float[][] dx, float[][] dy,
+                                               int tilesX, int tilesY, double noise) {
+        double threshold = Math.max(4, 1.6 * noise);
+        for (int tile = 0; tile < tilesX * tilesY; tile++) {
+            boolean shifted = false;
+            for (int i = 0; i < dx.length; i++) {
+                float x = dx[i][tile], y = dy[i][tile];
+                if (Math.abs(x - Math.round(x)) >= .16f || Math.abs(y - Math.round(y)) >= .16f) {
+                    shifted = true;
+                    break;
+                }
+            }
+            if (!shifted) continue;
+            int left = tile % tilesX * TILE, top = tile / tilesX * TILE;
+            int right = Math.min(left + TILE, guide.width - 1), bottom = Math.min(top + TILE, guide.height - 1);
+            int edges = 0;
+            for (int y = top + 1; y < bottom; y += 3) for (int x = left + 1; x < right; x += 3) {
+                int gx = guide.luma(x + 1, y) - guide.luma(x - 1, y);
+                int gy = guide.luma(x, y + 1) - guide.luma(x, y - 1);
+                if (Math.abs(gx) + Math.abs(gy) >= threshold && ++edges >= 8) return true;
+            }
+        }
+        return false;
     }
 
     private static float bil(byte[] a, int o, int w, float fx, float fy) {
@@ -397,14 +472,25 @@ public final class BurstFusion {
         YuvFrame fin = out;
         final YuvFrame refKeep = r;
         long tSr = 0;
+        boolean superResMemoryFallback = false;
+        boolean superResSameSamplingGrid = false;
         if (scale > 1.01f && n >= 4) {
             p.step("Super-resolução " + scale + "×", 0.64f);
             long ts = System.currentTimeMillis();
-            fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
-            // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
-            // só nas fotos gigantes: libera ~230 MB antes do acabamento em 28 MP; nas menores os quadros
-            // ficam para a reserva poder refazer a fusão sem super-resolução
-            if ((long) fin.width * fin.height > 20_000_000L) frames.clear();
+            try {
+                fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale,
+                        checkNativeSampling ? noiseAfter : Double.NaN);
+                superResSameSamplingGrid = fin == out;
+            } catch (OutOfMemoryError error) {
+                // A fusão na grade original já existe e pode ser concluída com os quadros liberados.
+                superResMemoryFallback = true;
+            }
+            if (superResMemoryFallback || (long) fin.width * fin.height > 20_000_000L) {
+                frames.clear();
+                Arrays.fill(ys, null);
+                Arrays.fill(us, null);
+                Arrays.fill(vs, null);
+            }
             tSr = System.currentTimeMillis() - ts;
         }
         final YuvFrame outF = fin;
@@ -435,6 +521,9 @@ public final class BurstFusion {
         Result res = new Result();
         res.frame = outF;
         res.scale = outF == out ? 1f : scale;
+        res.standardFrame = outF == out ? null : out;
+        res.superResMemoryFallback = superResMemoryFallback;
+        res.superResSameSamplingGrid = superResSameSamplingGrid;
         res.superResMs = tSr;
         res.framesIn = n;
         res.framesUsed = n;
@@ -790,6 +879,7 @@ public final class BurstFusion {
         final int bands = (h + BAND - 1) / BAND;
         IntStream.range(0, bands).parallel().forEach(b -> {
             int y0 = Math.max(2, b * BAND), y1 = Math.min(h - 2, b * BAND + BAND);
+            int[] medianBuffer = new int[9];
             for (int y = y0; y < y1; y++) {
                 for (int x = 2; x < w - 2; x++) {
                     int c = src[y * w + x] & 0xFF;
@@ -809,7 +899,7 @@ public final class BurstFusion {
                     if (n <= 3) {
                         // pixel que não se parece com quase nenhum vizinho: ruído impulsivo
                         // (pontinho), não detalhe — linhas finas reais têm vizinhos parecidos.
-                        f.y[y * w + x] = (byte) median3x3(src, w, x, y);
+                        f.y[y * w + x] = (byte) median3x3(src, w, x, y, medianBuffer);
                         continue;
                     }
                     int mean = (s + (n >> 1)) / n;
@@ -861,8 +951,7 @@ public final class BurstFusion {
         });
     }
 
-    private static int median3x3(byte[] src, int w, int x, int y) {
-        int[] v = new int[9];
+    private static int median3x3(byte[] src, int w, int x, int y, int[] v) {
         int k = 0;
         for (int j = -1; j <= 1; j++) {
             int o = (y + j) * w + x;
@@ -892,13 +981,11 @@ public final class BurstFusion {
                     int c = cy * cw + cx;
                     int yc = gy[c], uc = u[c] & 0xFF, vc = v[c] & 0xFF;
                     int su = 0, sv = 0, n = 0;
-                    for (int j = -2; j <= 2; j++) {
-                        int yy = cy + j;
-                        if (yy < 0 || yy >= ch) continue;
-                        for (int i = -2; i <= 2; i++) {
-                            int xx = cx + i;
-                            if (xx < 0 || xx >= cw) continue;
-                            int k = yy * cw + xx;
+                    int left = Math.max(0, cx - 2), right = Math.min(cw - 1, cx + 2);
+                    int top = Math.max(0, cy - 2), bottom = Math.min(ch - 1, cy + 2);
+                    for (int yy = top; yy <= bottom; yy++) {
+                        int row = yy * cw;
+                        for (int k = row + left; k <= row + right; k++) {
                             int un = u[k] & 0xFF, vn = v[k] & 0xFF;
                             if (Math.abs(gy[k] - yc) > lt) continue;
                             if (Math.abs(un - uc) + Math.abs(vn - vc) > ct) continue;
@@ -1038,25 +1125,30 @@ public final class BurstFusion {
     }
 
     private static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise, boolean regional) {
-        final int w = f.width, h = f.height, n = w * h;
+        final int w = f.width, h = f.height;
         int r = Math.max(1, Math.round(upscale * 0.55f));
-        float[] y = new float[n];
-        for (int i = 0; i < n; i++) y[i] = f.y[i] & 0xFF;
-        final float[] bl = PortraitEngine.box(PortraitEngine.box(y, w, h, r), w, h, r);
+        final byte[] source = f.y.clone();
         // detalhe só acima de ~2,5σ do ruído residual (diretriz): o grão do fundo não é realçado
-        final float thr = Math.max(2f, noise * 2.5f), lim = 14f;
-        IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
-            int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
-            for (int i = i0; i < i1; i++) {
-                float d = y[i] - bl[i], ad = Math.abs(d);
-                if(regional) {
-                    // Do not enhance low-confidence grain in smooth foreground/background surfaces.
-                    d*=smooth01((ad-Math.max(1f,noise*1.1f))/(Math.max(1f,noise*2.4f)+1));
+        final float thr = Math.max(2f, noise * 2.5f), limit = regional ? 6f : 14f;
+        final float floor = Math.max(1f, noise * 1.1f), transition = Math.max(1f, noise * 2.4f) + 1;
+        IntStream.range(0, (h + BAND - 1) / BAND).parallel().forEach(b -> {
+            int top = b * BAND, bottom = Math.min(h, top + BAND);
+            // Two box filters depend on at most 2r rows on either side.
+            int start = Math.max(0, top - 2 * r), end = Math.min(h, bottom + 2 * r);
+            int height = end - start, offset = start * w;
+            float[] blur = new float[height * w], scratch = new float[blur.length];
+            for (int i = 0; i < blur.length; i++) blur[i] = source[offset + i] & 0xFF;
+            PortraitEngine.boxInPlace(blur, scratch, w, height, r);
+            PortraitEngine.boxInPlace(blur, scratch, w, height, r);
+            for (int i = top * w; i < bottom * w; i++) {
+                int original = source[i] & 0xFF;
+                float d = original - blur[i - offset], ad = Math.abs(d);
+                if (regional) {
+                    d *= smooth01((ad - floor) / transition);
                 } else if (ad < thr) d *= ad / thr;
                 float s = amount * d;
-                float limit=regional?6f:lim;
                 s = s > limit ? limit : (s < -limit ? -limit : s);
-                f.y[i] = (byte) clamp(Math.round(y[i] + s), 0, 255);
+                f.y[i] = (byte) clamp(Math.round(original + s), 0, 255);
             }
         });
     }

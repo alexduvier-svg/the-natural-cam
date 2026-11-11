@@ -22,6 +22,18 @@ As medições são medianas aproximadas na escala de 0 a 255. A leitura da tipog
 
 No ensaio de software sobre o JPEG Codex de referência, a máscara foi desenhada no PC para isolar a curva de luz. O ganho calculado foi de 0,47 EV. Na área lisa do frasco, a luminância média subiu de 88 a 100. O contraste das bordas do texto fino aumentou cerca de 14% e os frisos retiveram cerca de 96% do contraste medido. A região amostrada no fundo conservou a mesma luminância e o mesmo contraste. Essas medições antecedem o ensaio da máscara automática no Reno.
 
+## Reserva de fusão por focal
+
+Uma captura anterior da tele física em 3,5× levou 19,7 s na etapa de fusão. O verificador registrou 0,66 de detalhe relativo ao quadro de referência e reprovou a saída de 6144 × 4608. A lista de quadros já tinha sido liberada e o app entregou um quadro único com limpeza leve. A partir da 1.27.4, o verificador pode selecionar a fusão na grade de captura feita pelo mesmo alinhamento. O JPEG preserva a resolução dessa fusão ou o redimensionamento de entrega já previsto para os recortes, identificado na ficha. A ficha diferencia a super-resolução tentada da efetivamente usada. O quadro único fica como reserva se as duas fusões perderem detalhe. [Google Research sobre super-resolução com quadros deslocados](https://research.google/pubs/handheld-multi-frame-super-resolution/)
+
+## Tempo entre disparo e JPEG
+
+Uma captura de 3,5× da versão 1.27.3 na tele física usou 12 quadros a 1/60 s. A super-resolução tomou 13,1 s, a limpeza residual 8,0 s e a etapa final de nitidez excedeu a memória disponível. A 1.27.4 reaproveita as posições de amostragem e os pesos em grades de proporção regular, calcula as distâncias entre regiões com somas corridas e aplica o mesmo filtro de nitidez em faixas com margens sobrepostas.
+
+Com a grade nativa e uma rajada sem deslocamentos fracionários úteis nas bordas, o modo máximo entrega a fusão na resolução de captura. A saída de 28 MP é avaliada quando aparecem amostras distintas. A ficha registra o tempo de foco por toque, o primeiro resultado de prévia no zoom solicitado, o tempo até a fusão, o acabamento regional e a publicação do JPEG. A meta de cerca de 10 s é medida da ação no obturador até a publicação, incluindo a aquisição. Em modos de exposição longa, registrar o tempo de exposição selecionado separadamente.
+
+Em um ensaio no PC com oito quadros derivados do mesmo JPEG de 3,5×, a super-resolução passou de 1,62 s a 1,14 s, a limpeza residual de 1,15 s a 0,82 s e a nitidez de 0,68 s a 0,28 s. As saídas de limpeza e nitidez coincidiram byte a byte nas etapas comparadas. A maior diferença de luminância na super-resolução foi de um nível em 255, em cerca de 0,05% dos pixels, com crominância idêntica. Os tempos de PC cobrem as etapas isoladas.
+
 ## Ensaio comparável por focal
 
 1. Capturar um alvo com texto fino, bordas inclinadas, superfícies foscas, texturas e carta de cor em 0,6×, 1×, 2×, 3,5×, 6×, 7× e 8×. Repetir três vezes sob luz de dia, luz interna e baixa luz, com tripé e à mão. Anotar a iluminação, a distância, a compensação e o sensor físico efetivamente usado, inclusive quando o zoom é recorte da principal.

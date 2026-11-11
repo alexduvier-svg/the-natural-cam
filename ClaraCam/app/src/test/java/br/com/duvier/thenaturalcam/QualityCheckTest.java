@@ -1,6 +1,9 @@
 package br.com.duvier.thenaturalcam;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -124,6 +127,75 @@ public class QualityCheckTest {
         assertTrue(q.reason, q.passed);
         YuvFrame big = QualityCheck.upscale(r.referenceFrame, 2.5f);
         assertTrue("reserva ampliada no tamanho da fusão", big.width == r.frame.width && big.height == r.frame.height);
+    }
+
+    @Test
+    public void fusaoSimplesContinuaDisponivelSeAmpliacaoApagarDetalheEAListaForLiberada() {
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (int i = 0; i < 8; i++) frames.add(label(640, 480, 101 + i, 0));
+        BurstFusion.Result result = new BurstFusion(0f, false, 1.5f).fuse(frames, null);
+        assertNotNull(result.standardFrame);
+        assertEquals(640, result.standardFrame.width);
+        assertEquals(960, result.frame.width);
+        frames.clear(); // mesmo estado de uma rajada liberada para poupar memória em 28 MP
+        result.frame = QualityCheck.upscale(blur(result.referenceFrame, 3), 1.5f);
+        BurstFusion.VerifiedOutput selected = result.verifyOutput();
+        assertFalse(selected.primary.passed);
+        assertTrue(selected.standard.reason, selected.standard.passed);
+        assertFalse(selected.referenceOnly);
+        assertSame(result.standardFrame, selected.frame);
+        assertEquals(1f, selected.scale, 0f);
+    }
+
+    @Test
+    public void referenciaSoSaiSeAsDuasFusoesPerderemDetalhe() {
+        YuvFrame reference = label(640, 480, 22, 0);
+        BurstFusion.Result result = new BurstFusion.Result();
+        result.framesIn = 8;
+        result.referenceFrame = reference;
+        result.standardFrame = blur(reference, 3);
+        result.frame = QualityCheck.upscale(result.standardFrame, 1.5f);
+        result.scale = 1.5f;
+        result.noiseBefore = 3;
+        result.noiseAfter = 1;
+        BurstFusion.VerifiedOutput selected = result.verifyOutput();
+        assertFalse(selected.primary.passed);
+        assertFalse(selected.standard.passed);
+        assertTrue(selected.referenceOnly);
+        assertSame(reference, selected.frame);
+        assertEquals(1f, selected.scale, 0f);
+    }
+
+    @Test
+    public void qualidadeMaximaMantemGradeDoSensorQuandoAsAmostrasCoincidem() {
+        YuvFrame photo = label(384, 288, 99, 0);
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) frames.add(QualityCheck.copy(photo));
+        BurstFusion.Result result = new BurstFusion(0f, false, 1.5f, .5f, true).fuse(frames, null);
+        assertTrue(result.superResSameSamplingGrid);
+        assertEquals(photo.width, result.frame.width);
+        assertEquals(6, result.framesUsed);
+    }
+
+    @Test
+    public void qualidadeMaximaPreservaSuperResolucaoComDeslocamentosFracionarios() {
+        java.util.List<YuvFrame> frames = new java.util.ArrayList<>();
+        for (double shift : new double[]{0, .38, -.38, .43, -.43, .22}) {
+            YuvFrame frame = new YuvFrame(384, 288);
+            for (int y = 0; y < frame.height; y++) for (int x = 0; x < frame.width; x++) {
+                double sx = x + shift, sy = y - shift * .5;
+                double border = Math.min(Math.min(sx - 70, 305 - sx), Math.min(sy - 45, 225 - sy));
+                double box = Math.max(0, Math.min(1, border + .5));
+                double diagonal = Math.max(0, Math.min(1, sx - .41 * sy - 130.5));
+                frame.y[y * frame.width + x] = (byte)Math.round(38 + 105 * box + 63 * diagonal);
+            }
+            java.util.Arrays.fill(frame.u, (byte)128);
+            java.util.Arrays.fill(frame.v, (byte)128);
+            frames.add(frame);
+        }
+        BurstFusion.Result result = new BurstFusion(0f, false, 1.5f, .5f, true).fuse(frames, null);
+        assertFalse(result.superResSameSamplingGrid);
+        assertEquals(576, result.frame.width);
     }
 
     /** Mesma cena com ruído forte (σ ≈ 9, como a tele em ISO 3000). */

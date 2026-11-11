@@ -56,6 +56,25 @@ public class ResidualNoiseRefinerTest {
         assertTrue(projection(before,f,180,20,300,220)>=projection(before,before,180,20,300,220)*.99);
     }
 
+    @Test public void sharpeningStripsMatchWholeFrameIncludingStripBoundaries() {
+        YuvFrame f = new YuvFrame(257, 199);
+        new Random(4321).nextBytes(f.y);
+        float[] original = new float[f.y.length];
+        for (int i = 0; i < f.y.length; i++) original[i] = f.y[i] & 255;
+        int r = 2;
+        float[] blur = PortraitEngine.box(PortraitEngine.box(original, f.width, f.height, r), f.width, f.height, r);
+        byte[] expected = new byte[f.y.length];
+        for (int i = 0; i < expected.length; i++) {
+            float detail = original[i] - blur[i];
+            float t = Math.max(0, Math.min(1, (Math.abs(detail) - 3f * 1.1f) / (3f * 2.4f + 1)));
+            detail *= t * t * (3 - 2 * t);
+            float change = Math.max(-6, Math.min(6, .42f * detail));
+            expected[i] = (byte)Math.max(0, Math.min(255, Math.round(original[i] + change)));
+        }
+        BurstFusion.sharpenScaledRegional(f, 4f, .42f, 3f);
+        assertArrayEquals(expected, f.y);
+    }
+
     @Test public void reducesCoarseColorMottlingWithoutChangingMeanColorOrBrightness() {
         YuvFrame f=new YuvFrame(640,480);Arrays.fill(f.y,(byte)76);
         Random random=new Random(2702);int cw=f.chromaWidth,ch=f.chromaHeight;

@@ -46,6 +46,12 @@ Mapeamento da API1: 0→"0", 1→"1", 2→"2", 3→"4", 4→"5". A ultra-angular
 | 4 | Tele periscópio 3,5× | 12,19 mm → ~80 mm | 2,8 | Samsung **JN5** |
 | 1 | Frontal (nível FULL) | 2,75 mm → ~18 mm | 2,0 | JN5 |
 
+A ficha oficial do CPH2863 confirma 200 MP na principal e 50 MP na ultra-angular, na tele e na frontal. O HP5 oferece modos de 200 MP, 50 MP e 12,5 MP no sensor. No diagnóstico deste firmware, o modo padrão da Camera2 entregou até 4096 × 3072. A saída computacional de 6144 × 4608 representa uma grade 1,5× maior por lado, com ganho de detalhe condicionado aos deslocamentos e à nitidez dos quadros. [OPPO CPH2863](https://www.oppo.com/en/smartphones/series-reno/reno16-pro/specs/) · [Samsung ISOCELL HP5](https://semiconductor.samsung.com/image-sensor/mobile-image-sensor/isocell-hp5/) · [Android Camera2](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP_MAXIMUM_RESOLUTION)
+
+O TCS3720 mede RGB e luz no canal claro. O fabricante descreve uma calibração do conjunto sensor, vidro e tela para estimar iluminância e temperatura de cor. Na captura de 3,5× verificada, o Codex leu **5272 K** com uma amostra de 227 ms de idade. O OPLUS Fusion RGB também entregou canais brutos recentes, sem unidade de temperatura confirmada. A câmera registrou separadamente ganhos de balanço de branco R 1,789, G 1,000 e B 1,557. [ams OSRAM TCS3720](https://ams-osram.com/products/sensor-solutions/ambient-light-color-spectral-proximity-sensors/ams-tcs3720-alscolor-and-proximity-sensor) · [Ganhos de WB no Android](https://developer.android.com/reference/android/hardware/camera2/CaptureResult#COLOR_CORRECTION_GAINS)
+
+O Codex registra a iluminância em lux quando o sensor padrão do Android entrega uma leitura recente. Para calibrar uma eventual correção de cor, medir uma carta neutra e de cores em cada lente sob luz única, repetir com luz mista e comparar o erro de cor e a estabilidade com o balanço automático da câmera. O sensor ambiente mede a luz que chega ao telefone, e a carta mede a luz refletida no enquadramento.
+
 ### Reno14 (CPH2737)
 | ID | Tipo | Focal → equiv. | f/ | Observação |
 |---|---|---|---|---|
