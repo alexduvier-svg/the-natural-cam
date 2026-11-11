@@ -12,6 +12,52 @@ final class ResidualNoiseRefiner {
         long millis;
     }
 
+    /** Transfer only the denoise correction, retaining details resolved on the larger grid. */
+    static Report applyFromGuide(YuvFrame output, YuvFrame guide, double temporalNoise) {
+        long start = System.currentTimeMillis();
+        YuvFrame cleaned = QualityCheck.copy(guide);
+        Report report = apply(cleaned, temporalNoise);
+        if (report.sigma >= .9) {
+            float lumaTolerance = (float)Math.max(2, 2.5 * report.sigma);
+            float chromaTolerance = (float)Math.max(3, 3.0 * report.sigma);
+            transfer(output.y, output.width, output.height, guide.y, cleaned.y, guide.width, guide.height, lumaTolerance);
+            transfer(output.u, output.chromaWidth, output.chromaHeight, guide.u, cleaned.u,
+                    guide.chromaWidth, guide.chromaHeight, chromaTolerance);
+            transfer(output.v, output.chromaWidth, output.chromaHeight, guide.v, cleaned.v,
+                    guide.chromaWidth, guide.chromaHeight, chromaTolerance);
+        }
+        report.millis = System.currentTimeMillis() - start;
+        return report;
+    }
+
+    private static void transfer(byte[] output, int w, int h, byte[] before, byte[] after,
+                                 int gw, int gh, float tolerance) {
+        int[] left = new int[w], right = new int[w];
+        float[] fraction = new float[w];
+        for (int x = 0; x < w; x++) {
+            float xg = Math.max(0, Math.min(gw - 1, (x + .5f) * gw / w - .5f));
+            left[x] = (int)xg;
+            right[x] = Math.min(gw - 1, left[x] + 1);
+            fraction[x] = xg - left[x];
+        }
+        IntStream.range(0, h).parallel().forEach(y -> {
+            float yg = Math.max(0, Math.min(gh - 1, (y + .5f) * gh / h - .5f));
+            int row = (int)yg * gw, next = Math.min(gh - 1, (int)yg + 1) * gw;
+            float ty = yg - (int)yg;
+            for (int x = 0; x < w; x++) {
+                int a = row + left[x], b = row + right[x], c = next + left[x], d = next + right[x];
+                int av = before[a] & 255, bv = before[b] & 255, cv = before[c] & 255, dv = before[d] & 255;
+                float delta = mix((after[a] & 255) - av, (after[b] & 255) - bv,
+                        (after[c] & 255) - cv, (after[d] & 255) - dv, fraction[x], ty);
+                if (Math.abs(delta) < .5f) continue;
+                int i = y * w + x, value = output[i] & 255;
+                float base = mix(av, bv, cv, dv, fraction[x], ty);
+                float confidence = 1 - smooth((Math.abs(value - base) - tolerance) / tolerance);
+                output[i] = (byte)clip(Math.round(value + confidence * delta));
+            }
+        });
+    }
+
     static Report apply(YuvFrame f, double temporalNoise) {
         long start = System.currentTimeMillis();
         Report report = new Report();

@@ -47,6 +47,7 @@ public final class BurstFusion {
         YuvFrame standardFrame;
         boolean superResMemoryFallback;
         boolean superResSameSamplingGrid;
+        boolean regionalNoiseGuide;
 
         VerifiedOutput verifyOutput() {
             QualityCheck.Report primary = QualityCheck.compare(referenceFrame, frame, noiseBefore,
@@ -496,10 +497,13 @@ public final class BurstFusion {
         final YuvFrame outF = fin;
 
         // ---- Acabamento proporcional ao ruído restante --------------------------------------
+        boolean regionalNoiseGuide = checkNativeSampling && outF != out && noiseAfter > 1.5
+                && noiseModel(outF)[8] <= 1.2f;
         double lumaStrength = 0;
         if (finish) {
             float res = (float) Math.max(0.5, noiseAfter);
             lumaStrength = Math.max(0, Math.min(denoiseCeiling, (res - 1.2) / 3.0));
+            if (regionalNoiseGuide) lumaStrength = 0;
             if (lumaStrength > 0.02) {
                 p.step("Limpando ruído de brilho", 0.72f);
                 float[] resid = new float[BINS];
@@ -524,6 +528,7 @@ public final class BurstFusion {
         res.standardFrame = outF == out ? null : out;
         res.superResMemoryFallback = superResMemoryFallback;
         res.superResSameSamplingGrid = superResSameSamplingGrid;
+        res.regionalNoiseGuide = regionalNoiseGuide;
         res.superResMs = tSr;
         res.framesIn = n;
         res.framesUsed = n;
@@ -724,19 +729,23 @@ public final class BurstFusion {
                 int x0 = Math.max(border, border - dx), x1 = Math.min(w - border, w - border - dx);
                 int y0 = Math.max(border, border - dy), y1 = Math.min(h - border, h - border - dy);
                 if (x1 - x0 < w / 4 || y1 - y0 < h / 4) continue;
+                int count = ((x1 - x0 + step - 1) / step) * ((y1 - y0 + step - 1) / step);
+                if (count == 0) continue;
+                long penalty = 48L * (Math.abs(dx - cx) + Math.abs(dy - cy));
+                if (best <= penalty) continue;
+                long limit = best == Long.MAX_VALUE ? Long.MAX_VALUE : ((best - penalty) * count - 1) >> 10;
                 long s = 0;
-                int cnt = 0;
                 for (int y = y0; y < y1; y += step) {
                     int ro = y * w, ao = (y + dy) * w + dx;
                     for (int x = x0; x < x1; x += step) {
                         s += Math.abs(ref[ro + x] - alt[ao + x]);
-                        cnt++;
                     }
+                    if (s > limit) break;
                 }
-                long norm = cnt > 0 ? (s << 10) / cnt : Long.MAX_VALUE;
+                if (s > limit) continue;
                 // tremor de mão é pequeno: penaliza saltos grandes (evita "pular" para a repetição
                 // vizinha em texturas repetitivas como azulejos, grades e listras)
-                norm += 48L * (Math.abs(dx - cx) + Math.abs(dy - cy));
+                long norm = (s << 10) / count + penalty;
                 if (norm < best) {
                     best = norm;
                     bx = dx;
@@ -764,7 +773,7 @@ public final class BurstFusion {
             int bx = g[0], by = g[1];
             for (int dy = g[1] - 2; dy <= g[1] + 2; dy++) {
                 for (int dx = g[0] - 2; dx <= g[0] + 2; dx++) {
-                    long s = sadInt(r4, a4, w4, h4, x0, y0, x1, y1, dx, dy, 1);
+                    long s = sadInt(r4, a4, w4, h4, x0, y0, x1, y1, dx, dy, best);
                     if (s < best) {
                         best = s;
                         bx = dx;
@@ -779,7 +788,7 @@ public final class BurstFusion {
             int fbx = cx, fby = cy;
             for (int dy = cy - 2; dy <= cy + 2; dy++) {
                 for (int dx = cx - 2; dx <= cx + 2; dx++) {
-                    long s = sadByte(r.y, a.y, w, h, fx0, fy0, fx1, fy1, dx, dy, 3);
+                    long s = sadByte(r.y, a.y, w, h, fx0, fy0, fx1, fy1, dx, dy, 3, best);
                     if (s < best) {
                         best = s;
                         fbx = dx;
@@ -808,33 +817,42 @@ public final class BurstFusion {
         return Math.sqrt(Math.max(0, (double) s2 / n - m * m));
     }
 
-    private static long sadInt(int[] r, int[] a, int w, int h, int x0, int y0, int x1, int y1, int dx, int dy, int step) {
+    private static long sadInt(int[] r, int[] a, int w, int h, int x0, int y0, int x1, int y1, int dx, int dy, long best) {
         long s = 0;
-        int cnt = 0;
-        for (int y = y0; y < y1; y += step) {
-            int ay = clamp(y + dy, 0, h - 1);
-            for (int x = x0; x < x1; x += step) {
+        int count = (x1 - x0) * (y1 - y0);
+        if (count == 0 || best == 0) return Long.MAX_VALUE;
+        long limit = best == Long.MAX_VALUE ? Long.MAX_VALUE : (best * count - 1) >> 8;
+        for (int y = y0; y < y1; y++) {
+            int row = y * w, alt = clamp(y + dy, 0, h - 1) * w;
+            for (int x = x0; x < x1; x++) {
                 int ax = clamp(x + dx, 0, w - 1);
-                s += Math.abs(r[y * w + x] - a[ay * w + ax]);
-                cnt++;
+                s += Math.abs(r[row + x] - a[alt + ax]);
             }
+            if (s > limit) return Long.MAX_VALUE;
         }
-        return cnt == 0 ? Long.MAX_VALUE : (s << 8) / cnt;
+        return (s << 8) / count;
     }
 
     static long sadByte(byte[] r, byte[] a, int w, int h, int x0, int y0, int x1, int y1, int dx, int dy, int step) {
+        return sadByte(r, a, w, h, x0, y0, x1, y1, dx, dy, step, Long.MAX_VALUE);
+    }
+
+    private static long sadByte(byte[] r, byte[] a, int w, int h, int x0, int y0, int x1, int y1,
+                                int dx, int dy, int step, long best) {
         long s = 0;
-        int cnt = 0;
+        int count = ((x1 - x0 + step - 1) / step) * ((y1 - y0 + step - 1) / step);
+        if (count == 0 || best == 0) return Long.MAX_VALUE;
+        long limit = best == Long.MAX_VALUE ? Long.MAX_VALUE : (best * count - 1) >> 8;
         for (int y = y0; y < y1; y += step) {
             int ay = clamp(y + dy, 0, h - 1);
             int ro = y * w, ao = ay * w;
             for (int x = x0; x < x1; x += step) {
                 int ax = clamp(x + dx, 0, w - 1);
                 s += Math.abs((r[ro + x] & 0xFF) - (a[ao + ax] & 0xFF));
-                cnt++;
             }
+            if (s > limit) return Long.MAX_VALUE;
         }
-        return cnt == 0 ? Long.MAX_VALUE : (s << 8) / cnt;
+        return (s << 8) / count;
     }
 
     static void median3(int[] f, int w, int h) {
@@ -1118,6 +1136,69 @@ public final class BurstFusion {
 
     static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise) {
         sharpenScaled(f,upscale,amount,noise,false);
+    }
+
+    /** A rejected whole-frame merge can still contribute where dark material is flat and matches the reference. */
+    static double recoverFusedShadows(YuvFrame reference, YuvFrame fused, double noise) {
+        int w = reference.width, h = reference.height, gw = w / 4, gh = h / 4;
+        if (fused == null || fused.width != w || fused.height != h || gw < 3 || gh < 3) return 0;
+        int[] original = down4(reference.y, w, h), merged = down4(fused.y, w, h);
+        float[] weights = new float[gw * gh];
+        float rangeLimit = (float)Math.max(4, Math.min(9, noise * 1.2));
+        float differenceLimit = (float)Math.max(3, Math.min(8, noise));
+        for (int y = 1; y < gh - 1; y++) for (int x = 1; x < gw - 1; x++) {
+            int i = y * gw + x;
+            int min = 255, max = 0, difference = 0;
+            for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
+                int p = i + dy * gw + dx;
+                min = Math.min(min, Math.min(original[p], merged[p]));
+                max = Math.max(max, Math.max(original[p], merged[p]));
+                difference = Math.max(difference, Math.abs(original[p] - merged[p]));
+            }
+            weights[i] = shadowWeight(max) * (1 - smooth01((max - min - 3) / rangeLimit))
+                    * (1 - smooth01((difference - 2) / differenceLimit));
+        }
+        float detailLimit = (float)Math.max(6, noise * 2.5);
+        double[] rows = new double[reference.chromaHeight];
+        IntStream.range(0, reference.chromaHeight).parallel().forEach(cy -> {
+            double sum = 0;
+            for (int cx = 0; cx < reference.chromaWidth; cx++) {
+                float weight = interpolateShadow(weights, gw, gh, 2 * cx + .5f, 2 * cy + .5f);
+                if (weight < .01f) continue;
+                float chromaWeight = weight;
+                for (int dy = 0; dy < 2 && cy * 2 + dy < h; dy++) for (int dx = 0; dx < 2 && cx * 2 + dx < w; dx++) {
+                    int i = (cy * 2 + dy) * w + cx * 2 + dx;
+                    int a = reference.y[i] & 255, b = fused.y[i] & 255;
+                    float accepted = weight * shadowWeight(Math.max(a, b))
+                            * (1 - smooth01((Math.abs(a - b) - detailLimit) / detailLimit));
+                    reference.y[i] = blendByte(a, b, accepted);
+                    chromaWeight = Math.min(chromaWeight, accepted);
+                    sum += accepted;
+                }
+                int i = cy * reference.chromaWidth + cx;
+                reference.u[i] = blendByte(reference.u[i] & 255, fused.u[i] & 255, chromaWeight);
+                reference.v[i] = blendByte(reference.v[i] & 255, fused.v[i] & 255, chromaWeight);
+            }
+            rows[cy] = sum;
+        });
+        return Arrays.stream(rows).sum() / reference.y.length;
+    }
+
+    private static float interpolateShadow(float[] weights, int w, int h, float x, float y) {
+        float fx = Math.max(0, Math.min(w - 1, (x - 1.5f) / 4));
+        float fy = Math.max(0, Math.min(h - 1, (y - 1.5f) / 4));
+        int a = (int)fx, b = Math.min(w - 1, a + 1), c = (int)fy, d = Math.min(h - 1, c + 1);
+        float tx = fx - a, ty = fy - c;
+        return (weights[c * w + a] * (1 - tx) + weights[c * w + b] * tx) * (1 - ty)
+                + (weights[d * w + a] * (1 - tx) + weights[d * w + b] * tx) * ty;
+    }
+
+    static float shadowWeight(int y) {
+        return 1 - smooth01((y - 60) / 70f);
+    }
+
+    private static byte blendByte(int a, int b, float weight) {
+        return (byte)Math.round(a + (b - a) * weight);
     }
 
     static void sharpenScaledRegional(YuvFrame f, float upscale, float amount, float noise) {

@@ -100,6 +100,8 @@ A resolução cheia existe, mas só aparece em **vendor tags**:
 
 **Implicação:** o modo “Máx. resolução” do app precisa tratar 12,6 MP como teto verificado. Os vendor tags de remosaic não fazem parte da API pública e não há garantia de que o HAL aceite esses pedidos de apps de terceiros. Só vale tentar como experimento isolado, com fallback para o tamanho padrão.
 
+O JN5 suporta zoom de 2× com remosaic em hardware. Se a cadeia do fabricante expuser esse modo na tele de 3,5×, ele corresponde a aproximadamente 7×. Os recortes de 8× e 10× correspondem a cerca de 2,29× e 2,86× sobre a mesma tele. O Reno examinado deixou a capacidade pública `REMOSAIC_REPROCESSING` indisponível. No Codex, a medição das capturas registra a câmera efetiva e a grade da fusão, e o tratamento de sombras segue o mesmo critério nos dois recortes. [Samsung ISOCELL JN5](https://semiconductor.samsung.com/image-sensor/mobile-image-sensor/isocell-jn5/) · [Remosaic pela Camera2](https://developer.android.com/reference/android/hardware/camera2/CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_REMOSAIC_REPROCESSING)
+
 ## 5. ISO, exposição e compensação
 
 | Câmera | ISO (`sensitivityRange`) | ISO analógico máx. | Exposição | Passo de EV |

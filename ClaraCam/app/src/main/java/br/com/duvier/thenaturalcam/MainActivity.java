@@ -206,7 +206,14 @@ public final class MainActivity extends Activity implements CameraController.Lis
         blurIcon.setBackground(Ui.rounded(this, 0x9908090B, dp(26)));
         blurIcon.setVisibility(View.GONE);
         blurIcon.setOnClickListener(v -> {
-            blurOpen = !blurOpen;
+            if (mode == CameraController.Mode.FOTO && zoom >= 5.5f) {
+                boolean enable = longLensAperture() == 0f;
+                blurLevel = enable ? (float)(Math.log(16.0 / 11.0) / Math.log(2)) : 0f;
+                blurOpen = enable;
+                buildApertureRow();
+            } else {
+                blurOpen = !blurOpen;
+            }
             refreshBlurUi();
         });
         FrameLayout.LayoutParams bi = new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.END | Gravity.CENTER_VERTICAL);
@@ -1107,7 +1114,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // a abertura vem do dial de desfoque no visor (f/16…f/8).
             float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
             if (ap > 0) {
-                makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f);
+                makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0f);
                 processingPortrait = true;
             }
         }
@@ -1471,6 +1478,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         boolean vis = blurDialVisible();
         blurIcon.setVisibility(vis ? View.VISIBLE : View.GONE);
         blurIcon.setText(blurLabel());
+        blurIcon.setContentDescription(mode == CameraController.Mode.FOTO
+                ? (longLensAperture() > 0 ? "Desligar desfoque à distância" : "Ligar desfoque à distância")
+                : "Ajustar abertura simulada");
         blurIcon.setTextColor(blurOpen ? Ui.ACCENT : Ui.TEXT);
         apertureScroll.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
     }
@@ -1508,8 +1518,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     /** frontScale abaixo de 1: desfoque inteligente — atrás do sujeito suave, a frente quase intacta. */
     private void makePortrait(Uri original, float apIn, String suffix, String kind, float frontScale) {
-        final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
-        final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
+        float[] capturedFocus = camera == null ? null : camera.lastSavedPortraitFocus();
+        final float fx = capturedFocus != null ? capturedFocus[0] : 0.5f;
+        final float fy = capturedFocus != null ? capturedFocus[1] : 0.42f;
         final float ap = apIn;
         busy = true;
         shutter.invalidate();

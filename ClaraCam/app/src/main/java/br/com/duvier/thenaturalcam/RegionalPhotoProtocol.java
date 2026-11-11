@@ -4,7 +4,7 @@ import java.util.stream.IntStream;
 
 /** Measured, local finishing of an already aligned photograph. No generated detail or WB guesses. */
 final class RegionalPhotoProtocol {
-    static final String VERSION = "1.2.0";
+    static final String VERSION = "1.3.0";
     @FunctionalInterface
     interface SubjectLocator {
         Subject locate(YuvFrame frame);
@@ -43,11 +43,15 @@ final class RegionalPhotoProtocol {
         float denoiseCeiling = .42f, sharpen = .18f;
         double temporalNoise = Double.NaN;
         SubjectLocator locateSubject;
+        YuvFrame noiseGuide;
+        boolean shadowsOnly;
+        ShadowProtection faceProtection;
     }
     static final class Result {
         YuvFrame frame;
         QualityCheck.Report detail;
         boolean denoiseAccepted;
+        boolean usedNoiseGuide;
         float broadCleaning;
         float meanCleaningWeight;
         double noiseBefore, noiseAfter, maxLiftEv;
@@ -73,7 +77,8 @@ final class RegionalPhotoProtocol {
             for (int i=0;i<model.length;i++) model[i] = Math.min(model[i], ceiling);
         }
         result.noiseBefore = model[8];
-        if (model[8] > 1.2f && context.denoiseCeiling > 0 && out.width >= 8 && out.height >= 8) {
+        if (context.faceProtection != ShadowProtection.ALL && model[8] > 1.2f
+                && context.denoiseCeiling > 0 && out.width >= 8 && out.height >= 8) {
             // Preserve the published Claude pipeline's light general clean before the local shadow pass.
             // This stage has no sharpening; the only sharpening stays at the end.
             result.broadCleaning = Math.min(.3f,context.denoiseCeiling*.6f);
@@ -82,12 +87,22 @@ final class RegionalPhotoProtocol {
             float strength = Math.min(.9f, .35f + 1.25f * context.denoiseCeiling);
             result.meanCleaningWeight = BurstFusion.shadowDenoise(out, BurstFusion.noiseModel(out), strength);
         }
-        if(context.refineResidual) result.residual=ResidualNoiseRefiner.apply(out,context.temporalNoise);
-        result.noiseAfter = Math.min(model[8], BurstFusion.noiseModel(out)[8]);
-        result.detail = QualityCheck.compare(source, out, result.noiseBefore, result.noiseAfter);
-        result.denoiseAccepted = !result.detail.measurable || result.detail.passed;
-        if(context.refineResidual && result.detail.measurable)
-            result.denoiseAccepted &= result.detail.detailRatio>=.93 && result.detail.edgeCorrelation>=.985;
+        if (context.refineResidual && context.faceProtection != ShadowProtection.ALL) {
+            result.usedNoiseGuide = context.noiseGuide != null;
+            result.residual = result.usedNoiseGuide
+                    ? ResidualNoiseRefiner.applyFromGuide(out, context.noiseGuide, context.temporalNoise)
+                    : ResidualNoiseRefiner.apply(out, context.temporalNoise);
+        }
+        if (context.shadowsOnly && (result.residual != null || result.broadCleaning > 0))
+            ShadowProtection.restrict(source, out, context.faceProtection);
+        verifyCleaning(source, out, result, context.refineResidual);
+        if (!result.denoiseAccepted && result.usedNoiseGuide) {
+            out = QualityCheck.copy(source);
+            result.usedNoiseGuide = false;
+            result.residual = ResidualNoiseRefiner.apply(out, context.temporalNoise);
+            if (context.shadowsOnly) ShadowProtection.restrict(source, out, context.faceProtection);
+            verifyCleaning(source, out, result, true);
+        }
         if (!result.denoiseAccepted) {
             out = QualityCheck.copy(source);
             result.noiseAfter = result.noiseBefore;
@@ -117,6 +132,13 @@ final class RegionalPhotoProtocol {
         result.frame = out;
         result.millis = System.currentTimeMillis()-start;
         return result;
+    }
+
+    private static void verifyCleaning(YuvFrame source, YuvFrame out, Result result, boolean refined) {
+        result.noiseAfter = Math.min(result.noiseBefore, BurstFusion.noiseModel(out)[8]);
+        result.detail = QualityCheck.compare(source, out, result.noiseBefore, result.noiseAfter);
+        result.denoiseAccepted = !result.detail.measurable || (result.detail.passed
+                && (!refined || result.detail.detailRatio >= .93 && result.detail.edgeCorrelation >= .985));
     }
 
     private static int percentile(int[] histogram, int count, double fraction) {

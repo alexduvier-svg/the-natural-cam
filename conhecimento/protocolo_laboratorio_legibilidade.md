@@ -34,9 +34,23 @@ Com a grade nativa e uma rajada sem deslocamentos fracionários úteis nas borda
 
 Em um ensaio no PC com oito quadros derivados do mesmo JPEG de 3,5×, a super-resolução passou de 1,62 s a 1,14 s, a limpeza residual de 1,15 s a 0,82 s e a nitidez de 0,68 s a 0,28 s. As saídas de limpeza e nitidez coincidiram byte a byte nas etapas comparadas. A maior diferença de luminância na super-resolução foi de um nível em 255, em cerca de 0,05% dos pixels, com crominância idêntica. Os tempos de PC cobrem as etapas isoladas.
 
+No Reno, a 1.27.4 levou 21,0 s para publicar a foto de 28 MP em 3,5×. A etapa de super-resolução ficou em 3,3 s e a nitidez final terminou em 0,88 s. O resultado de prévia em 3,5× chegou em 188 ms. A captura de 8× registrou 521 ms de foco ao toque e 446 ms até o resultado no novo zoom.
+
+## Teste do boné em zoom longo
+
+| Zoom | JPEG publicado na 1.27.4 | Decisão da fusão | Observação visual |
+|---|---:|---|---|
+| 6× | 16,6 s | Quadro único limpo | Grão visível no painel sombreado sob a mesa |
+| 7× | 12,5 s | Fusão na grade de captura | Sombra mais uniforme e bordado visível |
+| 8× | 13,7 s | Quadro único limpo | Grão de luminância e cor na sombra e no tecido |
+
+Na 1.27.5, a reserva reaproveita a fusão nas sombras lisas quando o tom coincide com o quadro de referência. A limpeza mais forte tem uma máscara de sombra com transição gradual e exclui a área de rosto detectada, mesmo na parte escura da pele. Em saídas ampliadas com pouco ruído fino, a correção residual é calculada na grade de captura e transferida com proteção de bordas. Para cenas em que a medição já convergiu na prévia, o app pode reaproveitá-la e ainda esperar a confirmação de foco quando necessária.
+
+O controle de desfoque em zoom longo começa em f/11 simulado quando ligado. Usa o ponto de foco registrado no disparo, mantém o assunto e a frente em foco e grava uma cópia com desfoque atrás do plano escolhido.
+
 ## Ensaio comparável por focal
 
-1. Capturar um alvo com texto fino, bordas inclinadas, superfícies foscas, texturas e carta de cor em 0,6×, 1×, 2×, 3,5×, 6×, 7× e 8×. Repetir três vezes sob luz de dia, luz interna e baixa luz, com tripé e à mão. Anotar a iluminação, a distância, a compensação e o sensor físico efetivamente usado, inclusive quando o zoom é recorte da principal.
+1. Capturar um alvo com texto fino, bordas inclinadas, superfícies foscas, texturas e carta de cor em 0,6×, 1×, 2×, 3,5×, 6×, 7×, 8× e 10×. Repetir três vezes sob luz de dia, luz interna e baixa luz, com tripé e à mão. Anotar a iluminação, a distância, a compensação e o sensor físico efetivamente usado, inclusive quando o zoom é recorte da principal.
 2. Comparar os JPEGs gravados pelo Codex, pela versão anterior e pelo app OPPO com o mesmo tamanho do assunto no quadro e a mesma orientação. Medir SFR e MTF50P nas bordas inclinadas, incluindo a altura dos halos, e conferir separadamente a leitura da menor linha de texto e a separação dos frisos. [ISO 12233](https://www.iso.org/cms/live/live/en/sites/isoorg/contents/data/standard/08/86/88626.html?browse=tc) · [Imatest](https://www.imatest.com/imaging/sharpness/) · [FADGI](https://www.digitizationguidelines.gov/guidelines/digitize-technical.html)
 3. Medir ruído nas áreas lisas do assunto e do fundo, luminância de meios-tons e altas luzes e erro de cor ΔE00 na carta. Conferir tom de pele, cores e textura no mesmo monitor e registrar o tempo até o JPEG ficar disponível. Usar a reprodução tonal e a consistência de cor como critérios de referência. [ISO 15739](https://www.iso.org/obp/ui?_escaped_fragment_=iso%3Astd%3Aiso%3A15739%3Aed-4%3Av1%3Aen) · [Hasselblad Natural Colour Solution](https://www.hasselblad.com/learn/hasselblad-natural-colour-solution/) · [Phase One XF IQ4](https://www.phaseone.com/applications/bespoke-photography/studio-photography-xf-camera-system/features-and-specifications/)
 

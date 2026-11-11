@@ -75,6 +75,31 @@ public class ResidualNoiseRefinerTest {
         assertArrayEquals(expected, f.y);
     }
 
+    @Test public void recoveredBurstCleansFlatShadowsAndPreservesBrightLettersAndShadowedFace() {
+        YuvFrame reference = new YuvFrame(480, 320), fused = new YuvFrame(480, 320);
+        Random random = new Random(611);
+        for (int y = 0; y < reference.height; y++) for (int x = 0; x < reference.width; x++) {
+            int i = y * reference.width + x;
+            boolean bright = x >= 310;
+            reference.y[i] = (byte)(bright ? 145 + (x % 10 < 4 ? 54 : 0) : 46 + random.nextInt(17) - 8);
+            fused.y[i] = (byte)(bright ? 170 : 46);
+        }
+        Arrays.fill(reference.u, (byte)120); Arrays.fill(reference.v, (byte)140);
+        Arrays.fill(fused.u, (byte)124); Arrays.fill(fused.v, (byte)136);
+        YuvFrame output = QualityCheck.copy(reference);
+        double recovered = BurstFusion.recoverFusedShadows(output, fused, 6);
+        ShadowProtection.restrict(reference, output, new ShadowProtection(.48f, .5f, .19f, .26f));
+        assertTrue(recovered > .1);
+        assertTrue(rmse(fused, output, 20, 30, 100, 280) < rmse(fused, reference, 20, 30, 100, 280) * .7);
+        for (int y = 0; y < reference.height; y++) for (int x = 325; x < reference.width; x++)
+            assertEquals(reference.luma(x, y), output.luma(x, y));
+        for (int y = 120; y < 200; y++) for (int x = 200; x < 255; x++)
+            assertEquals(reference.luma(x, y), output.luma(x, y));
+        int face = 80 * reference.chromaWidth + 116;
+        assertEquals(reference.u[face], output.u[face]);
+        assertEquals(reference.v[face], output.v[face]);
+    }
+
     @Test public void reducesCoarseColorMottlingWithoutChangingMeanColorOrBrightness() {
         YuvFrame f=new YuvFrame(640,480);Arrays.fill(f.y,(byte)76);
         Random random=new Random(2702);int cw=f.chromaWidth,ch=f.chromaHeight;

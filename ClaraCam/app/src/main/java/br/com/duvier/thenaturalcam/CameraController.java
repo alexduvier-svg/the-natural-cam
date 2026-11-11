@@ -264,6 +264,8 @@ final class CameraController {
     private volatile float tapHold = -1f;
     private boolean afTriggered;
     private boolean aeLocked;
+    private long stablePreviewAeAtMs;
+    private boolean reusedPreviewAe;
     private boolean userLock;
     private boolean awbLocked;
     private boolean burstAwbLocked;
@@ -280,7 +282,7 @@ final class CameraController {
     private long shutterAtMs;
 
     // pré-captura (medição antes da foto)
-    private static final int PRE_IDLE = 0, PRE_WAIT_START = 1, PRE_WAIT_DONE = 2, PRE_WAIT_LOCK = 3;
+    private static final int PRE_IDLE = 0, PRE_WAIT_START = 1, PRE_WAIT_DONE = 2, PRE_WAIT_LOCK = 3, PRE_WAIT_FOCUS = 4;
     private int preState = PRE_IDLE;
     private long preStartedAt;
     private Runnable preAction;
@@ -321,6 +323,7 @@ final class CameraController {
         float srCrop = 1f;
         float srScale = 1f, sharpen = 0.24f, denoiseCeiling = 0.5f;
         RegionalPhotoProtocol.Context regional;
+        float[] portraitFocus;
         final Map<Long, TotalCaptureResult> rawResults = new HashMap<>();
         /** Força da limpeza de ruído decidida pela diretriz (0 = só a da fusão). */
         float denoise;
@@ -752,6 +755,7 @@ final class CameraController {
             if (capturing || device == null || (session == null && ext == null)) return;
             capturing = true;
             shutterAtMs = SystemClock.elapsedRealtime();
+            reusedPreviewAe = false;
             lastShotCrop = false;
             lastShotZoom = 0f;
             busy("Capturando…", -1);
@@ -871,6 +875,7 @@ final class CameraController {
     }
 
     private void closeSession() {
+        stablePreviewAeAtMs = 0;
         if (session != null) {
             try { session.close(); } catch (Exception ignored) { }
             session = null;
@@ -1202,12 +1207,17 @@ final class CameraController {
         @Override
         public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest request, TotalCaptureResult result) {
             if (s != session) return;
+            Float requestedZoom = request.get(CaptureRequest.CONTROL_ZOOM_RATIO);
+            Integer requestedEv = request.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION);
+            Integer ae = result.get(CaptureResult.CONTROL_AE_STATE);
+            boolean sameMetering = requestedZoom != null && Math.abs(requestedZoom - deviceZoom()) < .015f
+                    && requestedEv != null && requestedEv == clampI(ev, caps.evRange.getLower(), caps.evRange.getUpper());
+            stablePreviewAeAtMs = sameMetering && aeReady(ae) ? SystemClock.elapsedRealtime() : 0;
             if (zoomRequestedAtMs > 0) {
                 Float observed = result.get(CaptureResult.CONTROL_ZOOM_RATIO);
-                Float requested = request.get(CaptureRequest.CONTROL_ZOOM_RATIO);
                 float target = deviceZoom();
-                if (observed != null && requested != null && Math.abs(observed - target) < .015f
-                        && Math.abs(requested - target) < .015f) {
+                if (observed != null && requestedZoom != null && Math.abs(observed - target) < .015f
+                        && Math.abs(requestedZoom - target) < .015f) {
                     zoomPreviewMs = SystemClock.elapsedRealtime() - zoomRequestedAtMs;
                     zoomRequestedAtMs = 0;
                 }
@@ -1261,7 +1271,7 @@ final class CameraController {
                 String nr = nrName(result.get(CaptureResult.NOISE_REDUCTION_MODE));
                 main.post(() -> listener.onLive(i, e, nr));
             }
-            stepPrecapture(result.get(CaptureResult.CONTROL_AE_STATE));
+            stepPrecapture(ae);
         }
     };
 
@@ -1280,6 +1290,7 @@ final class CameraController {
 
     /** Zoom da última foto no modo Foto (0 = outro modo), para a versão de lente longa. */
     private volatile float lastShotZoom;
+    private volatile float[] lastSavedPortraitFocus;
 
     float lastShotZoom() {
         return lastShotZoom;
@@ -1287,6 +1298,11 @@ final class CameraController {
 
     boolean lastShotWasCrop() {
         return lastShotCrop;
+    }
+
+    float[] lastSavedPortraitFocus() {
+        float[] focus = lastSavedPortraitFocus;
+        return focus == null ? null : focus.clone();
     }
 
     private boolean teleFallback() {
@@ -1331,6 +1347,11 @@ final class CameraController {
                 || st == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
     }
 
+    private static boolean aeReady(Integer state) {
+        return state != null && (state == CameraMetadata.CONTROL_AE_STATE_CONVERGED
+                || state == CameraMetadata.CONTROL_AE_STATE_LOCKED);
+    }
+
     /** Depois da foto, libera o foco contínuo que foi travado para a captura. */
     private void afRelease() {
         if (!afTriggered || session == null || device == null) return;
@@ -1353,18 +1374,27 @@ final class CameraController {
         CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
         b.addTarget(previewSurface);
         applyCommon(b, false, false);
-        b.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START);
+        reusedPreviewAe = flash == FLASH_OFF && stablePreviewAeAtMs > 0
+                && SystemClock.elapsedRealtime() - stablePreviewAeAtMs <= 180;
+        if (!reusedPreviewAe)
+            b.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START);
         // foco contínuo: dispara uma varredura final e só fotografa quando confirmar (até ~1,2 s)
         afTriggered = afNeedsTrigger();
+        if (reusedPreviewAe && !afTriggered && !tapScanning && (regions == null
+                || lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED || tapHold >= 0 || focusDistance >= 0)) {
+            action.run();
+            return;
+        }
         if (afTriggered) b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
         if (afTriggered) lastAfState = -1;
         preAction = action;
-        preState = PRE_WAIT_START;
+        preState = reusedPreviewAe ? PRE_WAIT_FOCUS : PRE_WAIT_START;
         preStartedAt = SystemClock.elapsedRealtime();
         session.capture(b.build(), liveCallback, handler);
         final int gen = generation;
         handler.postDelayed(() -> {
-            if (gen == generation && (preState == PRE_WAIT_START || preState == PRE_WAIT_DONE)) runPreAction();
+            if (gen == generation && (preState == PRE_WAIT_START || preState == PRE_WAIT_DONE || preState == PRE_WAIT_FOCUS))
+                runPreAction();
         }, 2300);
     }
 
@@ -1377,6 +1407,9 @@ final class CameraController {
         boolean focusReady = FocusScanGuard.captureReady(requiresFocus, tapScanning,
                 afDone(lastAfState) || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED, elapsed);
         switch (preState) {
+            case PRE_WAIT_FOCUS:
+                if (focusReady && (aeReady(ae) || elapsed > 600)) runPreAction();
+                break;
             case PRE_WAIT_START:
                 if (st == CameraMetadata.CONTROL_AE_STATE_PRECAPTURE) {
                     preState = PRE_WAIT_DONE;
@@ -1467,11 +1500,13 @@ final class CameraController {
         j.regional = new RegionalPhotoProtocol.Context();
         MeteringRectangle[] faces = currentFaces();
         j.regional.face = mode == Mode.RETRATO || faces != null;
+        j.regional.shadowsOnly = true;
+        j.regional.faceProtection = faceShadowProtection(faces, j.regional.face);
         j.regional.allowTone = !isManual() && ev == 0 && mode != Mode.LONGA && mode != Mode.ASTRO;
         j.regional.ev100 = lastAperture > 0 && lastExposure > 0 && lastIso > 0
                 ? Math.log(lastAperture * lastAperture / (lastExposure / 1e9) * 100 / lastIso) / Math.log(2)
                 : Double.NaN;
-        if (j.regional.allowTone) {
+        if (j.regional.allowTone || regions != null || faces != null) {
             float[] seed = {.5f, .5f};
             if (regions != null) {
                 seed = toSensor(caps.sensorOrientation, tapX, tapY);
@@ -1486,7 +1521,8 @@ final class CameraController {
                 }
             }
             final float seedX = seed[0], seedY = seed[1];
-            j.regional.locateSubject = frame -> locateForeground(frame, j.orientation, seedX, seedY);
+            if (j.regional.targeted) j.portraitFocus = toSensor((360 - j.orientation) % 360, seedX, seedY);
+            if (j.regional.allowTone) j.regional.locateSubject = frame -> locateForeground(frame, j.orientation, seedX, seedY);
         }
         try {
             j.sheet.put("app", "The Natural Cam " + BuildConfigInfo.VERSION);
@@ -1508,6 +1544,7 @@ final class CameraController {
             if (regions != null) j.sheet.put("foco_toque_normalizado", new org.json.JSONArray(new float[]{tapX, tapY}));
             j.sheet.put("yuv_alta_resolucao_fallback", normalYuvFallback);
             j.sheet.put("modo", mode.name());
+            j.sheet.put("medicao_previa_reaproveitada", reusedPreviewAe);
             j.sheet.put("processo", pipeline);
             j.sheet.put("zoom", zoom);
             j.sheet.put("ev", ev);
@@ -1547,6 +1584,15 @@ final class CameraController {
         } catch (Exception ignored) {
         }
         return j;
+    }
+
+    private ShadowProtection faceShadowProtection(MeteringRectangle[] faces, boolean portrait) {
+        if (faces == null) return portrait ? ShadowProtection.ALL : null;
+        Rect visible = visibleSensorRect(), face = faces[0].getRect();
+        if (visible == null || !visible.contains(face.centerX(), face.centerY())) return ShadowProtection.ALL;
+        return new ShadowProtection((face.exactCenterX() - visible.left) / visible.width(),
+                (face.exactCenterY() - visible.top) / visible.height(),
+                .64f * face.width() / visible.width(), .64f * face.height() / visible.height());
     }
 
     private void onJpegImage(ImageReader reader) {
@@ -1633,6 +1679,7 @@ final class CameraController {
                     j.raw = null;
                 }
                 Uri uri = saver.saveJpeg(j.name, data, j.sheet, j.shutterAtMs);
+                lastSavedPortraitFocus = j.portraitFocus;
                 String summary = summary(j.sheet);
                 main.post(() -> listener.onSaved(uri, summary));
             } catch (Exception e) {
@@ -2263,7 +2310,7 @@ final class CameraController {
                 j.sheet.put("tempo_ate_fusao_ms", SystemClock.elapsedRealtime() - j.shutterAtMs);
                 boolean superRes = j.superRes;
                 float scale = j.srCrop > 1f ? Math.min(2.5f, j.srCrop) : superRes ? 1.5f : 1f;
-                BurstFusion.Result fr = new BurstFusion(0f, true, scale, .5f, j.srCrop <= 1f)
+                BurstFusion.Result fr = new BurstFusion(0f, true, scale, j.regional.face ? 0f : .16f, j.srCrop <= 1f)
                         .fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
                 // Verificador de qualidade: a fusão só vira a foto final se mantiver o detalhe
                 // e a forma das bordas do quadro mais nítido; senão salva esse quadro limpo.
@@ -2306,16 +2353,18 @@ final class CameraController {
                     qj.put("reserva_fusao_simples_aprovada", selected.standard.measurable ? selected.standard.passed : JSONObject.NULL);
                 }
                 // A fusão normal já veio do mesmo alinhamento. Libera a saída ampliada reprovada.
+                if (selected.scale > 1f && fr.regionalNoiseGuide) j.regional.noiseGuide = fr.standardFrame;
+                YuvFrame shadowCandidate = selected.referenceOnly ? (fr.scale > 1f ? fr.standardFrame : fr.frame) : null;
                 fr.frame = null;
                 fr.standardFrame = null;
                 if (selected.referenceOnly) {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);
-                    // limpeza proporcional ao ruído do quadro (ISO alto pede mais)
-                    if (model[8] > 1.5f) {
-                        BurstFusion.lumaDenoise(finalFrame, model, (float) Math.min(0.55, 0.2 + fr.noiseBefore / 24.0));
+                    double recovered = BurstFusion.recoverFusedShadows(finalFrame, shadowCandidate, model[8]);
+                    if (recovered < .01) {
+                        BurstFusion.chromaFilter(finalFrame, model[8]);
                     }
-                    BurstFusion.chromaFilter(finalFrame, model[8]);
+                    ShadowProtection.restrict(refFrame, finalFrame, j.regional.faceProtection);
                     finishNoise = BurstFusion.noiseModel(finalFrame)[8];
                     QualityCheck.Report fallback = QualityCheck.compare(refFrame, finalFrame, model[8], finishNoise);
                     if (!fallback.passed) {
@@ -2323,8 +2372,13 @@ final class CameraController {
                         finishNoise = model[8];
                     }
                     temporalNoiseMeasured = false;
-                    qj.put("decisao", fallback.passed ? "quadro_unico_limpo (fusão reprovada)"
-                            : "quadro_unico_preservado (limpeza reprovada)");
+                    if (fallback.passed && recovered >= .01) {
+                        qj.put("decisao", "referência nas bordas e fusão nas sombras compatíveis");
+                        qj.put("peso_fusao_sombras_reserva", round2(recovered));
+                    } else {
+                        qj.put("decisao", fallback.passed ? "quadro_unico_limpo (fusão reprovada)"
+                                : "quadro_unico_preservado (limpeza reprovada)");
+                    }
                     final String why = q.reason;
                     Log.w(TAG, "verificador: " + why + " — usado o quadro mais nítido"); // sem aviso na tela (pedido do usuário)
                 } else {
@@ -2356,12 +2410,14 @@ final class CameraController {
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 stamp(j, "tempo_etapa_verificador_ms", tt);
                 busy("Gravando…", 0.95f);
-                if (j.denoise > 0 && finishNoise > 1.5) {
+                if (j.denoise > 0 && finishNoise > 1.5 && j.regional.noiseGuide == null
+                        && j.regional.faceProtection != ShadowProtection.ALL) {
                     busy("Limpando sombras…", 0.935f);
-                    float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
+                    BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
+                    ShadowProtection.restrict(safe[0], finalFrame, j.regional.faceProtection);
                     QualityCheck.Report cleaning = QualityCheck.compare(safe[0], finalFrame, finishNoise);
                     if (cleaning.passed) {
-                        j.sheet.put("limpeza_sombras", "áreas escuras e lisas · " + Math.round(part * 100) + "% da imagem");
+                        j.sheet.put("limpeza_sombras", "áreas escuras e lisas com proteção de rosto");
                     } else {
                         finalFrame = safe[0];
                         j.sheet.put("limpeza_sombras_reserva", cleaning.reason);
@@ -2451,12 +2507,14 @@ final class CameraController {
             regions.put("peso_medio_limpeza", round2(result.meanCleaningWeight));
             regions.put("limpeza_geral_leve", result.broadCleaning);
             regions.put("limpeza_aceita", result.denoiseAccepted);
+            if (j.regional.shadowsOnly) regions.put("limpeza_forte", "sombras; rosto protegido na região detectada quando disponível");
             if(result.residual!=null) {
                 regions.put("ruido_correlacionado_estimado", round2(result.residual.sigma));
                 regions.put("peso_residual_luminancia", result.denoiseAccepted ? round2(result.residual.meanLumaWeight) : 0);
                 regions.put("peso_residual_cor", result.denoiseAccepted ? round2(result.residual.meanChromaWeight) : 0);
                 regions.put("tempo_residual_ms", result.residual.millis);
                 regions.put("limpeza_por_area", "limpeza por semelhança de pequenas regiões");
+                regions.put("grade_calculo_ruido_residual", result.usedNoiseGuide ? "captura" : "saída");
             }
             regions.put("detalhe_mensuravel", result.detail.measurable);
             regions.put("detalhe_vs_entrada", result.detail.measurable ? round2(result.detail.detailRatio) : JSONObject.NULL);
@@ -2553,6 +2611,7 @@ final class CameraController {
     private void saveYuv(Job j, YuvFrame f) throws Exception {
         // JPEG direto do YUV (NV21): sem bitmap ARGB gigante — cabe até a saída de 28 MP
         Uri uri = saver.saveYuv(j.name, f, j.orientation, j.sheet, exifTags(j.result), j.shutterAtMs);
+        lastSavedPortraitFocus = j.portraitFocus;
         String summary = summary(j.sheet);
         main.post(() -> listener.onSaved(uri, summary));
         idle();
