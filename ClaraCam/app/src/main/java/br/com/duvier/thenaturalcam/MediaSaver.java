@@ -11,7 +11,6 @@ import android.provider.MediaStore;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -27,6 +26,9 @@ final class MediaSaver {
 
     static final String PHOTO_DIR = "DCIM/TheNaturalCamCodex";
     static final String SHEET_DIR = "Documents/TheNaturalCamCodex";
+    static final int JPEG_MAX_QUALITY = 100;
+    private static final int YUV_JPEG_QUALITY = 97;
+    private static final long JPEG_TARGET_BYTES = 2_000_000L;
 
     private final Context context;
 
@@ -39,20 +41,32 @@ final class MediaSaver {
     }
 
     /** JPEG pronto (vindo da câmera): já traz EXIF e orientação. */
-    Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet) throws IOException {
-        return saveJpeg(name, jpeg, sheet, 0L);
+    Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet, long shutterAtMs) throws IOException {
+        android.graphics.BitmapFactory.Options size = new android.graphics.BitmapFactory.Options();
+        size.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, size);
+        return publishJpeg(name, jpeg.length, size.outWidth, size.outHeight, sheet, shutterAtMs,
+                output -> output.write(jpeg));
     }
 
-    Uri saveJpeg(String name, byte[] jpeg, JSONObject sheet, long shutterAtMs) throws IOException {
+    private Uri saveJpeg(String name, File jpeg, int width, int height, JSONObject sheet, long shutterAtMs) throws IOException {
+        return publishJpeg(name, jpeg.length(), width, height, sheet, shutterAtMs,
+                output -> Files.copy(jpeg.toPath(), output));
+    }
+
+    private interface JpegWriter {
+        void write(OutputStream output) throws IOException;
+    }
+
+    private Uri publishJpeg(String name, long bytes, int width, int height, JSONObject sheet,
+                            long shutterAtMs, JpegWriter writer) throws IOException {
         if (sheet != null) {
             try {
-                android.graphics.BitmapFactory.Options size = new android.graphics.BitmapFactory.Options();
-                size.inJustDecodeBounds = true;
-                android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, size);
-                sheet.put("arquivo_jpeg_bytes", jpeg.length);
-                sheet.put("largura_px", size.outWidth);
-                sheet.put("altura_px", size.outHeight);
-                sheet.put("megapixels_arquivo", size.outWidth * (double) size.outHeight / 1_000_000);
+                sheet.put("arquivo_jpeg_bytes", bytes);
+                sheet.put("jpeg_acima_de_2_mb", bytes > JPEG_TARGET_BYTES);
+                sheet.put("largura_px", width);
+                sheet.put("altura_px", height);
+                sheet.put("megapixels_arquivo", width * (double) height / 1_000_000);
                 sheet.put("referencias_visuais", "biblioteca local v1: exemplos, não treinamento nem calibração de cor");
             } catch (org.json.JSONException ignored) { }
         }
@@ -67,7 +81,7 @@ final class MediaSaver {
         if (uri == null) throw new IOException("A galeria recusou o arquivo.");
         try (OutputStream os = cr.openOutputStream(uri)) {
             if (os == null) throw new IOException("Não foi possível abrir o arquivo da foto.");
-            os.write(jpeg);
+            writer.write(os);
         } catch (IOException e) {
             cr.delete(uri, null, null);
             throw e;
@@ -133,14 +147,13 @@ final class MediaSaver {
     }
 
     Uri saveBitmap(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs, JSONObject sheet, Uri exifFrom) throws IOException {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(8 * 1024 * 1024);
-        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 100, bos)) throw new IOException("Falha ao codificar JPEG.");
         File tmp = new File(context.getCacheDir(), name + ".jpg");
         try {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                bos.writeTo(fos);
+                if (!bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_MAX_QUALITY, fos)) {
+                    throw new IOException("Falha ao codificar JPEG.");
+                }
             }
-            bos = null;
             ExifInterface exif = new ExifInterface(tmp.getAbsolutePath());
             exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER);
             exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL);
@@ -153,7 +166,7 @@ final class MediaSaver {
             if (iso > 0) exif.setAttribute(ExifInterface.TAG_ISO_SPEED_RATINGS, String.valueOf(iso));
             if (exposureNs > 0) exif.setAttribute(ExifInterface.TAG_EXPOSURE_TIME, String.valueOf(exposureNs / 1e9));
             exif.saveAttributes();
-            return saveJpeg(name, Files.readAllBytes(tmp.toPath()), sheet);
+            return saveJpeg(name, tmp, bmp.getWidth(), bmp.getHeight(), sheet, 0L);
         } finally {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();
@@ -215,12 +228,22 @@ final class MediaSaver {
         }
         android.graphics.YuvImage img = new android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, w, h, null);
         File tmp = new File(context.getCacheDir(), name + ".jpg");
+        File highQuality = new File(context.getCacheDir(), name + "_jpeg100.tmp");
         try {
-            try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                if (!img.compressToJpeg(new android.graphics.Rect(0, 0, w, h), 97, fos)) throw new IOException("Falha ao codificar JPEG.");
+            int quality = YUV_JPEG_QUALITY;
+            File encoded = tmp;
+            writeYuvJpeg(img, tmp, quality);
+            if (tmp.length() <= JPEG_TARGET_BYTES) {
+                // Codifica novamente dos pixels originais, antes de gravar o EXIF.
+                try {
+                    writeYuvJpeg(img, highQuality, JPEG_MAX_QUALITY);
+                    encoded = highQuality;
+                    quality = JPEG_MAX_QUALITY;
+                } catch (IOException e) {
+                    android.util.Log.w("TNC", "JPEG em qualidade inicial preservado", e);
+                }
             }
-            nv21 = null;
-            ExifInterface exif = new ExifInterface(tmp.getAbsolutePath());
+            ExifInterface exif = new ExifInterface(encoded.getAbsolutePath());
             exif.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(exifOrientation(exifDegrees)));
             exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER);
             exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL);
@@ -237,13 +260,25 @@ final class MediaSaver {
             putAll(exif, tags);
             exif.saveAttributes();
             if (sheet != null) {
-                try { sheet.put("tempo_codificacao_jpeg_ms", android.os.SystemClock.elapsedRealtime() - start); }
+                try {
+                    sheet.put("jpeg_qualidade_codificacao", quality);
+                    sheet.put("tempo_codificacao_jpeg_ms", android.os.SystemClock.elapsedRealtime() - start);
+                }
                 catch (org.json.JSONException ignored) { }
             }
-            return saveJpeg(name, Files.readAllBytes(tmp.toPath()), sheet, shutterAtMs);
+            return saveJpeg(name, encoded, w, h, sheet, shutterAtMs);
         } finally {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();
+            //noinspection ResultOfMethodCallIgnored
+            highQuality.delete();
+        }
+    }
+
+    private static void writeYuvJpeg(android.graphics.YuvImage img, File file, int quality) throws IOException {
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            android.graphics.Rect area = new android.graphics.Rect(0, 0, img.getWidth(), img.getHeight());
+            if (!img.compressToJpeg(area, quality, output)) throw new IOException("Falha ao codificar JPEG.");
         }
     }
 

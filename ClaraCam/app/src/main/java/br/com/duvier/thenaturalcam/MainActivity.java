@@ -1652,8 +1652,6 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 public boolean onSingleTapUp(MotionEvent e) {
                     x = e.getX();
                     y = e.getY();
-                    locked = false;
-                    lock.selected(false);
                     camera.focusAt(x / getWidth(), y / getHeight());
                     startFocusTracker(x / getWidth(), y / getHeight());
                     evShownUntil = SystemClock.uptimeMillis() + 1500;

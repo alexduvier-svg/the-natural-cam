@@ -4,7 +4,7 @@ import java.util.stream.IntStream;
 
 /** Measured, local finishing of an already aligned photograph. No generated detail or WB guesses. */
 final class RegionalPhotoProtocol {
-    static final String VERSION = "1.3.0";
+    static final String VERSION = "1.3.1";
     @FunctionalInterface
     interface SubjectLocator {
         Subject locate(YuvFrame frame);
@@ -51,6 +51,7 @@ final class RegionalPhotoProtocol {
         YuvFrame frame;
         QualityCheck.Report detail;
         boolean denoiseAccepted;
+        boolean retainedShadowChroma;
         boolean usedNoiseGuide;
         float broadCleaning;
         float meanCleaningWeight;
@@ -104,7 +105,13 @@ final class RegionalPhotoProtocol {
             verifyCleaning(source, out, result, true);
         }
         if (!result.denoiseAccepted) {
-            out = QualityCheck.copy(source);
+            if (context.shadowsOnly && result.residual != null) {
+                // A rejected luminance correction can still leave useful, edge-guided color cleanup in shadows.
+                System.arraycopy(source.y, 0, out.y, 0, source.y.length);
+                result.retainedShadowChroma = true;
+            } else {
+                out = QualityCheck.copy(source);
+            }
             result.noiseAfter = result.noiseBefore;
             result.meanCleaningWeight = 0;
             result.broadCleaning = 0;

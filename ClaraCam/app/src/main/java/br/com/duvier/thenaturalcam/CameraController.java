@@ -306,6 +306,7 @@ final class CameraController {
         int gen;
         int orientation;
         long shutterAtMs;
+        long firstImageMs = -1, lastImageMs = -1;
         boolean needsResult = true;
         String pipeline;
         byte[] jpeg;
@@ -337,6 +338,19 @@ final class CameraController {
         boolean finishQueued;
         boolean referenceFinish;
         JSONObject sheet = new JSONObject();
+
+        void noteImageArrival() {
+            lastImageMs = SystemClock.elapsedRealtime() - shutterAtMs;
+            if (firstImageMs < 0) firstImageMs = lastImageMs;
+        }
+
+        void addAcquisitionTiming() {
+            if (firstImageMs < 0) return;
+            try {
+                sheet.put("tempo_ate_primeiro_quadro_recebido_ms", firstImageMs);
+                sheet.put("tempo_ate_ultimo_quadro_recebido_ms", lastImageMs);
+            } catch (org.json.JSONException ignored) { }
+        }
     }
 
     CameraController(Context context, Listener listener) {
@@ -616,7 +630,7 @@ final class CameraController {
         return new MeteringRectangle[]{new MeteringRectangle(r, weight)};
     }
 
-    /** Toque para foco/medição. nx, ny em 0..1 relativos à prévia em pé (retrato). */
+    /** Toque para focar. nx, ny em 0..1 relativos à prévia em pé (retrato). */
     void focusAt(float nx, float ny) {
         handler.post(() -> {
             if (session == null || caps == null || capturing) return;
@@ -629,7 +643,6 @@ final class CameraController {
                 Log.w(TAG, "foco mantido: toque no mesmo ponto já focado (" + nx + "," + ny + ")");
                 return;
             }
-            userLock = false;
             tapX = nx;
             tapY = ny;
             tapRetries = 0;
@@ -1149,8 +1162,9 @@ final class CameraController {
                 if (auto != null) b.set(CaptureRequest.CONTROL_AF_REGIONS, auto);
             }
         }
-        if (useRegions && caps.maxAeRegions > 0) b.set(CaptureRequest.CONTROL_AE_REGIONS, regions);
-        else if (!maxRes && caps.maxAeRegions > 0 && currentFaces() != null) b.set(CaptureRequest.CONTROL_AE_REGIONS, currentFaces());
+        // O ponto de AF não altera a medição de luz. O EV é ajustado pelo usuário.
+        MeteringRectangle[] exposureAreas = !maxRes && caps.maxAeRegions > 0 ? currentFaces() : null;
+        if (exposureAreas != null) b.set(CaptureRequest.CONTROL_AE_REGIONS, exposureAreas);
         if (caps.faceDetectMode != CameraMetadata.STATISTICS_FACE_DETECT_MODE_OFF) {
             b.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, caps.faceDetectMode);
         }
@@ -1185,7 +1199,7 @@ final class CameraController {
             if (CameraCaps.contains(caps.hotPixelModes, CameraMetadata.HOT_PIXEL_MODE_HIGH_QUALITY)) {
                 b.set(CaptureRequest.HOT_PIXEL_MODE, CameraMetadata.HOT_PIXEL_MODE_HIGH_QUALITY);
             }
-            b.set(CaptureRequest.JPEG_QUALITY, (byte) 96);
+            b.set(CaptureRequest.JPEG_QUALITY, (byte) MediaSaver.JPEG_MAX_QUALITY);
             b.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
             b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false);
         }
@@ -1528,6 +1542,7 @@ final class CameraController {
             j.sheet.put("app", "The Natural Cam " + BuildConfigInfo.VERSION);
             j.sheet.put("aparelho", Build.MANUFACTURER + " " + Build.MODEL);
             j.sheet.put("android", Build.VERSION.RELEASE);
+            j.sheet.put("firmware", Build.DISPLAY);
             j.sheet.put("camera_id", caps.id);
             j.sheet.put("sessao_geracao", generation);
             j.sheet.put("camera_logica", caps.logicalMultiCamera);
@@ -1602,6 +1617,7 @@ final class CameraController {
             Job j = job;
             if (j == null || j.done) return;
             if (img.getFormat() != ImageFormat.JPEG) return;
+            j.noteImageArrival();
             ByteBuffer buf = img.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buf.remaining()];
             buf.get(bytes);
@@ -1661,6 +1677,7 @@ final class CameraController {
         if (session != null) startRepeating();
         afRelease();
         fillResult(j.sheet, j.result);
+        j.addAcquisitionTiming();
         busy("Salvando…", -1);
         final byte[] data = j.jpeg;
         j.jpeg = null;
@@ -1750,6 +1767,7 @@ final class CameraController {
 
     private void onRawPlus(Job j, Image img) {
         if (j.rawFrames.size() >= j.rawTarget) return;
+        j.noteImageArrival();
         try {
             int w = img.getWidth(), h = img.getHeight();
             Image.Plane p = img.getPlanes()[0];
@@ -2125,6 +2143,7 @@ final class CameraController {
             if (j == null || j.done) return;
             if (ext != null) {
                 // extensão entregando YUV: converte e salva
+                j.noteImageArrival();
                 YuvFrame f = copy(img);
                 finishExtensionYuv(j, f);
                 return;
@@ -2132,6 +2151,7 @@ final class CameraController {
             if (j.longExp != null) {
                 // longa exposição: cada quadro vai direto para a soma (memória constante)
                 if (j.longSeen >= burstTarget) return;
+                j.noteImageArrival();
                 j.longSeen++;
                 final int k = j.longSeen;
                 // A soma de um quadro 12 MP leva mais que o intervalo entre quadros (30 fps): sem
@@ -2153,6 +2173,7 @@ final class CameraController {
                 return;
             }
             if (burstFrames.size() >= burstTarget) return;
+            j.noteImageArrival();
             burstFrames.add(copy(img));
             int k = burstFrames.size();
             busy("Noite: quadro " + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget);
@@ -2424,6 +2445,13 @@ final class CameraController {
                     }
                     stamp(j, "tempo_etapa_sombras_ms", tt);
                 }
+                j.referenceFinish = true;
+                j.regional.refineResidual = finishNoise > 1.5;
+                j.regional.denoiseCeiling = 0;
+                j.regional.sharpen = 0;
+                // Measure and remove grain before enlarging a crop to the delivery size.
+                finalFrame = finishRegions(j, finalFrame, temporalNoiseMeasured ? finishNoise : Double.NaN);
+                stamp(j, "tempo_etapa_acabamento_regional_ms", tt);
                 float detailScale = j.cropUpscale * selected.scale;
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
                 boolean deliveryCrop = j.srCrop > 1f && longSide * fr.scale >= 1000;
@@ -2438,12 +2466,6 @@ final class CameraController {
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
-                j.referenceFinish = true;
-                j.regional.refineResidual = finishNoise > 1.5;
-                j.regional.denoiseCeiling = 0;
-                j.regional.sharpen = 0;
-                finalFrame = finishRegions(j, finalFrame, temporalNoiseMeasured ? finishNoise : Double.NaN);
-                stamp(j, "tempo_etapa_acabamento_regional_ms", tt);
                 // Um único realce, na escala de entrega e com limite de halo.
                 float sharpness = j.regional.face ? .24f : .42f;
                 float noise = (float) Math.max(1.0, Math.max(finishNoise, BurstFusion.noiseModel(finalFrame)[8]));
@@ -2507,11 +2529,12 @@ final class CameraController {
             regions.put("peso_medio_limpeza", round2(result.meanCleaningWeight));
             regions.put("limpeza_geral_leve", result.broadCleaning);
             regions.put("limpeza_aceita", result.denoiseAccepted);
+            if (result.retainedShadowChroma) regions.put("limpeza_cor_apos_reserva_luminancia", true);
             if (j.regional.shadowsOnly) regions.put("limpeza_forte", "sombras; rosto protegido na região detectada quando disponível");
             if(result.residual!=null) {
                 regions.put("ruido_correlacionado_estimado", round2(result.residual.sigma));
                 regions.put("peso_residual_luminancia", result.denoiseAccepted ? round2(result.residual.meanLumaWeight) : 0);
-                regions.put("peso_residual_cor", result.denoiseAccepted ? round2(result.residual.meanChromaWeight) : 0);
+                regions.put("peso_residual_cor", result.denoiseAccepted || result.retainedShadowChroma ? round2(result.residual.meanChromaWeight) : 0);
                 regions.put("tempo_residual_ms", result.residual.millis);
                 regions.put("limpeza_por_area", "limpeza por semelhança de pequenas regiões");
                 regions.put("grade_calculo_ruido_residual", result.usedNoiseGuide ? "captura" : "saída");
@@ -2610,6 +2633,7 @@ final class CameraController {
 
     private void saveYuv(Job j, YuvFrame f) throws Exception {
         // JPEG direto do YUV (NV21): sem bitmap ARGB gigante — cabe até a saída de 28 MP
+        j.addAcquisitionTiming();
         Uri uri = saver.saveYuv(j.name, f, j.orientation, j.sheet, exifTags(j.result), j.shutterAtMs);
         lastSavedPortraitFocus = j.portraitFocus;
         String summary = summary(j.sheet);
@@ -2720,7 +2744,7 @@ final class CameraController {
         CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
         b.addTarget(extFormat == ImageFormat.JPEG ? jpegReader.getSurface() : yuvReader.getSurface());
         b.set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation);
-        b.set(CaptureRequest.JPEG_QUALITY, (byte) 96);
+        b.set(CaptureRequest.JPEG_QUALITY, (byte) MediaSaver.JPEG_MAX_QUALITY);
         busy(extType == CameraExtensionCharacteristics.EXTENSION_NIGHT ? "Noite do sistema: segure firme…" : "HDR: segure firme…", -1);
         ext.capture(b.build(), handlerExecutor, new CameraExtensionSession.ExtensionCaptureCallback() {
             @Override
@@ -2812,6 +2836,7 @@ final class CameraController {
         try {
             Integer iso = r.get(CaptureResult.SENSOR_SENSITIVITY);
             Long exp = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+            sheet.put("timestamp_sensor_resultado_ns", r.get(CaptureResult.SENSOR_TIMESTAMP));
             if (iso != null) sheet.put("iso", iso);
             if (exp != null) sheet.put("exposicao_ns", exp);
             if (exp != null) sheet.put("exposicao", shutterLabel(exp));
@@ -2825,6 +2850,7 @@ final class CameraController {
             String phys = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             if (phys != null) sheet.put("lente_fisica_ativa", phys);
             sheet.put("foco_regiao_observada", meteringJson(r.get(CaptureResult.CONTROL_AF_REGIONS)));
+            sheet.put("medicao_regiao_observada", meteringJson(r.get(CaptureResult.CONTROL_AE_REGIONS)));
             Rect crop = r.get(CaptureResult.SCALER_CROP_REGION);
             if (crop != null) sheet.put("recorte_observado", crop.toShortString());
             sheet.put("af_modo_observado", r.get(CaptureResult.CONTROL_AF_MODE));

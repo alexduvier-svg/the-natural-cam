@@ -109,11 +109,16 @@ public class CaptureQualityRegressionTest {
 
     @Test public void publishedPhotoPlanKeepsPreviewCropWhenActivePhysicalGridDiffers() {
         CaptureDirector.Scene scene = new CaptureDirector.Scene();
-        scene.zoom = 3.5f;
-        scene.lensCrop = 3.5f;
         scene.maxPolicy = true;
         scene.nativeGridSafe = false;
-        assertEquals(1f, CaptureDirector.decidePublished(scene).srCrop, 0f);
+        for (float zoom : new float[]{3.5f, 6f, 7f, 8f, 10f}) {
+            scene.zoom = zoom;
+            scene.lensCrop = zoom;
+            CaptureDirector.Plan plan = CaptureDirector.decidePublished(scene);
+            assertEquals(1f, plan.srCrop, 0f);
+            assertEquals(1f, plan.srScale, 0f);
+            assertTrue(plan.frames >= 8);
+        }
     }
 
     @Test public void publishedPhotoBaselineIsUnaffectedByUnvalidatedPreviewMotion() {

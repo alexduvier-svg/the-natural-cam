@@ -158,7 +158,7 @@ public final class CaptureDirector {
             p.srCrop = s.lensCrop;
             p.srScale = Math.min(2.5f, s.lensCrop);
             frames = Math.max(frames, 8); // a super-resolução precisa de amostras de vários quadros
-        } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff) {
+        } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff && (s.nativeGridSafe || s.lensCrop < 1.3f)) {
             p.srScale = 1.5f;
         }
         p.frames = Math.max(1, Math.min(12, frames));
@@ -189,7 +189,8 @@ public final class CaptureDirector {
         p.reason = String.format(Locale.ROOT, "luz %s · %d quadros · até 1/%d s%s%s",
                 p.light, p.frames, p.maxFrameExposureNs > 0 ? Math.round(1e9 / p.maxFrameExposureNs) : 0,
                 p.srCrop > 1f ? String.format(Locale.ROOT, " · zoom super-res %.2fx (recorte nativo, %.2fx)", p.srCrop, p.srScale) : "",
-                p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x" : "");
+                p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x"
+                        : !s.nativeGridSafe && s.lensCrop >= 1.3f ? " · fusão na grade já recortada pelo ISP" : "");
         return p;
     }
 }
