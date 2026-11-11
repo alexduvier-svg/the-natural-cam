@@ -16,6 +16,8 @@ final class GyroMeter implements SensorEventListener {
     private final Sensor gyro;
     private volatile float meanSq = -1f;
     private volatile long at;
+    /** Último instante (elapsedRealtime) em que o celular foi MOVIDO de verdade (giro > 0,25 rad/s). */
+    private volatile long movedAt;
 
     GyroMeter(Context c) {
         sm = (SensorManager) c.getSystemService(Context.SENSOR_SERVICE);
@@ -41,6 +43,12 @@ final class GyroMeter implements SensorEventListener {
         float sq = x * x + y * y + z * z;
         meanSq = meanSq < 0 ? sq : meanSq + (sq - meanSq) * 0.08f; // ~0,5 s a 50 Hz
         at = System.currentTimeMillis();
+        if (sq > 0.0625f) movedAt = android.os.SystemClock.elapsedRealtime(); // 0,25 rad/s: reenquadrou
+    }
+
+    /** O celular ficou parado (sem reenquadrar) desde o instante t (elapsedRealtime)? */
+    boolean stillSince(long t) {
+        return gyro != null && movedAt < t;
     }
 
     @Override

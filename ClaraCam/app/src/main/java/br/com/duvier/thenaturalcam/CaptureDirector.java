@@ -45,6 +45,10 @@ public final class CaptureDirector {
         public float srCrop = 1f, srScale = 1f;
         /** Fusão incremental (quadro somado ao chegar, memória constante): permite até 15 quadros. */
         public boolean stream;
+        /** Tratamento de Noite (baixa luz em Noite, Foto ou Máxima). */
+        public boolean nightLike;
+        /** Clarear a foto final (EV em luz linear) em baixa luz. */
+        public float brightenEv;
         public float denoise, sharpen;
         public String light, reason;
     }
@@ -90,8 +94,17 @@ public final class CaptureDirector {
         } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff) {
             p.srScale = 1.5f;
         }
+        // Noite no ESCURO com zoom de recorte: menos ruído vale mais que detalhe extra. A super-
+        // resolução espalha as amostras numa grade 2,5× maior (cada pixel recebe ~6× menos luz) e o
+        // grão aparecia (usuário: "muito ruído no 3,5×"). Aqui: 15 quadros somados em pixel cheio,
+        // depois o recorte ampliado com nitidez na escala certa.
+        // Pedido do usuário: em BAIXA LUZ, Foto e Máxima recebem o MESMO tratamento do Noite (15
+        // quadros, tempo por quadro pelo giroscópio, limpeza, nitidez, cor e foto mais clara).
+        boolean nightLike = s.kind == Kind.NOITE || (s.kind == Kind.FOTO && light >= 3 && !s.manual && !s.stackOff);
+        if (nightLike && light >= 3) p.srScale = 1f; // Máxima/zoom no escuro: limpeza antes de super-res
+        p.nightLike = nightLike;
         // Noite sem super-resolução: fusão incremental, como o Night Sight (até 15 quadros na mão)
-        p.stream = s.kind == Kind.NOITE && p.srScale <= 1f && !s.stackOff;
+        p.stream = nightLike && p.srScale <= 1f && !s.stackOff;
         if (p.stream && light >= 2) frames = Math.max(frames, light >= 3 ? 15 : 12);
         p.frames = Math.max(1, Math.min(p.stream ? 15 : 12, frames));
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
@@ -110,7 +123,7 @@ public final class CaptureDirector {
             if (s.shakeRadS >= 0) k = s.shakeRadS < 0.01f ? 12e9 : s.shakeRadS < 0.03f ? 9e9 : s.shakeRadS > 0.12f ? 3.5e9 : 6e9;
             long shake = (long) (k / eq);
             boolean steady = s.shakeRadS >= 0 && s.shakeRadS < 0.01f; // apoiado / tripé
-            long cap = s.kind == Kind.NOITE ? nightCap(s.shakeRadS) : (steady ? 66_666_666L : 33_333_333L);
+            long cap = nightLike ? nightCap(s.shakeRadS) : (steady ? 66_666_666L : 33_333_333L);
             if (s.kind == Kind.RUA) cap = 4_000_000L;
             if (s.face) cap = Math.min(cap, 16_666_666L); // pessoa se mexe: 1/60 s no máximo
             p.maxFrameExposureNs = Math.max(1_000_000L, Math.min(cap, shake));
@@ -118,10 +131,13 @@ public final class CaptureDirector {
         // ---- acabamento (natural: nada de nitidez excessiva) --------------------------------
         p.denoise = new float[]{0.12f, 0.2f, 0.3f, 0.42f}[light];
         p.sharpen = light >= 3 ? 0.2f : 0.3f;
+        // no escuro a foto fica mais clara que a tela (como o Night Sight): +0,5 EV em luz linear, com
+        // pretos firmes e branco sem estourar; com pouca luz +0,25 EV no Noite
+        p.brightenEv = nightLike && light >= 3 ? 0.5f : (s.kind == Kind.NOITE && light == 2 ? 0.25f : 0f);
         p.reason = String.format(Locale.ROOT, "luz %s · %d quadros · até 1/%d s%s%s",
                 p.light, p.frames, p.maxFrameExposureNs > 0 ? Math.round(1e9 / p.maxFrameExposureNs) : 0,
-                p.srCrop > 1f ? String.format(Locale.ROOT, " · zoom super-res %.2fx (recorte nativo, %.2fx)", p.srCrop, p.srScale) : "",
-                (p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x" : "") + (p.stream ? " · fusão incremental" : ""));
+                p.srCrop > 1f ? (p.srScale > 1f ? String.format(Locale.ROOT, " · zoom super-res %.2fx (recorte nativo, %.2fx)", p.srCrop, p.srScale) : String.format(Locale.ROOT, " · recorte %.2fx sem super-res (escuro: limpeza primeiro)", p.srCrop)) : "",
+                (p.srCrop <= 1f && p.srScale > 1f ? " · super-res 1,5x" : "") + (p.stream ? " · fusão incremental" : "") + (p.brightenEv > 0 ? String.format(Locale.ROOT, " · +%.2f EV", p.brightenEv) : ""));
         return p;
     }
 }

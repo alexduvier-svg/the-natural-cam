@@ -161,7 +161,10 @@ final class CameraController {
         if (teleCaps == null || mainFd <= 0) return false;
         // vale por 10 s — ou enquanto a principal continua aberta desde a medida (durante a foto ela
         // não mede: depois de uma fusão longa no 3,5× a medida "vencia" e o 6× abria a tele desfocada)
-        boolean fresh = SystemClock.elapsedRealtime() - mainFdAt <= 10_000 || (!onTele && mainFdAt >= openedAt);
+        long age = SystemClock.elapsedRealtime() - mainFdAt;
+        // vale enquanto o celular não for REENQUADRADO (giroscópio), mesmo trocando de modo (a câmera
+        // reabre e a medida antiga "vencia": o Foto 3,5× abria a tele desfocada com o frasco a 35 cm)
+        boolean fresh = age <= 10_000 || (!onTele && mainFdAt >= openedAt) || (age <= 300_000 && gyro.stillSince(mainFdAt));
         if (!fresh) return false;
         float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f; // 2,5 dpt = 40 cm
         return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
@@ -313,6 +316,10 @@ final class CameraController {
         boolean wantToneRef, toneRefSeen;
         int[] toneRefHist;
         int streamSeen, streamQueued, streamSkipped;
+        /** Foto feita pela tele (para a proteção de foco perto demais). */
+        boolean onTeleShot;
+        /** Clarear a foto final em baixa luz (EV, luz linear). */
+        float brightenEv;
         TotalCaptureResult result;
         boolean done;
         JSONObject sheet = new JSONObject();
@@ -1721,6 +1728,7 @@ final class CameraController {
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
             j.sheet.put("ganho_pos_raw_previa", lastBoost);
+            j.onTeleShot = onTele;
             j.sheet.put("quadros_pedidos", burstTarget);
             // super-resolução só na Máxima: sobre o recorte já ampliado pelo ISP ela custava ~25 s
             // e quase não somava detalhe; o recorte ganha nitidez na escala da ampliação (abaixo)
@@ -1755,7 +1763,8 @@ final class CameraController {
                 j.sheet.put("quadros_pedidos", burstTarget);
                 j.sheet.put("diretriz", plan.reason);
                 j.denoise = plan.denoise;
-                if (plan.stream && j.srCrop <= 1f && !j.superRes) j.stream = new BurstFusion.Stream(new BurstFusion(0.30f, true, 1f));
+                j.brightenEv = plan.brightenEv;
+                if (plan.stream && !j.superRes) j.stream = new BurstFusion.Stream(new BurstFusion(0.30f, true, 1f));
             } else if (mode == Mode.RUA) {
                 // Rua também ganha a limpeza leve geral + memória das sombras (todas as lentes)
                 j.denoise = lastIso > 1600 ? 0.42f : lastIso > 400 ? 0.3f : 0.2f;
@@ -1806,7 +1815,7 @@ final class CameraController {
                         : mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
                 // pouca luz: alonga até o limite (menos ISO); zoom longo/rosto: encurta até o limite
                 // Noite: até 8× o tempo da medição (Night Sight: quadros de até 1/3 s com o celular firme)
-                long stretch = mode == Mode.NOITE ? 8 : 4;
+                long stretch = mode == Mode.NOITE || (plan != null && plan.nightLike) ? 8 : 4;
                 long target = Math.min(lastIso >= 400 ? lastExposure * stretch : lastExposure, cap);
                 // nunca abaixo do ISO mínimo (senão a foto clareia além da medição e as luzes estouram)
                 target = Math.min(target, Math.round((double) lastIso * lastExposure / Math.max(1, caps.isoRange.getLower())));
@@ -2113,6 +2122,13 @@ final class CameraController {
                     fr = j.stream.finish((label, p) -> busy(label, 0.3f + 0.6f * p));
                     j.sheet.put("fusao_incremental", "quadros somados ao chegar (memória constante) · "
                             + j.streamQueued + " na soma, " + j.streamSkipped + " pulados (soma atrasada)");
+                    if (j.srCrop > 1f) {
+                        // Noite escuro com zoom: soma em pixel cheio, recorte depois (ampliado abaixo
+                        // com nitidez na escala certa) — menos ruído que a super-resolução no escuro
+                        fr.frame = YuvFrame.cropCenter(fr.frame, j.srCrop);
+                        if (fr.referenceFrame != null) fr.referenceFrame = YuvFrame.cropCenter(fr.referenceFrame, j.srCrop);
+                        j.sheet.put("zoom_noite", "recorte " + j.srCrop + "× depois da soma de " + fr.framesUsed + " quadros (sem super-resolução: escuro)");
+                    }
                 } else {
                     fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
                 }
@@ -2172,6 +2188,19 @@ final class CameraController {
                         j.cropUpscale = fr.scale; // e ganha a nitidez na escala da ampliação
                     }
                     qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
+                    if (j.onTeleShot && q.detailRatio < 0.6) {
+                        // tele "travou o foco" mas os quadros vieram sem detalhe: objeto mais perto que o
+                        // mínimo dela (40 cm). A próxima foto já sai da principal (sem aviso na tela).
+                        qj.put("tele_fora_de_foco", "próxima foto pela principal (objeto perto demais da tele)");
+                        handler.post(() -> {
+                            if (onTele && !capturing) {
+                                nearMode = true;
+                                nearReason = 2;
+                                teleFailUsed = true;
+                                switchLens(false);
+                            }
+                        });
+                    }
                     final String why = q.reason;
                     Log.w(TAG, "verificador: " + why + " — usado o quadro mais nítido"); // sem aviso na tela (pedido do usuário)
                 } else {
@@ -2229,6 +2258,13 @@ final class CameraController {
                     } else {
                         j.sheet.put("claridade_da_tela", "igual à régua (sem curva)");
                     }
+                }
+                if (j.brightenEv > 0) {
+                    // baixa luz (Noite, e Foto/Máxima no escuro): foto mais clara que a tela, como o
+                    // Night Sight — exposição em luz linear com pé (preto firme) e ombro (branco intacto);
+                    // a cor acompanha o brilho (não desbota)
+                    ToneMatch.applyExposure(finalFrame, j.brightenEv);
+                    j.sheet.put("clarear_baixa_luz", String.format(java.util.Locale.ROOT, "+%.2f EV (luz linear, pretos firmes, branco intacto)", j.brightenEv));
                 }
                 if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {
                     // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,

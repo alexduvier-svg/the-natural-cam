@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.27.0** (versionCode 62),
-APK: `The_Natural_Cam_1.27.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.0** (versionCode 64),
+APK: `The_Natural_Cam_1.29.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -345,3 +345,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - Editor: setinha "‹" fixa em todas as abas (Estilos ↔ Ferramentas pela aba anterior; ferramenta →
   grade). Aparelho: Palco no frasco = fundo preto, frasco inteiro; base do frasco um pouco escura.
 - Ideia do usuário em aberto: "1000+ paletas de cor" — ver resposta (calibração com cartela).
+
+## Feito na 1.29.0 (2026-11-10) — foco perto, baixa luz em Foto/Máxima, Noite mais claro
+- FOCO: no Foto 3,5× com o frasco a ~35 cm o app abria a TELE (mín. 40 cm) — foco no infinito
+  (44 m) e fusão reprovada (detalhe 0,01–0,59). Causa: a medida de perto da principal "vencia" ao
+  trocar de modo. Agora vale enquanto o celular não for reenquadrado (GyroMeter.stillSince, até 5 min).
+  2ª proteção: foto na tele reprovada com detalhe < 0,6 → a próxima sai da principal (sem aviso).
+- RUÍDO 3,5× Noite: a super-resolução no escuro espalhava as amostras (grão). Noite escuro com
+  recorte: fusão incremental de 15 quadros em pixel cheio + recorte ampliado depois.
+- BAIXA LUZ em Foto e Máxima (iso > 1600): mesmo tratamento do Noite (nightLike: 15 quadros,
+  tempo pelo giroscópio, sem super-res, limpeza/nitidez/cor).
+- Noite mais claro: +0,5 EV no escuro (+0,25 EV com pouca luz) em luz linear, pretos firmes,
+  branco intacto, cor acompanha (ToneMatch.applyExposure).
+- ColorCalib (ΔE 2000 + matriz 3×3) pronto para quando chegar a ColorChecker Passport Photo 2.
+- NÃO VERIFICADO no aparelho ainda: 1.29.0 instalada, usuário testando.

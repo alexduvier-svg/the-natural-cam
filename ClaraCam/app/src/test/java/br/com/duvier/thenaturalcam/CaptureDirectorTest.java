@@ -51,7 +51,8 @@ public class CaptureDirectorTest {
         if (p.stream && p.srScale > 1f) fail("incremental não faz super-resolução: " + c);
         if (p.srScale > 1f && p.frames < 4) fail("super-resolução sem amostras suficientes: " + c);
         if (p.srScale > 2.5f) fail("ampliação acima de 2,5× inventaria detalhe: " + c);
-        if (p.srCrop > 1f && p.srScale < 1.29f) fail("recorte sem super-resolução: " + c);
+        // recorte sem super-resolução só no Noite escuro (fusão incremental de 15 quadros: limpeza primeiro)
+        if (p.srCrop > 1f && p.srScale < 1.29f && !p.stream) fail("recorte sem super-resolução: " + c);
         if (s.stackOff && p.frames != 1) fail("empilhamento desligado deve usar 1 quadro: " + c);
         if (!s.manual) {
             if (p.maxFrameExposureNs < 1_000_000L) fail("tempo de quadro irreal: " + c);

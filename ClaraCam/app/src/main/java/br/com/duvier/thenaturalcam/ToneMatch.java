@@ -96,6 +96,28 @@ final class ToneMatch {
         for (int i = 0; i < y.length; i++) y[i] = (byte) lut[y[i] & 0xFF];
     }
 
+    /**
+     * Exposição em luz linear (como o Lightroom) no brilho, com pé e ombro (ForegroundLight.lift), e
+     * a cor (U, V) escalada na mesma proporção do brilho — clarear não desbota a foto.
+     */
+    static void applyExposure(YuvFrame f, float ev) {
+        float gain = (float) Math.pow(2, ev);
+        int[] lut = new int[256];
+        for (int v = 0; v < 256; v++) lut[v] = ForegroundLight.encode(ForegroundLight.lift(ForegroundLight.lin(v), gain));
+        int w = f.width, cw = f.chromaWidth, ch = f.chromaHeight;
+        for (int cy = 0; cy < ch; cy++) {
+            for (int cx = 0; cx < cw; cx++) {
+                int y = Math.min(f.height - 1, cy * 2), x = Math.min(w - 1, cx * 2);
+                int y0 = f.y[y * w + x] & 0xFF;
+                float k = y0 > 2 ? Math.min(2.5f, lut[y0] / (float) y0) : 1f;
+                int ci = cy * cw + cx;
+                f.u[ci] = (byte) Math.max(0, Math.min(255, Math.round(128 + ((f.u[ci] & 0xFF) - 128) * k)));
+                f.v[ci] = (byte) Math.max(0, Math.min(255, Math.round(128 + ((f.v[ci] & 0xFF) - 128) * k)));
+            }
+        }
+        apply(f, lut);
+    }
+
     /** Média do brilho pela tabela (para a ficha): quanto a curva clareou, em EV, no meio-tom. */
     static double midGainEv(int[] lut) {
         return Math.log((lut[64] + 1.0) / 65.0) / Math.log(2);
