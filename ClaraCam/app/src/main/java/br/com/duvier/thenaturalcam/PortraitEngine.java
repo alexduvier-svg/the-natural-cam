@@ -33,7 +33,8 @@ import java.util.stream.IntStream;
 final class PortraitEngine {
 
     /** Aberturas do editor (e do Ajuste fino). */
-    static final float[] APERTURES = {2.8f, 4f, 5.6f, 8f, 11f, 16f};
+    static final float MIN_APERTURE = 5.6f;
+    static final float[] APERTURES = {MIN_APERTURE, 8f, 11f, 16f};
     /** Aberturas no modo Retrato da câmera: bokeh suave, de lente real (pedido do usuário). */
     static final float[] PORTRAIT_APERTURES = {8f, 11f, 16f}; // regra: sempre acima de f/5,6
     static final float DEFAULT_APERTURE = 8f;
@@ -285,7 +286,7 @@ final class PortraitEngine {
      */
     static float rawCoc(float delta, float aperture, float side) {
         float t = Math.abs(delta);
-        float k = 5.6f / Math.max(5.6f, Math.min(16f, aperture));
+        float k = MIN_APERTURE / Math.max(MIN_APERTURE, Math.min(16f, aperture));
         return BOKEH_SCALE * (side / 1440f) * k * (t * t / (t + .1f));
     }
 
@@ -341,10 +342,33 @@ final class PortraitEngine {
         final int w = dp.w, h = dp.h, n = w * h;
         final float side = Math.max(w, h);
         final float[] raw = new float[n];
+        // DIRETRIZ "o perto vence" (pedido do usuário: o desfoque não pode comer bordas perto dos
+        // objetos/pessoas): na profundidade de baixa resolução, coisas finas e bordas perto (fio,
+        // borda da mesa, contorno) se misturam com o fundo distante e herdavam o desfoque dele. Para
+        // DESFOCAR, cada pixel usa a profundidade do mais perto da vizinhança (máximo local, ~0,5 % do
+        // lado), com rampa suave para fora (média da mesma escala) — o fundo começa a desfocar aos
+        // poucos a partir da borda, sem contorno nítido em volta (sem halo).
+        int rn = Math.max(2, Math.round(side * .005f));
+        final float[] nearD = box(PortraitLight.dilate(dp.d, w, h, rn), w, h, rn);
+        // INCERTEZA: onde a profundidade muda muito num trecho pequeno (borda, fio, objeto vazado) a
+        // rede não "entende" o que está atrás. Regra do usuário: nesse caso, deixar o objeto na cena
+        // (mais nítido) ou cobrir com desfoque SUAVE — nunca um corte duro. O desfoque cai até 65 %
+        // conforme a incerteza (diferença entre o mais perto da vizinhança e a média dela).
+        final float[] meanD = box(dp.d, w, h, rn * 2);
+        // Fios e hastes deixam pistas na imagem mesmo quando a profundidade está suavizada.
+        // A proteção exige variação de profundidade na direção do contorno da foto.
+        int edgeRadius = Math.max(3, Math.round(side * .015f));
+        final float[] thinEdges = depthEdges(dp, edgeRadius);
         for (int i = 0; i < n; i++) {
-            float delta = dp.d[i] - focus;
+            float dv = Math.max(dp.d[i], nearD[i]);
+            float delta = dv - focus;
             if (delta < 0) delta = Math.min(0, delta + sharpBand); // atrás: só além da faixa nítida
-            raw[i] = rawCoc(delta, aperture, side) * (dp.d[i] > focus ? frontScale : 1f);
+            float unsure = smoothstep(.04f, .2f, nearD[i] - meanD[i]);
+            float keepSharp = Math.max(.65f * unsure, .85f * thinEdges[i]);
+            // a proteção vale para o sujeito e o que está atrás dele; o que está claramente À FRENTE
+            // do foco (primeiro plano desfocado de propósito) segue a lente: desfoca e mistura contorno
+            keepSharp *= 1f - smoothstep(focus + .03f, focus + .10f, dp.d[i]);
+            raw[i] = rawCoc(delta, aperture, side) * (dv > focus ? frontScale : 1f) * (1f - keepSharp);
         }
         int rs = Math.max(2, Math.round(side * .01f));
         float[] smooth = box(box(raw, w, h, rs), w, h, rs);
@@ -429,6 +453,35 @@ final class PortraitEngine {
             java.util.Arrays.fill(d, y * w, (y + 1) * w, v);
         }
         return bokeh(new Depth(d, w, h, guide, 0), 1f, aperture, null);
+    }
+
+    /** Confiança em contornos finos que têm variação de profundidade na mesma direção. */
+    private static float[] depthEdges(Depth depth, int radius) {
+        int w = depth.w, h = depth.h;
+        int[] guide = depth.guide;
+        float[] e = new float[w * h];
+        if (guide == null || guide.length != w * h) return e;
+        float[] l = new float[w * h];
+        for (int i = 0; i < l.length; i++) {
+            int c = guide[i];
+            l[i] = (.299f * ((c >> 16) & 255) + .587f * ((c >> 8) & 255) + .114f * (c & 255)) / 255f;
+        }
+        for (int y = 1; y < h - 1; y++) {
+            int top = Math.max(0, y - radius) * w;
+            int bottom = Math.min(h - 1, y + radius) * w;
+            for (int x = 1; x < w - 1; x++) {
+                int i = y * w + x;
+                float gx = l[i + 1] - l[i - 1], gy = l[i + w] - l[i - w];
+                float gradient = (float) Math.sqrt(gx * gx + gy * gy);
+                if (gradient <= .10f) continue;
+                int row = y * w;
+                float dx = depth.d[row + Math.min(w - 1, x + radius)] - depth.d[row + Math.max(0, x - radius)];
+                float dy = depth.d[bottom + x] - depth.d[top + x];
+                float depthChange = Math.abs(gx * dx + gy * dy) / gradient;
+                e[i] = smoothstep(.015f, .065f, depthChange) * smoothstep(.05f, .18f, gradient * .5f);
+            }
+        }
+        return box(PortraitLight.dilate(e, w, h, 1), w, h, 1);
     }
 
     private static float smoothstep(float a, float b, float x) {

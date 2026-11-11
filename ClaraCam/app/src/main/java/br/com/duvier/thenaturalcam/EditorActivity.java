@@ -86,8 +86,7 @@ public final class EditorActivity extends Activity {
             return true;
         }
         if (TAB_STYLES.equals(tab)) {
-            tab = TAB_TOOLS;
-            closeTool();
+            switchTab(TAB_TOOLS);
             return true;
         }
         return false;
@@ -192,8 +191,9 @@ public final class EditorActivity extends Activity {
         panel.addView(sliderScroll, new LinearLayout.LayoutParams(-1, dp(300)));
         tabBar = Ui.row(this);
         tabBar.setGravity(Gravity.CENTER);
-        tabBar.setPadding(dp(12), dp(4), dp(12), dp(8));
-        panel.addView(tabBar, new LinearLayout.LayoutParams(-1, dp(60)));
+        // pílulas Estilos/Ferramentas com respiro das bordas arredondadas do painel (não encostam)
+        tabBar.setPadding(dp(30), dp(4), dp(30), dp(16));
+        panel.addView(tabBar, new LinearLayout.LayoutParams(-1, dp(70)));
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2);
         pp.setMargins(dp(6), dp(6), dp(6), 0);
         root.addView(panel, pp);
@@ -293,6 +293,7 @@ public final class EditorActivity extends Activity {
     private static final String[][] TOOLS_FOCUS = {
             {"desfoque", "◉", "Desfoque"}, {"miniatura", "▤", "Miniatura"}, {"mascaras", "◐", "Máscaras"},
             {"vinheta", "◯", "Vinheta"},
+            {"primeiro", "◒", "Primeiro Plano"},
     };
 
     private static String toolName(String id) {
@@ -320,6 +321,7 @@ public final class EditorActivity extends Activity {
             case "vinheta": return r.vignette != 0;
             case "granulado": return r.grain != 0;
             case "desfoque": return portraitOn;
+            case "primeiro": return fgAmount > 0 || fgBg != 0 || fgLevel > 0;
             case "mascaras":
                 for (MaskEngine.Local m : masks) if (m != null && m.active()) return true;
                 return false;
@@ -366,6 +368,12 @@ public final class EditorActivity extends Activity {
             case "vinheta": r.vignette = 0; break;
             case "granulado": r.grain = 0; break;
             case "desfoque": if (portraitOn) togglePortrait(); break;
+            case "primeiro":
+                fgAmount = 0;
+                fgReach = .5f;
+                fgBg = 0;
+                fgLevel = 0;
+                break;
             case "mascaras":
                 for (int k = 0; k < masks.length; k++) masks[k] = null;
                 buildMaskRow();
@@ -393,10 +401,8 @@ public final class EditorActivity extends Activity {
             if (on) v.setBackground(Ui.rounded(this, 0xFF2A2B30, dp(22)));
             v.setOnClickListener(x -> {
                 // tocar em "Ferramentas" de dentro de uma ferramenta volta para a grade
-                if (!t[0].equals(tab) || tool != null) {
-                    tab = t[0];
-                    closeTool();
-                }
+                if (!t[0].equals(tab)) switchTab(t[0]);
+                else if (tool != null) closeTool();
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(46), 1);
             lp.setMargins(dp(6), 0, dp(6), 0);
@@ -417,6 +423,12 @@ public final class EditorActivity extends Activity {
             render();
         }
         if ("desfoque".equals(id)) tiltAmount = 0;
+        if ("primeiro".equals(id)) ensureDepth(() -> {
+            if (!"primeiro".equals(tool)) return;
+            if (fgAmount == 0) fgAmount = .35f; // abre já mostrando o efeito (≈ +1 EV)
+            buildSliders();
+            render();
+        });
         buildSliders();
         sliderScroll.scrollTo(0, 0);
         updateMarker();
@@ -432,46 +444,61 @@ public final class EditorActivity extends Activity {
 
     private FrameLayout toolHeadBox;
 
-    private void buildSliders() {
-        sliders.removeAllViews();
-        toolHeadBox.removeAllViews();
-        toolHeadBox.setVisibility(TAB_TOOLS.equals(tab) && tool != null ? View.VISIBLE : View.GONE);
-        buildTabs();
-        if (TAB_STYLES.equals(tab)) {
-            addHeader("Estilos");
-            attach(familiesScroll, 48);
-            attach(stylesScroll, 48);
-            addSlider("Intensidade", recipe.intensity, 0f, 1f, v -> recipe.intensity = v);
-            return;
-        }
-        if (tool == null) {
-            buildToolGrid();
-            return;
-        }
-        // cabeçalho da ferramenta: voltar · nome · zerar
-        // Regra de layout: nome da ferramenta EXATAMENTE no centro do painel; "‹ Ferramentas" e
-        // "Zerar" com respiro da borda (não encostam). Camadas sobrepostas para o centro não
-        // depender da largura dos textos laterais.
+    /** Aba anterior (para a setinha de voltar). */
+    private String prevTab;
+
+    private void switchTab(String t) {
+        prevTab = tab;
+        tab = t;
+        closeTool();
+    }
+
+    /**
+     * Cabeçalho fixo: "‹" à esquerda (voltar), título laranja EXATAMENTE no centro, "Zerar" à direita.
+     * Camadas sobrepostas: o centro não depende da largura dos lados; respiro das bordas.
+     */
+    private void pinHeader(String text, Runnable back, Runnable reset) {
         FrameLayout head = new FrameLayout(this);
-        // regra do usuário: títulos principais em laranja
-        TextView title = Ui.text(this, toolName(tool), 17, Ui.ACCENT);
+        TextView title = Ui.text(this, text, 17, Ui.ACCENT); // regra do usuário: títulos principais em laranja
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER);
         head.addView(title, new FrameLayout.LayoutParams(-1, dp(44), Gravity.CENTER));
-        TextView back = Ui.text(this, "‹  Ferramentas", 14, Ui.TEXT);
-        back.setGravity(Gravity.CENTER_VERTICAL);
-        back.setPadding(dp(10), 0, dp(10), 0);
-        back.setOnClickListener(v -> closeTool());
-        head.addView(back, new FrameLayout.LayoutParams(-2, dp(44), Gravity.START | Gravity.CENTER_VERTICAL));
-        TextView reset = Ui.text(this, "Zerar", 14, Ui.MUTED);
-        reset.setGravity(Gravity.CENTER_VERTICAL);
-        reset.setPadding(dp(10), 0, dp(10), 0);
-        final String id = tool;
-        reset.setOnClickListener(v -> resetTool(id));
-        head.addView(reset, new FrameLayout.LayoutParams(-2, dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
+        if (back != null) {
+            TextView b = Ui.text(this, "‹", 24, Ui.TEXT);
+            b.setGravity(Gravity.CENTER);
+            b.setOnClickListener(v -> back.run());
+            head.addView(b, new FrameLayout.LayoutParams(dp(48), dp(44), Gravity.START | Gravity.CENTER_VERTICAL));
+        }
+        if (reset != null) {
+            TextView r = Ui.text(this, "Zerar", 14, Ui.MUTED);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            r.setPadding(dp(10), 0, dp(10), 0);
+            r.setOnClickListener(v -> reset.run());
+            head.addView(r, new FrameLayout.LayoutParams(-2, dp(44), Gravity.END | Gravity.CENTER_VERTICAL));
+        }
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, dp(44));
-        hp.setMargins(dp(4), 0, dp(4), 0);
+        hp.setMargins(dp(10), 0, dp(10), 0);
         toolHeadBox.addView(head, hp);
+    }
+
+    private void buildSliders() {
+        sliders.removeAllViews();
+        toolHeadBox.removeAllViews();
+        toolHeadBox.setVisibility(View.VISIBLE);
+        buildTabs();
+        // regra do usuário: toda aba tem a setinha "‹" para voltar à anterior (cabeçalho fixo)
+        if (TAB_STYLES.equals(tab)) {
+            pinHeader("Estilos", () -> switchTab(prevTab != null && !TAB_STYLES.equals(prevTab) ? prevTab : TAB_TOOLS), null);
+            buildStyleGrid();
+            return;
+        }
+        if (tool == null) {
+            pinHeader("Ferramentas", TAB_STYLES.equals(prevTab) ? () -> switchTab(TAB_STYLES) : null, null);
+            buildToolGrid();
+            return;
+        }
+        final String id = tool;
+        pinHeader(toolName(tool), this::closeTool, () -> resetTool(id));
         switch (tool) {
             case "luz":
                 addSlider("Exposição", recipe.exposure, -1f, 1f, v -> recipe.exposure = v);
@@ -524,18 +551,48 @@ public final class EditorActivity extends Activity {
                 addHint("Ruído IA tira o ruído sem inventar detalhe; ~85 % é o ponto natural.");
                 break;
             case "vinheta":
-                addSlider("Vinheta", recipe.vignette, -1f, 1f, v -> recipe.vignette = v);
+                addSlider("Vinheta", -recipe.vignette, -1f, 1f, v -> recipe.vignette = -v);
                 break;
             case "granulado": buildGrain(); break;
             case "desfoque":
                 attach(portraitScroll, 48);
                 if (portraitOn) {
-                    // intensidade contínua do desfoque: 0 = f/16 (quase nada) … 1 = f/1,4 (máximo)
-                    double span = Math.log(1.4 / 16.0);
-                    float v0 = (float) (Math.log(aperture / 16.0) / span);
+                    double minimum = blurMode == 0 ? PortraitEngine.MIN_APERTURE : 1.4;
+                    double span = Math.log(minimum / 16.0);
+                    float v0 = (float) (Math.log(Math.max(minimum, aperture) / 16.0) / span);
                     addSlider(blurMode == 0 ? "Desfoque (bokeh)" : blurMode == 1 ? "Movimento" : "Zoom", v0, 0f, 1f, v -> aperture = (float) (16.0 * Math.exp(v * span)));
                 }
                 addHint("Toque na foto para escolher o ponto nítido.");
+                break;
+            case "primeiro":
+                if (depth == null) {
+                    addHint("Separando primeiro e segundo plano…");
+                    break;
+                }
+                {
+                    // níveis de iluminação (como a Iluminação de Retrato do iPhone), para pessoas e objetos
+                    LinearLayout lv = Ui.row(this);
+                    for (int k = 0; k < PortraitLight.NAMES.length; k++) {
+                        final int kk = k;
+                        TextView t = Ui.pill(this, PortraitLight.NAMES[k], fgLevel == k);
+                        t.setOnClickListener(v -> {
+                            fgLevel = kk;
+                            updateMarker();
+                            buildSliders();
+                            render();
+                        });
+                        lv.addView(t, Ui.pillParams(this));
+                    }
+                    sliders.addView(Ui.horizontal(this, lv), new LinearLayout.LayoutParams(-1, dp(48)));
+                }
+                if (fgLevel > 0) {
+                    addHint("Toque no rosto ou no objeto para escolher o sujeito iluminado. Luz em exposição real (pretos firmes, branco sem estourar); o fundo segue o nível escolhido.");
+                    break;
+                }
+                addSlider("Clarear", fgAmount, 0f, 1f, v -> fgAmount = v);
+                addSlider("Alcance", fgReach, 0f, 1f, v -> fgReach = v);
+                addSlider("Fundo", fgBg, -1f, 1f, v -> fgBg = v);
+                addHint("Natural: clareia o que está perto como um rebatedor, em exposição real (pretos firmes, branco sem estourar). Fundo − escurece o que está longe.");
                 break;
             case "mascaras":
                 attach(maskScroll, 48);
@@ -559,6 +616,20 @@ public final class EditorActivity extends Activity {
     }
 
     private void addGridSection(String title, String[][] tools) {
+        Runnable[] click = new Runnable[tools.length];
+        boolean[] on = new boolean[tools.length];
+        String[][] tiles = new String[tools.length][];
+        for (int k = 0; k < tools.length; k++) {
+            final String id = tools[k][0];
+            tiles[k] = new String[]{tools[k][1], tools[k][2]};
+            on[k] = toolUsed(id);
+            click[k] = () -> openTool(id);
+        }
+        addTileSection(title, tiles, on, click);
+    }
+
+    /** Seção com título laranja centralizado e grade de quadros {ícone, nome} (Ferramentas e Estilos). */
+    private void addTileSection(String title, String[][] tiles, boolean[] on, Runnable[] click) {
         TextView h = Ui.text(this, title, 18, Ui.ACCENT); // títulos principais em laranja
         h.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         // regra do usuário: títulos de seção centralizados
@@ -569,31 +640,87 @@ public final class EditorActivity extends Activity {
         box.setBackground(Ui.rounded(this, TILE_LINE, dp(14)));
         box.setClipToOutline(true);
         int cols = 4;
-        for (int i = 0; i < tools.length; i += cols) {
+        for (int i = 0; i < tiles.length; i += cols) {
             LinearLayout row = Ui.row(this);
             // sem quadrinhos vazios: a última linha, se incompleta, divide a largura entre os itens
-            int inRow = Math.min(cols, tools.length - i);
+            int inRow = Math.min(cols, tiles.length - i);
             for (int c = 0; c < inRow; c++) {
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(84), 1);
                 lp.setMargins(c == 0 ? 0 : dp(1), i == 0 ? 0 : dp(1), 0, 0);
-                String[] t = tools[i + c];
+                final int k = i + c;
                 LinearLayout tile = Ui.column(this);
                 tile.setGravity(Gravity.CENTER);
                 tile.setBackgroundColor(TILE_BG);
-                TextView icon = Ui.text(this, t[1], 24, Ui.TEXT);
+                TextView icon = Ui.text(this, tiles[k][0], 24, on[k] ? Ui.ACCENT : Ui.TEXT);
                 icon.setGravity(Gravity.CENTER);
                 tile.addView(icon);
-                TextView name = Ui.text(this, (toolUsed(t[0]) ? "● " : "") + t[2], 11, Ui.TEXT);
-                if (toolUsed(t[0])) name.setTextColor(Ui.ACCENT);
+                TextView name = Ui.text(this, (on[k] ? "● " : "") + tiles[k][1], 11, on[k] ? Ui.ACCENT : Ui.TEXT);
                 name.setGravity(Gravity.CENTER);
                 name.setPadding(dp(2), dp(6), dp(2), 0);
                 tile.addView(name);
-                tile.setOnClickListener(v -> openTool(t[0]));
+                tile.setOnClickListener(v -> click[k].run());
                 row.addView(tile, lp);
             }
             box.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
         sliders.addView(box, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** Ícone de cada família de estilos na grade. */
+    private static String familyIcon(String f) {
+        switch (f) {
+            case "Leica": return "◉";
+            case "Fuji": return "◈";
+            case "Kodak": return "◆";
+            case "Hasselblad": return "◎";
+            case "Herzog": return "◐";
+            case "Salgado": return "◑";
+            case "Silver": return "◌";
+            default: return "○";
+        }
+    }
+
+    /**
+     * Aba Estilos no mesmo formato das Ferramentas: intensidade no topo, atalhos (Ajuste IA,
+     * Minhas) e uma seção por família com um quadro por estilo (o escolhido fica em laranja).
+     */
+    private void buildStyleGrid() {
+        StyleCatalog.Style cur = StyleCatalog.get(recipe.style);
+        TextView h = Ui.text(this, cur.name, 15, Ui.TEXT);
+        h.setGravity(Gravity.CENTER);
+        h.setPadding(0, dp(4), 0, 0);
+        sliders.addView(h, new LinearLayout.LayoutParams(-1, -2));
+        addSlider("Intensidade", recipe.intensity, 0f, 1f, v -> recipe.intensity = v);
+        addTileSection("Atalhos", new String[][]{{"✦", "Ajuste IA"}, {"☆", "Minhas"}},
+                new boolean[]{false, MINE.equals(family)},
+                new Runnable[]{this::onAiClick, () -> {
+                    family = MINE.equals(family) ? StyleCatalog.FAMILIES[0] : MINE;
+                    buildStyles();
+                    buildSliders();
+                }});
+        if (MINE.equals(family)) attach(stylesScroll, 48); // estilos salvos pelo usuário
+        for (String f : StyleCatalog.FAMILIES) {
+            java.util.List<Integer> idx = new java.util.ArrayList<>();
+            for (int i = 0; i < StyleCatalog.ALL.size(); i++) if (StyleCatalog.ALL.get(i).family.equals(f)) idx.add(i);
+            if (idx.isEmpty()) continue;
+            String[][] tiles = new String[idx.size()][];
+            boolean[] on = new boolean[idx.size()];
+            Runnable[] click = new Runnable[idx.size()];
+            for (int k = 0; k < idx.size(); k++) {
+                final int si = idx.get(k);
+                StyleCatalog.Style s = StyleCatalog.ALL.get(si);
+                tiles[k] = new String[]{familyIcon(f), s.name};
+                on[k] = recipe.style == si;
+                click[k] = () -> {
+                    recipe.style = si;
+                    styleName.setText(s.name);
+                    if (!s.note.isEmpty()) Toast.makeText(this, s.note, Toast.LENGTH_SHORT).show();
+                    buildSliders();
+                    render();
+                };
+            }
+            addTileSection(f, tiles, on, click);
+        }
     }
 
     private void buildGrain() {
@@ -856,6 +983,14 @@ public final class EditorActivity extends Activity {
             return;
         }
         // o toque na foto só age nas ferramentas que usam um ponto (evita ligar algo sem querer)
+        if ("primeiro".equals(tool) && fgLevel > 0) {
+            // níveis de luz: o toque escolhe o sujeito iluminado (rosto, pessoa ou objeto)
+            focusX = nx;
+            focusY = ny;
+            updateMarker();
+            render();
+            return;
+        }
         if (!"desfoque".equals(tool) && !"mascaras".equals(tool)) {
             togglePanel(); // toque na foto recolhe/mostra o painel: foto inteira na tela
             return;
@@ -886,7 +1021,7 @@ public final class EditorActivity extends Activity {
         } else if (target == MaskEngine.RADIAL || target == MaskEngine.LINEAR) {
             MaskEngine.Local m = mask(target);
             image.setMarker(m.cx, m.cy);
-        } else if (portraitOn || target == MaskEngine.SUBJECT || target == MaskEngine.BACKGROUND) {
+        } else if (portraitOn || ("primeiro".equals(tool) && fgLevel > 0) || target == MaskEngine.SUBJECT || target == MaskEngine.BACKGROUND) {
             image.setMarker(focusX, focusY);
         } else {
             image.setMarker(Float.NaN, Float.NaN);
@@ -1219,7 +1354,8 @@ public final class EditorActivity extends Activity {
             focusX = clampF(df.optDouble("x", .5), 0, 1);
             focusY = clampF(df.optDouble("y", .45), 0, 1);
             float v = clampF(df.optDouble("intensidade", .45), 0, 1);
-            aperture = (float) (16.0 * Math.exp(v * Math.log(1.4 / 16.0)));
+            double minimum = blurMode == 0 ? PortraitEngine.MIN_APERTURE : 1.4;
+            aperture = (float) (16.0 * Math.exp(v * Math.log(minimum / 16.0)));
         }
         buildFamilies();
         buildStyles();
@@ -1239,6 +1375,26 @@ public final class EditorActivity extends Activity {
     private PortraitEngine.Depth depth;
     private PortraitEngine.Bokeh layers;
 
+    /** Luz no Primeiro Plano: quanto clarear (0..1) e até onde vai o primeiro plano (0..1). */
+    private float fgAmount = 0, fgReach = .5f, fgBg = 0;
+    /** Nível de iluminação (PortraitLight.NAMES; 0 = Natural, usa os controles manuais). */
+    private int fgLevel = 0;
+    private float[] lightAlpha;
+    private float lightAX = -1, lightAY = -1;
+
+    /** Peso do sujeito para os níveis de luz: recorte tocado (MagicTouch) + plano da profundidade. */
+    private synchronized float[] lightWeights(PortraitEngine.Depth dp, float fx, float fy, int level) {
+        if (Math.abs(fx - lightAX) > 0.002f || Math.abs(fy - lightAY) > 0.002f || lightAlpha == null) {
+            try {
+                lightAlpha = PortraitEngine.subjectAlpha(this, dp, fx, fy);
+            } catch (Throwable e) {
+                lightAlpha = null;
+            }
+            lightAX = fx;
+            lightAY = fy;
+        }
+        return PortraitLight.subjectWeights(dp, dp.focusAt(fx, fy), lightAlpha, PortraitLight.isolates(level));
+    }
     private boolean portraitOn;
     private float aperture = PortraitEngine.DEFAULT_APERTURE;
     private float focusX = 0.5f, focusY = 0.45f;
@@ -1297,6 +1453,7 @@ public final class EditorActivity extends Activity {
             TextView t = Ui.pill(this, modes[m], m == blurMode);
             t.setOnClickListener(v -> {
                 blurMode = mm;
+                if (blurMode == 0) aperture = Math.max(PortraitEngine.MIN_APERTURE, aperture);
                 buildPortraitRow();
                 buildSliders();
                 render();
@@ -1465,6 +1622,8 @@ public final class EditorActivity extends Activity {
         final PortraitEngine.Depth dp = depth;
         final int[] ai = light ? null : aiPixels;
         final float aiK = aiNoise;
+        final float fgA = fgAmount, fgR = fgReach, fgB = fgBg;
+        final int fgL = fgLevel;
         final float tA = tiltAmount, tY = tiltY, tB = tiltBand;
         worker.execute(() -> {
             if (id != renderId.get()) return;
@@ -1474,6 +1633,8 @@ public final class EditorActivity extends Activity {
             }
             if (tA > 0) PortraitEngine.apply(px, w, h, tiltFor(tY, tB, tA));
             else if (portrait) applyBlur(px, w, h, fx, fy, ap, bm);
+            if (fgL > 0 && dp != null) PortraitLight.apply(px, w, h, lightWeights(dp, fx, fy, fgL), dp.w, dp.h, fgL);
+            else if ((fgA > 0 || fgB != 0) && dp != null) ForegroundLight.apply(px, w, h, dp, fgA, fgR, fgB);
             StylePipeline.process(px, r);
             if (!ml.isEmpty()) MaskEngine.apply(px, w, h, ml, dp, dp != null ? dp.focusAt(fx, fy) : 0);
             StylePipeline.processLocal(px, w, h, r);
@@ -1499,8 +1660,10 @@ public final class EditorActivity extends Activity {
         final boolean portrait = portraitOn && depth != null;
         final List<MaskEngine.Local> ml = activeMasks();
         final float aiK = aiNoise;
+        final float fgA = depth != null ? fgAmount : 0, fgR = fgReach, fgB = depth != null ? fgBg : 0;
+        final int fgL = depth != null ? fgLevel : 0;
         final float tA = tiltAmount, tY = tiltY, tB = tiltBand;
-        if (recipe.isIdentity() && !portrait && ml.isEmpty() && aiK <= 0 && tA <= 0) {
+        if (recipe.isIdentity() && !portrait && ml.isEmpty() && aiK <= 0 && tA <= 0 && fgA <= 0 && fgB == 0 && fgL == 0) {
             Toast.makeText(this, "Nenhum ajuste aplicado.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1537,6 +1700,8 @@ public final class EditorActivity extends Activity {
                 }
                 if (tA > 0) PortraitEngine.apply(px, w, h, tiltFor(tY, tB, tA));
                 else if (portrait) applyBlur(px, w, h, fx, fy, ap, bm);
+                if (fgL > 0) PortraitLight.apply(px, w, h, lightWeights(dp, fx, fy, fgL), dp.w, dp.h, fgL);
+                else if (fgA > 0 || fgB != 0) ForegroundLight.apply(px, w, h, dp, fgA, fgR, fgB);
                 StylePipeline.process(px, r);
                 if (!ml.isEmpty()) MaskEngine.apply(px, w, h, ml, dp, dp != null ? dp.focusAt(fx, fy) : 0);
                 StylePipeline.processLocal(px, w, h, r);
@@ -1563,6 +1728,8 @@ public final class EditorActivity extends Activity {
                     sheet.put("retrato_foco", fx + "," + fy);
                     sheet.put("retrato_modelo", "Depth Anything V2 Small (Apache-2.0)");
                 }
+                if (fgL > 0) sheet.put("iluminacao", PortraitLight.NAMES[fgL] + " (sujeito tocado " + fx + "," + fy + "; exposição em luz linear)");
+                else if (fgA > 0 || fgB != 0) sheet.put("primeiro_plano", "clarear " + fgA + " · alcance " + fgR + " · fundo " + fgB + " (exposição em luz linear pela profundidade)");
                 if (r.hue != 0) sheet.put("matiz", r.hue);
                 if (r.hasCurve()) sheet.put("curva", r.toJson().get("curva"));
                 if (r.hasPointCurve()) sheet.put("curva_pontos", r.toJson().get("curva_pontos"));

@@ -351,6 +351,7 @@ public final class StylePipeline {
         }
         grain(px, w, h, st.grain * k);
         if (r.grain > 0) filmGrain(px, w, h, r.grain, FILMS[Math.max(0, Math.min(FILMS.length - 1, r.grainType))]);
+        // As receitas salvas usam valores positivos para escurecer os cantos.
         vignette(px, w, h, r.vignette + st.vignette * k);
     }
 
@@ -455,7 +456,7 @@ public final class StylePipeline {
             mid = PortraitEngine.box(PortraitEngine.box(lum, w, h, rm), w, h, rm);
         }
         final float[] fF = fine, fM = mid;
-        final float tex = r.texture * 1.2f, cla = r.clarity * 0.8f;
+        final float tex = r.texture * 1.2f, cla = r.clarity * 1.05f;
         IntStream.range(0, (n + 65535) / 65536).parallel().forEach(b -> {
             int i0 = b * 65536, i1 = Math.min(n, i0 + 65536);
             for (int i = i0; i < i1; i++) {
@@ -679,7 +680,7 @@ public final class StylePipeline {
                 for (int k = 0; k < 4; k++) {
                     float[] c = hueRgb(r.gradeHue[k]);
                     float y = .299f * c[0] + .587f * c[1] + .114f * c[2];
-                    float s = r.gradeSat[k] * .18f;
+                    float s = r.gradeSat[k] * .23f; // nível Lightroom (EditorStrength2Test: Δab ≥ 12 com saturação 1)
                     tint[k][0] = (c[0] - y) * s;
                     tint[k][1] = (c[1] - y) * s;
                     tint[k][2] = (c[2] - y) * s;
@@ -721,35 +722,58 @@ public final class StylePipeline {
                 green += mixAmt * (gg - green);
                 blue += mixAmt * (bb - blue);
             }
-            if (r.exposure != 0) {
-                red = encode(LINEAR[c255(red)] * exp);
-                green = encode(LINEAR[c255(green)] * exp);
-                blue = encode(LINEAR[c255(blue)] * exp);
+            if (r.exposure != 0 || r.shadows != 0 || r.highlights != 0 || r.whites > 0 || r.blacks < 0) {
+                // LUZ EM EXPOSIÇÃO LINEAR (nível Lightroom, medido no EditorStrengthTest): cada controle
+                // vira um ganho em EV na luz real, com peso pela faixa de brilho — o contraste entre os
+                // tons se mantém (nada acinzenta), o preto puro e o branco puro ficam onde estão.
+                float l = clamp(.2126f * red + .7152f * green + .0722f * blue);
+                float ev = r.exposure * 2.5f;
+                // Sombras: peso zero no preto puro (não acinzenta) e nas luzes
+                if (r.shadows != 0) ev += r.shadows * 1.4f * smooth(0f, .12f, l) * (1 - smooth(.2f, .65f, l));
+                // Realces −: recupera as luzes; o branco puro fica (sem virar cinza)
+                if (r.highlights < 0) ev += r.highlights * 1.0f * smooth(.45f, .8f, l) * (1 - smooth(.93f, 1f, l));
+                if (r.highlights > 0) ev += r.highlights * .9f * smooth(.35f, .75f, l) * (1 - smooth(.9f, 1f, l));
+                if (r.whites > 0) ev += r.whites * 1.0f * smooth(.5f, .95f, l);
+                // Pretos −: aprofunda as sombras perto do preto
+                if (r.blacks < 0) ev += r.blacks * 2.2f * (1 - smooth(.05f, .35f, l));
+                if (ev != 0) {
+                    float lr = LINEAR[c255(red)], lg = LINEAR[c255(green)], lb = LINEAR[c255(blue)];
+                    float y = .2126f * lr + .7152f * lg + .0722f * lb;
+                    float gain = (float) Math.pow(2, ev);
+                    // clarear: ganho com ombro que leva o branco exato a 1 (nada estoura)
+                    float z = ForegroundLight.lift(y, gain);
+                    float k = y > 1e-6f ? z / y : 1f;
+                    float mx = Math.max(lr, Math.max(lg, lb)) * k;
+                    if (mx > 1f) k /= mx; // nenhum canal passa do branco
+                    red = encode(lr * k);
+                    green = encode(lg * k);
+                    blue = encode(lb * k);
+                }
             }
-            float lum = .2126f * red + .7152f * green + .0722f * blue;
-            float lift = r.shadows * (1 - lum) * (1 - lum) * .24f + r.highlights * lum * lum * .24f;
-            if (r.whites != 0 || r.blacks != 0) {
-                float v = clamp(lum), u = 1 - v;
-                // Brancos +: sobe as luzes altas sem mover o branco puro (não estoura); −: recupera
-                lift += r.whites > 0 ? r.whites * .3f * v * v * u : r.whites * .22f * v * v;
-                // Pretos +: abre o preto (efeito filme); −: aprofunda sem esmagar o detalhe
-                lift += r.blacks > 0 ? r.blacks * .10f * u * u * u : r.blacks * .3f * u * u * v;
+            if (r.whites < 0 || r.blacks > 0) {
+                float v = clamp(.2126f * red + .7152f * green + .0722f * blue), u = 1 - v;
+                float lift = 0;
+                // Brancos −: baixa o branco (recupera textura em céu/papel)
+                if (r.whites < 0) lift += r.whites * .22f * v * v;
+                // Pretos +: abre o preto (efeito filme)
+                if (r.blacks > 0) lift += r.blacks * .12f * u * u * u;
+                red += lift;
+                green += lift;
+                blue += lift;
             }
-            red += lift;
-            green += lift;
-            blue += lift;
             if (r.contrast != 0) {
-                float k = 1 + r.contrast * .7f;
-                red = (red - .5f) * k + .5f;
-                green = (green - .5f) * k + .5f;
-                blue = (blue - .5f) * k + .5f;
+                // curva S: inclinação 1+a no meio-tom, pontas 0 e 1 fixas (não corta preto nem branco)
+                float a = r.contrast * .8f;
+                red = sCurve(red, a);
+                green = sCurve(green, a);
+                blue = sCurve(blue, a);
             }
             if (r.temperature != 0) {
-                red *= 1 + r.temperature * .20f;
-                blue *= 1 - r.temperature * .20f;
+                red *= 1 + r.temperature * .30f;
+                blue *= 1 - r.temperature * .30f;
             }
             if (r.saturation != 0) {
-                lum = .2126f * red + .7152f * green + .0722f * blue;
+                float lum = .2126f * red + .7152f * green + .0722f * blue;
                 float s = 1 + r.saturation;
                 red = lum + (red - lum) * s;
                 green = lum + (green - lum) * s;
@@ -762,7 +786,7 @@ public final class StylePipeline {
                 float skin = red >= green && green >= blue && mx - mn > .04f
                         ? 1 - .6f * smooth(.05f, .25f, (green - blue) / Math.max(1e-4f, mx - mn)) * (1 - smooth(.6f, .9f, (green - blue) / Math.max(1e-4f, mx - mn)))
                         : 1f;
-                float k = 1 + r.vibrance * .9f * (1 - sat) * (1 - sat) * (r.vibrance > 0 ? skin : 1);
+                float k = 1 + r.vibrance * 2.5f * (1 - sat) * (1 - sat) * (r.vibrance > 0 ? skin : 1);
                 float y = .2126f * red + .7152f * green + .0722f * blue;
                 red = y + (red - y) * k;
                 green = y + (green - y) * k;
@@ -824,6 +848,12 @@ public final class StylePipeline {
             }
             return (c & 0xFF000000) | (c255(red) << 16) | (c255(green) << 8) | c255(blue);
         }
+    }
+
+    /** Curva S de contraste: x + a·(x − ½)·(1 − |2x − 1|); monotônica para |a| < 1, pontas fixas. */
+    static float sCurve(float x, float a) {
+        float c = clamp(x);
+        return c + a * (c - .5f) * (1 - Math.abs(2 * c - 1));
     }
 
     /** Faixas do HSL: centro de matiz (graus) e nome. */
@@ -919,10 +949,10 @@ public final class StylePipeline {
         float[] xs = {0f, .1f, .3f, .5f, .7f, .9f, 1f};
         float[] ys = {
                 Math.max(0, v[0]) * .12f,
-                .1f + v[0] * .06f,
-                .3f + v[1] * .10f,
-                .5f + v[2] * .10f,
-                .7f + v[3] * .10f,
+                .1f + v[0] * .11f,
+                .3f + v[1] * .14f,
+                .5f + v[2] * .14f,
+                .7f + v[3] * .14f,
                 .9f + v[4] * .06f,
                 1f - Math.max(0, -v[4]) * .12f};
         for (int i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i], ys[i - 1] + .002f);
