@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.3** (versionCode 67),
-APK: `The_Natural_Cam_1.29.3_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.0** (versionCode 68),
+APK: `The_Natural_Cam_1.30.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -382,3 +382,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   Aparelho: Foto 3,5× perto, centro achado (0,528; 0,490) erro 0,05 — prévia e foto com o frasco na
   mesma posição e tamanho. Nitidez do recorte ampliado 0,9 → 1,15 (pedido do usuário; anti-halo
   mantido). JPEG 97 também no caminho Bitmap (a fusão já salvava a 97); 12 MP, ~2,2 MB.
+
+## Feito na 1.30.0 (2026-11-10) — todos os ajustes com efeito real (nível Lightroom)
+- EditorStrengthTest: cada controle no máximo medido contra alvos de Lightroom ±100. ANTES: 14 de
+  26 fora (Exposição ±1 EV e estourava; Sombras +1 levava o preto 5→64 = acinzentava; Realces −1
+  levava o branco 252→192; Contraste cortava pontas 15→0/240→255; Brancos/Pretos/Temperatura/
+  Vibração/Claridade/Curva fracos; Vinheta com sinal invertido). DEPOIS: 26/26 OK.
+- Luz do editor refeita em EXPOSIÇÃO LINEAR com pesos por faixa (StylePipeline.Prepared.apply):
+  Exposição ±2,5 EV com ombro; Sombras +1 = +1,3 EV com preto 5→5; Realces −1 = −1 EV com branco
+  252→246; Brancos +1 200→235; Pretos −1 40→20; Contraste em curva S (×1,59, pontas 15→4, 240→251);
+  Temperatura b* +26; Vibração ×1,35; Claridade ×1,64; Curva ±30 níveis; Vinheta − escurece (−2,15 EV).
+- ForegroundLight.lift: ombro novo (joelho em 50 %, inclinação contínua, branco → 1 exato; o
+  antigo passava de 1 com ganho grande). Primeiro Plano/Iluminação seguem passando.
+- Aparelho: Sombras +0,85 no editor — sombra da mesa 41,8→61,7, preto 3,4→3,4.
+- FALTA medir: HSL, Color Grading, Difusão, Granulado, Ruído, Máscaras.

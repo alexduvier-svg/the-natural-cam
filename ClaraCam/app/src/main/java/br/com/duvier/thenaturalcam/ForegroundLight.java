@@ -106,13 +106,21 @@ final class ForegroundLight {
 
     /**
      * Ganho de exposição em luz linear com PÉ (pretos profundos < ~1 % recebem só parte do ganho:
-     * preto continua preto) e OMBRO que preserva o branco exato: z = y·G / (1 + (G−1)·y²).
+     * preto continua preto) e OMBRO: até 50 % da luz o ganho é exato; acima, a faixa [0,5; G] é
+     * comprimida em [0,5; 1] com inclinação contínua — monotônica, o branco (y = 1) vai a 1 exato e
+     * nada passa do branco (a versão anterior, y·G/(1+(G−1)y²), passava de 1 com ganho grande).
      */
     static float lift(float yl, float gain) {
         if (gain <= 1f) return yl * gain;
         float toe = yl / (yl + 0.004f);
         float g = 1 + (gain - 1) * toe;
-        return yl * g / (1 + (g - 1) * yl * yl);
+        float x = yl * g;
+        final float k = 0.5f;
+        if (x <= k || g <= 1.0001f) return Math.min(x, 1f);
+        float top = g; // onde o branco (y = 1) cairia com este ganho
+        float t = Math.min(1f, (x - k) / (top - k));
+        float p = (top - k) / (1 - k); // inclinação 1 no joelho (sem degrau)
+        return k + (1 - k) * (1 - (float) Math.pow(1 - t, p));
     }
 
     /**
