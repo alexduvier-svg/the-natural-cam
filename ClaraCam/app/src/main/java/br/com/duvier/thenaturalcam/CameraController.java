@@ -309,6 +309,9 @@ final class CameraController {
         final java.util.concurrent.atomic.AtomicInteger longPending = new java.util.concurrent.atomic.AtomicInteger();
         /** Noite: fusão incremental (cada quadro somado ao chegar; memória constante, até 15 quadros). */
         BurstFusion.Stream stream;
+        /** Claridade da tela: histograma do quadro com exposição automática do sistema (pedido antes da rajada). */
+        boolean wantToneRef, toneRefSeen;
+        int[] toneRefHist;
         int streamSeen, streamQueued, streamSkipped;
         TotalCaptureResult result;
         boolean done;
@@ -1818,6 +1821,19 @@ final class CameraController {
                     j.sheet.put("fusao_iso", nightIso);
                 }
             }
+            final CaptureRequest refRequest;
+            if (nightExp > 0 && mode != Mode.LONGA && mode != Mode.RUA) {
+                // 1 quadro com a exposição automática do sistema (com o realce de sombras da tela):
+                // serve só de régua de claridade para a curva de tons depois da fusão
+                CaptureRequest.Builder rb = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                rb.addTarget(yuvReader.getSurface());
+                applyCommon(rb, true, false);
+                if (j.srCrop > 1f) rb.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1f);
+                j.wantToneRef = true;
+                refRequest = rb.build();
+            } else {
+                refRequest = null;
+            }
             List<CaptureRequest> list = new ArrayList<>();
             for (int i = 0; i < burstTarget; i++) {
                 CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
@@ -1846,6 +1862,7 @@ final class CameraController {
                 }
                 list.add(b.build());
             }
+            if (refRequest != null) list.add(0, refRequest);
             busy(mode == Mode.NOITE ? "Noite: segure firme…" : mode == Mode.LONGA ? "Longa exposição: " + longSeconds + " s — apoie o celular…"
                     : mode == Mode.RUA ? "Rua…" : "Segure firme…", 0f);
             session.captureBurst(list, new CameraCaptureSession.CaptureCallback() {
@@ -1904,6 +1921,13 @@ final class CameraController {
                 }
                 busy((mode == Mode.ASTRO ? "Astro" : "Longa exposição") + ": quadro " + k + "/" + burstTarget, 0.8f * k / burstTarget);
                 if (k >= burstTarget) finishLong(j);
+                return;
+            }
+            if (j.wantToneRef && !j.toneRefSeen) {
+                // 1º quadro da rajada = régua de claridade (exposição automática do sistema): não entra na fusão
+                j.toneRefSeen = true;
+                YuvFrame rf = copy(img);
+                j.toneRefHist = ToneMatch.histogram(rf, j.srCrop);
                 return;
             }
             if (j.stream != null) {
@@ -2193,6 +2217,17 @@ final class CameraController {
                         busy("Limpando sombras…", 0.935f);
                         float part = BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
                         j.sheet.put("limpeza_sombras", "forte em áreas escuras/lisas · " + Math.round(part * 100) + "% da imagem");
+                    }
+                }
+                if (j.toneRefHist != null) {
+                    // claridade igual à da tela (régua: quadro com a exposição automática do sistema)
+                    int[] outHist = ToneMatch.histogram(finalFrame, 1f);
+                    int[] lut = ToneMatch.curve(j.toneRefHist, outHist);
+                    if (lut != null) {
+                        ToneMatch.apply(finalFrame, lut);
+                        j.sheet.put("claridade_da_tela", String.format(java.util.Locale.ROOT, "curva de tons %+.2f EV no meio-tom (régua: quadro automático do sistema)", ToneMatch.midGainEv(lut)));
+                    } else {
+                        j.sheet.put("claridade_da_tela", "igual à régua (sem curva)");
                     }
                 }
                 if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {

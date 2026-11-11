@@ -321,3 +321,16 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   NÃO VERIFICADO no aparelho: se o ganho for 100, a causa é outra (curva de tom da captura do ISP).
 - Referência do usuário: app nativo do Reno ilumina e foca, mas "inventa detalhe e parece pintura"
   — queremos a claridade e o foco SEM isso.
+- (1.27.0, continuação) Hipótese do ganho pós-RAW DESCARTADA no aparelho (ganho = 100). Causa real:
+  com ISO/tempo fixos o sistema desliga o realce de sombras da prévia. Correção ToneMatch: 1 quadro
+  com exposição automática do sistema antes da rajada (régua) + curva de tons por percentis
+  (±1 EV, monotônica, só no Y). Aparelho: tela×foto 0,34 EV → 0,02 EV (mesa 0,40→0,09).
+- Primeiro Plano refeito em EXPOSIÇÃO DE LUZ LINEAR (nível Lightroom, sem acinzentar): pé (preto
+  fica preto), ombro que preserva o branco exato; Clarear 1 = +2,5 EV; Alcance até 92 % da cena;
+  Fundo −1..1 (−4 EV … +1,5 EV); atalhos Rebatedor e Modo Palco. Aparelho: mesa +0,54 EV com 0,5
+  (versão antiga), fundo inalterado.
+- Editor: aba Estilos em grade igual às Ferramentas (seção por família, títulos laranja); voltar
+  "‹" quando o nome da ferramenta é longo; pílulas Estilos/Ferramentas com respiro da borda.
+- PRÓXIMO (pedido do usuário): níveis de iluminação estilo "Iluminação de Retrato" do iPhone
+  (Natural, Estúdio, Contorno, Palco, Palco Mono, Clave Alta Mono) para pessoas e objetos, nos
+  modos Noite, Foto e Retrato (na câmera, como cópia separada) e no editor.
