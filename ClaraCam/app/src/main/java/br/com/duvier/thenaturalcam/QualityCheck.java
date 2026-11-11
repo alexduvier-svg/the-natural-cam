@@ -25,6 +25,7 @@ public final class QualityCheck {
         public boolean measurable;
         public int measuredRegions;
         public int rejectedRegions;
+        long rejectedRegionMask;
         public double weakestRegionContrast = Double.NaN;
         public String reason = "ok";
     }
@@ -114,7 +115,8 @@ public final class QualityCheck {
         r.edgePixels = count;
         // Uma borda forte em outro ponto pode esconder a perda de letras na média global.
         double referenceNoise = 4 * noise * noise, outputNoise = 4 * noiseFused * noiseFused;
-        for (Region region : regions) {
+        for (int i = 0; i < regions.length; i++) {
+            Region region = regions[i];
             if (region.edges < MIN_REGION_EDGES) continue;
             double refSignal = region.referenceEnergy / region.edges - referenceNoise;
             if (refSignal < Math.max(100, 45 * noise * noise)) continue;
@@ -124,7 +126,10 @@ public final class QualityCheck {
                     ? region.agreement / Math.sqrt(region.referenceEnergy * region.outputEnergy) : 0;
             if (r.measuredRegions == 0 || contrast < r.weakestRegionContrast) r.weakestRegionContrast = contrast;
             r.measuredRegions++;
-            if (contrast < 0.74 || correlation < 0.83) r.rejectedRegions++;
+            if (contrast < 0.74 || correlation < 0.83) {
+                r.rejectedRegions++;
+                r.rejectedRegionMask |= 1L << i;
+            }
         }
         if (count < MIN_EDGES && r.measuredRegions == 0) {
             r.reason = "cena sem bordas suficientes para medir";
@@ -150,6 +155,77 @@ public final class QualityCheck {
             r.reason = "bordas duplicadas ou fantasma (movimento entre quadros)";
         }
         return r;
+    }
+
+    /** Keeps a reliable merge outside the regions whose edges need the reference frame. */
+    static YuvFrame repairLocalFailures(YuvFrame reference, YuvFrame merged, Report report, double referenceNoise) {
+        if (reference.width != merged.width || reference.height != merged.height
+                || report.rejectedRegions == 0 || report.rejectedRegions * 2 > report.measuredRegions
+                || report.detailRatio < MIN_DETAIL || report.edgeCorrelation < MIN_CORRELATION) return null;
+        YuvFrame repaired = copy(merged);
+        YuvFrame structure = structureMask(reference, merged, referenceNoise);
+        int margin = Math.max(12, Math.min(reference.width, reference.height) / 96);
+        long regions = report.rejectedRegionMask;
+        while (regions != 0) {
+            int index = Long.numberOfTrailingZeros(regions);
+            int col = index % REGION_COLS, row = index / REGION_COLS;
+            restoreRegion(reference.y, repaired.y, reference.width, reference.height, col, row, margin, structure);
+            restoreRegion(reference.u, repaired.u, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, structure);
+            restoreRegion(reference.v, repaired.v, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, structure);
+            regions &= regions - 1;
+        }
+        return repaired;
+    }
+
+    /** Keep the merged pixels in flat material, including inside a region that contains a bad edge. */
+    private static YuvFrame structureMask(YuvFrame reference, YuvFrame merged, double noise) {
+        int scale = Math.max(2, Math.min(4, (int) Math.ceil(noise / 2.5)));
+        int width = Math.max(1, reference.width / scale), height = Math.max(1, reference.height / scale);
+        YuvFrame original = downTo(reference, width, height);
+        YuvFrame fused = downTo(merged, width, height);
+        YuvFrame mask = new YuvFrame(width, height);
+        float flatRange = (float) Math.max(4, 3.6 * noise / scale);
+        float transition = Math.max(3f, flatRange * .55f);
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            int minA = 255, maxA = 0, minB = 255, maxB = 0;
+            for (int yy = Math.max(0, y - 1); yy <= Math.min(height - 1, y + 1); yy++) {
+                for (int xx = Math.max(0, x - 1); xx <= Math.min(width - 1, x + 1); xx++) {
+                    int a = original.luma(xx, yy), b = fused.luma(xx, yy);
+                    minA = Math.min(minA, a);
+                    maxA = Math.max(maxA, a);
+                    minB = Math.min(minB, b);
+                    maxB = Math.max(maxB, b);
+                }
+            }
+            int range = Math.max(maxA - minA, maxB - minB);
+            float weight = Math.max(0, Math.min(1, (range - flatRange) / transition));
+            mask.y[y * width + x] = (byte) Math.round(255 * weight * weight * (3 - 2 * weight));
+        }
+        return mask;
+    }
+
+    private static void restoreRegion(byte[] reference, byte[] output, int width, int height,
+                                      int col, int row, int margin, YuvFrame structure) {
+        int left = Math.max(0, col * width / REGION_COLS - margin);
+        int right = Math.min(width, ((col + 1) * width + REGION_COLS - 1) / REGION_COLS + margin);
+        int top = Math.max(0, row * height / REGION_ROWS - margin);
+        int bottom = Math.min(height, ((row + 1) * height + REGION_ROWS - 1) / REGION_ROWS + margin);
+        int feather = 2 * margin;
+        int startX = Math.max(0, left - feather), endX = Math.min(width, right + feather);
+        int startY = Math.max(0, top - feather), endY = Math.min(height, bottom + feather);
+        float sx = structure.width / (float) width, sy = structure.height / (float) height;
+        for (int y = startY; y < endY; y++) {
+            int dy = Math.max(0, Math.max(top - y, y - bottom + 1));
+            for (int x = startX; x < endX; x++) {
+                int dx = Math.max(0, Math.max(left - x, x - right + 1));
+                float t = Math.max(dx, dy) / (float) feather;
+                float edge = (float) sample(structure, (x + .5f) * sx - .5f, (y + .5f) * sy - .5f) / 255f;
+                float weight = edge * (1 - t * t * (3 - 2 * t));
+                int i = y * width + x;
+                int current = output[i] & 255;
+                output[i] = (byte) Math.round(current + ((reference[i] & 255) - current) * weight);
+            }
+        }
     }
 
     /** Redução por média de área (só o brilho, que é o que se compara). */

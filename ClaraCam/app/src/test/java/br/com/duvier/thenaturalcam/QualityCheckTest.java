@@ -90,6 +90,37 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void restauraTextoLocalSemDescartarFusaoForaDaRegiao() {
+        YuvFrame reference = label(960, 720, 83, 0);
+        YuvFrame merged = label(960, 720, 84, 0);
+        for (int y = 240; y < 264; y++) for (int x = 480; x < 600; x++) {
+            reference.y[y * reference.width + x] = (byte) (x % 2 == 0 ? 166 : 174);
+        }
+        for (int y = 240; y < 360; y++) {
+            java.util.Arrays.fill(merged.y, y * merged.width + 480, y * merged.width + 600, (byte) 170);
+        }
+        java.util.Arrays.fill(merged.u, (byte) 132);
+        BurstFusion.Result result = new BurstFusion.Result();
+        result.framesIn = 8;
+        result.referenceFrame = reference;
+        result.frame = merged;
+        result.noiseBefore = 3;
+        result.noiseAfter = 2;
+        BurstFusion.VerifiedOutput selected = result.verifyOutput();
+        assertFalse(selected.primary.passed);
+        assertFalse(selected.referenceOnly);
+        assertTrue(selected.restoredRegions > 0);
+        assertEquals(reference.luma(525, 301), selected.frame.luma(525, 301));
+        assertEquals(merged.luma(300, 540), selected.frame.luma(300, 540));
+        assertEquals(128, selected.frame.u[150 * merged.chromaWidth + 262] & 255);
+        assertEquals(132, selected.frame.u[270 * merged.chromaWidth + 150] & 255);
+        // The wall occupies the same rejected cell as the letters and keeps its clean merge.
+        assertEquals(170, selected.frame.luma(540, 252));
+        assertEquals(132, selected.frame.u[126 * merged.chromaWidth + 270] & 255);
+        assertEquals(170, merged.luma(525, 301));
+    }
+
+    @Test
     public void fusaoDescartaQuadrosDesfocadosEPassaNoVerificador() {
         // foco "caçando": 2 de 6 quadros desfocados não podem borrar a foto
         java.util.List<YuvFrame> frames = new java.util.ArrayList<>();

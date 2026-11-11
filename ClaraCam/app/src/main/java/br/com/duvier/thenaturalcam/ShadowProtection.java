@@ -21,6 +21,11 @@ final class ShadowProtection {
     }
 
     static void restrict(YuvFrame original, YuvFrame cleaned, ShadowProtection face) {
+        restrict(original, cleaned, face, 0f);
+    }
+
+    /** Allows a light correction of color speckles outside the shadows when using one frame. */
+    static void restrict(YuvFrame original, YuvFrame cleaned, ShadowProtection face, float chromaFloor) {
         int width = original.width, height = original.height, cw = original.chromaWidth;
         IntStream.range(0, original.chromaHeight).parallel().forEach(cy -> {
             for (int cx = 0; cx < cw; cx++) {
@@ -28,10 +33,11 @@ final class ShadowProtection {
                 for (int dy = 0; dy < 2 && 2 * cy + dy < height; dy++) for (int dx = 0; dx < 2 && 2 * cx + dx < width; dx++) {
                     int x = 2 * cx + dx, y = 2 * cy + dy, i = y * width + x;
                     int value = original.y[i] & 255;
-                    float weight = BurstFusion.shadowWeight(value);
-                    if (face != null && weight > 0) weight *= face.allows((x + .5f) / width, (y + .5f) / height);
-                    cleaned.y[i] = mix(original.y[i], cleaned.y[i], weight);
-                    colorWeight = Math.min(colorWeight, weight);
+                    float shadow = BurstFusion.shadowWeight(value);
+                    float allowed = face == null || shadow == 0f && chromaFloor == 0f
+                            ? 1f : face.allows((x + .5f) / width, (y + .5f) / height);
+                    cleaned.y[i] = mix(original.y[i], cleaned.y[i], shadow * allowed);
+                    colorWeight = Math.min(colorWeight, (chromaFloor + (1 - chromaFloor) * shadow) * allowed);
                 }
                 int i = cy * cw + cx;
                 cleaned.u[i] = mix(original.u[i], cleaned.u[i], colorWeight);

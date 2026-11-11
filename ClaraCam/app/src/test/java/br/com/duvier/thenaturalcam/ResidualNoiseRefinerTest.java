@@ -100,6 +100,24 @@ public class ResidualNoiseRefinerTest {
         assertEquals(reference.v[face], output.v[face]);
     }
 
+    @Test public void singleFrameColorCleanupOutsideShadowsKeepsLuminanceAndFace() {
+        YuvFrame reference = new YuvFrame(80, 64);
+        Arrays.fill(reference.y, (byte) 158);
+        Arrays.fill(reference.u, (byte) 145);
+        Arrays.fill(reference.v, (byte) 112);
+        YuvFrame filtered = QualityCheck.copy(reference);
+        Arrays.fill(filtered.y, (byte) 155);
+        Arrays.fill(filtered.u, (byte) 128);
+        Arrays.fill(filtered.v, (byte) 128);
+        ShadowProtection.restrict(reference, filtered, new ShadowProtection(.5f, .5f, .18f, .22f), .35f);
+        assertArrayEquals(reference.y, filtered.y);
+        assertEquals(139, filtered.u[0] & 255);
+        assertEquals(118, filtered.v[0] & 255);
+        int face = 16 * reference.chromaWidth + 20;
+        assertEquals(reference.u[face], filtered.u[face]);
+        assertEquals(reference.v[face], filtered.v[face]);
+    }
+
     @Test public void reducesCoarseColorMottlingWithoutChangingMeanColorOrBrightness() {
         YuvFrame f=new YuvFrame(640,480);Arrays.fill(f.y,(byte)76);
         Random random=new Random(2702);int cw=f.chromaWidth,ch=f.chromaHeight;

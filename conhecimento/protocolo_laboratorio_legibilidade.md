@@ -54,6 +54,25 @@ Na 1.27.6, a fusão usa a grade disponível quando o ISP já entregou o recorte 
 
 No teste de 6× da 1.27.6, o toque conservou 1/60 s, ISO 7664 e EV 0 na prévia. A luminância média do trecho amostrado do tecido variou menos de um nível em 255. A ficha confirmou o foco em 491 ms e mostrou uma região de AF separada da medição AE. A foto na tele direta teve 7.139.364 bytes em 4096 × 3074, com 0,48 s até o primeiro quadro, 1,32 s até o último e 17,05 s até o JPEG. A super-resolução levou 6,26 s e foi descartada por duas regiões reprovadas. A versão publicada preservou o bordado, com granulação ainda visível no tecido e na sombra.
 
+O JPEG anterior em 6× com menos grão usou a fusão na grade de captura e teve 4,32 MB. A captura mais granulada precisou usar um quadro de referência apesar de receber 12. A 1.27.7 tenta manter a fusão quando a falha está localizada. Repõe as regiões reprovadas do quadro de referência com transição gradual e mede novamente o resultado inteiro. Se a perda for disseminada, conserva o quadro de referência e pode aplicar uma correção cromática leve também nos meios-tons, protegendo o rosto detectado. A limpeza forte de luminância continua restrita às sombras.
+
+Na 1.27.7, a tele direta aprovou a fusão em 6× e 8×, com JPEGs de 3,37 MB em 18,72 s e 3,31 MB em 13,20 s. O disparo de 10× mais instável teve deslocamento estimado de 150 pixels, voltou ao quadro único e manteve grão visível. A repetição teve deslocamento de 10 pixels e recuperou uma região a partir da referência, em 8,46 s e 3,64 MB. O bordado e a aba ganharam definição, com uma diferença visível de grão perto da caixa no fundo.
+
+Na 1.27.8, a recuperação do quadro de referência usa um mapa de estrutura para atuar perto das bordas reprovadas. As superfícies lisas da mesma região aproveitam a fusão quando o verificador confirma a imagem composta. Em Foto com Máx detalhe, pouca luz e a tele direta estável em 10×, a rajada pode passar de 12 para 16 quadros. O app copia da entrada YUV só o recorte necessário à captura, com as mesmas coordenadas e alinhamento dos canais do recorte anterior. O plano de 8× mantém os 12 quadros nas condições do ensaio.
+
+De 3,5× a 7×, a otimização do recorte e das coordenadas de super-resolução mantém o plano de quadros e o método de reconstrução. Em três execuções no PC com 12 quadros derivados do JPEG de 6× e saída 4096 × 3074, a etapa de super-resolução passou de 0,92–1,26 s para 0,45–0,85 s. Os três planos YUV coincidiram byte a byte. Esses tempos medem a etapa isolada no PC.
+
+### JPEGs conferidos no Reno com a 1.27.8
+
+| Focal | Quadros recebidos | Disparo até JPEG | Arquivo | Resultado da fusão |
+|---|---:|---:|---:|---|
+| 3,5× | 12 | 16,08 s | 6,15 MB | Fusão com recuperação de bordas em três regiões. Bordado legível, com manchas localizadas de grão nas sombras. |
+| 6× | 12 | 16,65 s | 3,33 MB | Super-resolução aprovada. Trama, costura e bordado visíveis. |
+| 7× | 12 | 8,17 s | 3,74 MB | Fusão na grade de captura aprovada. |
+| 10× | 16 | 7,13 s | 3,42 MB | Fusão dos 16 quadros na grade de captura aprovada. Costura definida e sem a área retangular de grão do teste anterior. |
+
+São capturas individuais em Máx detalhe com a tele direta. No disparo de 6×, a etapa de super-resolução levou 3,80 s, ante 6,23 s na foto da mesma cena da 1.27.7, com pequenas diferenças de luz e posição. A amostra nova confirmou foco ao toque em 467 ms, com AF e AE registrados em regiões separadas. Em 10×, o primeiro quadro chegou em 0,46 s e o último em 1,57 s. O arquivo de 4096 × 3070 saiu a partir da fusão na grade do recorte e da ampliação de entrega. Permanece grão fino na sombra. A meta de aproximadamente 10 s segue pendente em 3,5× e 6× em Máx detalhe. Retomar pelo grão localizado após recuperação de bordas em 3,5× e pela medição repetida de acabamento por região. Retratos humanos e o tempo completo dos demais modos requerem validação física.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

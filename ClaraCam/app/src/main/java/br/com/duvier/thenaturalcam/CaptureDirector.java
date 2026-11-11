@@ -161,7 +161,10 @@ public final class CaptureDirector {
         } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff && (s.nativeGridSafe || s.lensCrop < 1.3f)) {
             p.srScale = 1.5f;
         }
-        p.frames = Math.max(1, Math.min(12, frames));
+        // At 10×, a steady dark scene can benefit from more samples of the direct tele crop.
+        boolean longerTeleBurst = s.kind == Kind.FOTO && s.maxPolicy && s.tele && !s.face && s.zoom >= 9.95f
+                && p.srCrop >= 2f && light == 3 && s.shakeRadS >= 0 && s.shakeRadS < .03f;
+        p.frames = longerTeleBurst ? 16 : Math.max(1, Math.min(12, frames));
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
             p.srScale = 1f;
             p.srCrop = 1f;

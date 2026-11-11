@@ -53,14 +53,24 @@ public final class BurstFusion {
             QualityCheck.Report primary = QualityCheck.compare(referenceFrame, frame, noiseBefore,
                     noiseAfter / Math.max(1f, scale));
             if (primary.passed || framesIn <= 1) {
-                return new VerifiedOutput(frame, scale, primary, null, false);
+                return new VerifiedOutput(frame, scale, primary, null, false, 0, noiseAfter);
             }
             QualityCheck.Report standard = standardFrame == null ? null
                     : QualityCheck.compare(referenceFrame, standardFrame, noiseBefore, noiseAfter);
             if (standard != null && standard.passed) {
-                return new VerifiedOutput(standardFrame, 1f, primary, standard, false);
+                return new VerifiedOutput(standardFrame, 1f, primary, standard, false, 0, noiseAfter);
             }
-            return new VerifiedOutput(referenceFrame, 1f, primary, standard, true);
+            YuvFrame nativeMerge = standardFrame != null ? standardFrame : frame;
+            QualityCheck.Report nativeCheck = standard != null ? standard : primary;
+            YuvFrame repaired = QualityCheck.repairLocalFailures(referenceFrame, nativeMerge, nativeCheck, noiseBefore);
+            if (repaired != null) {
+                double repairedNoise = noiseModel(repaired)[8];
+                QualityCheck.Report repairedCheck = QualityCheck.compare(referenceFrame, repaired, noiseBefore, repairedNoise);
+                if (repairedCheck.passed) {
+                    return new VerifiedOutput(repaired, 1f, primary, standard, false, nativeCheck.rejectedRegions, repairedNoise);
+                }
+            }
+            return new VerifiedOutput(referenceFrame, 1f, primary, standard, true, 0, noiseBefore);
         }
     }
 
@@ -69,14 +79,18 @@ public final class BurstFusion {
         final float scale;
         final QualityCheck.Report primary, standard;
         final boolean referenceOnly;
+        final int restoredRegions;
+        final double noise;
 
         VerifiedOutput(YuvFrame frame, float scale, QualityCheck.Report primary,
-                       QualityCheck.Report standard, boolean referenceOnly) {
+                       QualityCheck.Report standard, boolean referenceOnly, int restoredRegions, double noise) {
             this.frame = frame;
             this.scale = scale;
             this.primary = primary;
             this.standard = standard;
             this.referenceOnly = referenceOnly;
+            this.restoredRegions = restoredRegions;
+            this.noise = noise;
         }
     }
 
@@ -143,7 +157,6 @@ public final class BurstFusion {
                                          double noiseAfterForSamplingCheck) {
         final int w = guide.width, h = guide.height, n = frames.size();
         final int W = Math.round(w * scale) & ~1, H = Math.round(h * scale) & ~1;
-        final float sx = (float) w / W, sy = (float) h / H;
 
         // deslocamento fracionário por bloco (parábola sobre a diferença em ±1 px)
         final float[][] fx = new float[n][], fy = new float[n][];
@@ -181,59 +194,12 @@ public final class BurstFusion {
         final int[][] robust = weightLut(wide);
         final byte[][] ys = new byte[n][];
         for (int i = 0; i < n; i++) ys[i] = frames.get(i).y;
-        final byte[] gy = guide.y;
 
         YuvFrame hr = new YuvFrame(W, H);
         hr.iso = guide.iso;
         hr.exposureNs = guide.exposureNs;
         hr.timestampNs = guide.timestampNs;
-        final byte[] hy = hr.y;
-        if (!SuperResolutionGrid.render(guide, hr, ys, fx, fy, tilesX, tilesY, gauss, srCut, robust))
-            IntStream.range(0, (H + BAND - 1) / BAND).parallel().forEach(b -> {
-            int Y0 = b * BAND, Y1 = Math.min(H, Y0 + BAND);
-            for (int Y = Y0; Y < Y1; Y++) {
-                float yr = (Y + 0.5f) * sy - 0.5f;
-                int ty = Math.max(0, Math.min(tilesY - 1, (int) (yr / TILE)));
-                int gy0 = Math.max(0, Math.min(h - 2, (int) yr));
-                float gfy = Math.max(0, Math.min(1, yr - gy0));
-                for (int X = 0; X < W; X++) {
-                    float xr = (X + 0.5f) * sx - 0.5f;
-                    int tile = ty * tilesX + Math.max(0, Math.min(tilesX - 1, (int) (xr / TILE)));
-                    int gx0 = Math.max(0, Math.min(w - 2, (int) xr));
-                    float gfx = Math.max(0, Math.min(1, xr - gx0));
-                    int go = gy0 * w + gx0;
-                    float g = ((gy[go] & 0xFF) * (1 - gfx) + (gy[go + 1] & 0xFF) * gfx) * (1 - gfy)
-                            + ((gy[go + w] & 0xFF) * (1 - gfx) + (gy[go + w + 1] & 0xFF) * gfx) * gfy;
-                    int gi = Math.round(g);
-                    int[] rl = robust[Math.min(255, gi) >> 4];
-                    float acc = 0, ws = 0;
-                    for (int i = 0; i < n; i++) {
-                        float ax = xr + (i == ref ? 0 : fx[i][tile]);
-                        float ay = yr + (i == ref ? 0 : fy[i][tile]);
-                        int x0 = (int) Math.floor(ax), y0 = (int) Math.floor(ay);
-                        byte[] src = ys[i];
-                        for (int dy = 0; dy <= 1; dy++) {
-                            int py = y0 + dy;
-                            if (py < 0 || py >= h) continue;
-                            float ddy = py - ay;
-                            for (int dx = 0; dx <= 1; dx++) {
-                                int px = x0 + dx;
-                                if (px < 0 || px >= w) continue;
-                                float ddx = px - ax;
-                                int k = (int) ((ddx * ddx + ddy * ddy) * (256f / 2.5f));
-                                if (k > srCut) continue; // amostras distantes pesam < 1 %: puladas (mais rápido)
-                                int v = src[py * w + px] & 0xFF;
-                                int diff = v - gi;
-                                float wt = gauss[k] * rl[diff < 0 ? -diff : diff];
-                                acc += wt * v;
-                                ws += wt;
-                            }
-                        }
-                    }
-                    hy[Y * W + X] = (byte) clamp(Math.round(ws > 1e-3f ? acc / ws : g), 0, 255);
-                }
-            }
-        });
+        SuperResolutionGrid.render(guide, hr, ys, fx, fy, tilesX, tilesY, gauss, srCut, robust);
         // croma ampliado (bilinear) da imagem combinada
         final int cw = guide.chromaWidth, ch = guide.chromaHeight, CW = hr.chromaWidth, CH = hr.chromaHeight;
         IntStream.range(0, CH).parallel().forEach(Y -> {

@@ -132,6 +132,47 @@ public class CaptureQualityRegressionTest {
         assertEquals(baseline.srCrop,observed.srCrop,0);
     }
 
+    @Test public void directTeleAtTenCanSpendMoreFramesOnAStableDarkScene() {
+        CaptureDirector.Scene scene = new CaptureDirector.Scene();
+        scene.tele = true; scene.maxPolicy = true; scene.iso = 5200; scene.shakeRadS = .006f;
+        for (float zoom : new float[]{3.5f, 6f, 7f, 8f, 10f}) {
+            scene.zoom = zoom;
+            scene.lensCrop = zoom / 3.5f;
+            assertEquals(zoom == 10f ? 16 : 12, CaptureDirector.decidePublished(scene).frames);
+        }
+        scene.shakeRadS = .05f;
+        assertEquals(12, CaptureDirector.decidePublished(scene).frames);
+        scene.shakeRadS = .006f;
+        scene.face = true;
+        assertEquals(12, CaptureDirector.decidePublished(scene).frames);
+        scene.face = false;
+        scene.nativeGridSafe = false;
+        assertEquals(12, CaptureDirector.decidePublished(scene).frames);
+    }
+
+    @Test public void croppedPlaneCopyMatchesCroppingTheFullPlane() {
+        int fullWidth = 128, fullHeight = 96;
+        int width = YuvFrame.centerCropSize(fullWidth, 1.75f);
+        int height = YuvFrame.centerCropSize(fullHeight, 1.75f);
+        int left = YuvFrame.centerCropOffset(fullWidth, width);
+        int top = YuvFrame.centerCropOffset(fullHeight, height);
+        for (int stride : new int[]{1, 2}) {
+            int rowStride = fullWidth * stride + 6;
+            java.nio.ByteBuffer plane = java.nio.ByteBuffer.allocate(rowStride * fullHeight);
+            for (int y = 0; y < fullHeight; y++) for (int x = 0; x < fullWidth; x++) {
+                plane.put(y * rowStride + x * stride, (byte) (x + 3 * y));
+            }
+            byte[] full = new byte[fullWidth * fullHeight], cropped = new byte[width * height];
+            YuvFrame.copyPlane(plane, rowStride, stride, full, fullWidth, fullHeight, 0, 0);
+            YuvFrame.copyPlane(plane, rowStride, stride, cropped, width, height, left, top);
+            for (int y = 0; y < height; y++) {
+                int offset = (top + y) * fullWidth + left;
+                assertArrayEquals(Arrays.copyOfRange(full, offset, offset + width),
+                        Arrays.copyOfRange(cropped, y * width, (y + 1) * width));
+            }
+        }
+    }
+
     @Test public void logicalTeleMustNotReuseMainSensorExposurePair() {
         // Reno regression: logical id 0 switched to physical 4; the reported main pair produced black YUV.
         assertTrue(!BurstExposurePolicy.allowAutomaticManual(true,"2","4"));

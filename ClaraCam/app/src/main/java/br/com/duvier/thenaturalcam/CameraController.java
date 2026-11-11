@@ -2174,7 +2174,7 @@ final class CameraController {
             }
             if (burstFrames.size() >= burstTarget) return;
             j.noteImageArrival();
-            burstFrames.add(copy(img));
+            burstFrames.add(copy(img, j.srCrop));
             int k = burstFrames.size();
             busy("Noite: quadro " + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget);
             if (k >= burstTarget && !j.finishQueued) {
@@ -2320,10 +2320,6 @@ final class CameraController {
             j.sheet.put("exposicao_quadros_medidos",measured);
             j.sheet.put("exposicao_somada_quadros_ns",measured==frames.size() && measured>0 ? total:JSONObject.NULL);
         } catch(Exception ignored) { }
-        if (j.srCrop > 1f) {
-            // recorte central de cada quadro (o zoom que o ISP faria, mas sem ampliar)
-            for (int i = 0; i < frames.size(); i++) frames.set(i, YuvFrame.cropCenter(frames.get(i), j.srCrop));
-        }
         if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
         final YuvFrame[] safe = new YuvFrame[1]; // fusão aprovada, antes do acabamento
         worker.execute(() -> {
@@ -2359,7 +2355,7 @@ final class CameraController {
                 if (fr.superResMemoryFallback) j.sheet.put("super_resolucao_reserva", "memória insuficiente; verificada a fusão na grade de captura");
                 if (fr.superResSameSamplingGrid) j.sheet.put("super_resolucao_reserva", "sem amostras subpixel distintas em bordas; fusão na grade de captura");
                 YuvFrame finalFrame = selected.frame;
-                double finishNoise = fr.noiseAfter;
+                double finishNoise = selected.noise;
                 boolean temporalNoiseMeasured = fr.framesUsed > 1;
                 if (!q.passed && fr.framesIn > 1 && isDebuggable()) {
                     // versão de teste: guarda também a fusão reprovada e a referência, para conferir o verificador
@@ -2382,10 +2378,12 @@ final class CameraController {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);
                     double recovered = BurstFusion.recoverFusedShadows(finalFrame, shadowCandidate, model[8]);
-                    if (recovered < .01) {
+                    boolean colorFromReference = recovered < .01 && model[8] > 1.5f
+                            && j.regional.faceProtection != ShadowProtection.ALL;
+                    if (colorFromReference) {
                         BurstFusion.chromaFilter(finalFrame, model[8]);
                     }
-                    ShadowProtection.restrict(refFrame, finalFrame, j.regional.faceProtection);
+                    ShadowProtection.restrict(refFrame, finalFrame, j.regional.faceProtection, colorFromReference ? .35f : 0f);
                     finishNoise = BurstFusion.noiseModel(finalFrame)[8];
                     QualityCheck.Report fallback = QualityCheck.compare(refFrame, finalFrame, model[8], finishNoise);
                     if (!fallback.passed) {
@@ -2399,9 +2397,14 @@ final class CameraController {
                     } else {
                         qj.put("decisao", fallback.passed ? "quadro_unico_limpo (fusão reprovada)"
                                 : "quadro_unico_preservado (limpeza reprovada)");
+                        if (fallback.passed && colorFromReference) qj.put("limpeza_cor_reserva", "leve nos meios-tons e protegida no rosto");
                     }
                     final String why = q.reason;
                     Log.w(TAG, "verificador: " + why + " — usado o quadro mais nítido"); // sem aviso na tela (pedido do usuário)
+                } else if (selected.restoredRegions > 0) {
+                    if (selected.standard != null) BurstFusion.chromaFilter(finalFrame, (float) Math.max(.5, finishNoise));
+                    qj.put("decisao", "fusão com recuperação local das bordas a partir do quadro de referência");
+                    qj.put("regioes_recuperadas_referencia", selected.restoredRegions);
                 } else {
                     if (selected.standard != null) BurstFusion.chromaFilter(finalFrame, (float) Math.max(.5, finishNoise));
                     qj.put("decisao", selected.standard == null ? "fusao" : "fusao_sem_super_resolucao (super-resolução reprovada)");
@@ -2782,44 +2785,25 @@ final class CameraController {
 
     /** Copia um Image YUV_420_888 (qualquer stride) para YuvFrame planar. */
     static YuvFrame copy(Image img) {
-        int w = img.getWidth(), h = img.getHeight();
+        return copy(img, 1f);
+    }
+
+    private static YuvFrame copy(Image img, float crop) {
+        int fullWidth = img.getWidth(), fullHeight = img.getHeight();
+        int w = crop > 1f ? YuvFrame.centerCropSize(fullWidth, crop) : fullWidth;
+        int h = crop > 1f ? YuvFrame.centerCropSize(fullHeight, crop) : fullHeight;
+        int left = YuvFrame.centerCropOffset(fullWidth, w), top = YuvFrame.centerCropOffset(fullHeight, h);
         YuvFrame f = new YuvFrame(w, h);
         f.timestampNs = img.getTimestamp();
         Image.Plane[] p = img.getPlanes();
-        ByteBuffer yb = p[0].getBuffer();
-        int yRow = p[0].getRowStride(), yPix = p[0].getPixelStride();
-        if (yPix == 1) {
-            for (int y = 0; y < h; y++) {
-                yb.position(y * yRow);
-                yb.get(f.y, y * w, w);
-            }
-        } else {
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) f.y[y * w + x] = yb.get(y * yRow + x * yPix);
-            }
-        }
-        copyChroma(p[1], f.u, f.chromaWidth, f.chromaHeight);
-        copyChroma(p[2], f.v, f.chromaWidth, f.chromaHeight);
+        copyPlane(p[0], f.y, w, h, left, top);
+        copyPlane(p[1], f.u, f.chromaWidth, f.chromaHeight, left / 2, top / 2);
+        copyPlane(p[2], f.v, f.chromaWidth, f.chromaHeight, left / 2, top / 2);
         return f;
     }
 
-    private static void copyChroma(Image.Plane plane, byte[] out, int cw, int ch) {
-        ByteBuffer b = plane.getBuffer();
-        int row = plane.getRowStride(), pix = plane.getPixelStride();
-        int limit = b.limit();
-        byte[] line = new byte[row];
-        for (int y = 0; y < ch; y++) {
-            int start = y * row;
-            int len = Math.min(row, limit - start);
-            if (len <= 0) break;
-            b.position(start);
-            b.get(line, 0, len);
-            int o = y * cw;
-            for (int x = 0; x < cw; x++) {
-                int idx = x * pix;
-                out[o + x] = idx < len ? line[idx] : out[Math.max(0, o + x - 1)];
-            }
-        }
+    private static void copyPlane(Image.Plane plane, byte[] output, int width, int height, int left, int top) {
+        YuvFrame.copyPlane(plane.getBuffer(), plane.getRowStride(), plane.getPixelStride(), output, width, height, left, top);
     }
 
     private static org.json.JSONArray meteringJson(MeteringRectangle[] areas) throws org.json.JSONException {
