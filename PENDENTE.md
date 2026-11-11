@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.0** (versionCode 64),
-APK: `The_Natural_Cam_1.29.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.1** (versionCode 65),
+APK: `The_Natural_Cam_1.29.1_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -359,3 +359,15 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   branco intacto, cor acompanha (ToneMatch.applyExposure).
 - ColorCalib (ΔE 2000 + matriz 3×3) pronto para quando chegar a ColorChecker Passport Photo 2.
 - NÃO VERIFICADO no aparelho ainda: 1.29.0 instalada, usuário testando.
+
+## Feito na 1.29.1 (2026-11-10) — prévia perto na principal (foco "terrível")
+- Na câmera lógica, pedir 3,5× fazia o SISTEMA trocar sozinho para a tele (lente 4) mesmo com o
+  objeto perto: prévia borrada, distância falsa (456 cm) lida como da principal → voltava à tele;
+  Noite 3,5× saiu da tele desfocada e ainda recortada 3,5× (zoom dobrado).
+- Correções: (1) no modo perto a prévia pede teleRatio×0,9 (fica na principal, nítida);
+  (2) a distância só vale quando a lente ativa é a principal (LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID).
+- Aparelho (frasco ~36 cm, escuro): Foto 1× tratamento de Noite (15 quadros, ISO 637, +0,5 EV);
+  Foto 3,5× principal, detalhe 0,98, ruído 1,27 (antes 1,72); Noite 3,5× principal, foco 36 cm,
+  ruído 1,59, prévia nítida.
+- FALTA: no modo perto a prévia mostra ~10 % a mais de cena que a foto (zoom 3,15 em vez de 3,5) —
+  escalar a TextureView pela razão zoom/deviceZoom para igualar o enquadramento.

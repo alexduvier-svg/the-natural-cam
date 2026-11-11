@@ -227,6 +227,13 @@ final class CameraController {
 
     /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
     private float deviceZoom() {
+        if (!onTele && nearMode && logicalCaps != null && logicalCaps.teleRatio > 1f && zoom >= logicalCaps.teleRatio * 0.97f) {
+            // objeto perto (na principal): pedir 3,5× à câmera lógica fazia o SISTEMA trocar sozinho
+            // para a tele, que não foca a < 40 cm — a prévia ficava borrada. Pede um pouco abaixo do
+            // ponto de troca para a prévia continuar na principal, nítida (a foto já sai da principal
+            // com o recorte certo, pela super-resolução/recorte do app).
+            return Math.min(zoom, logicalCaps.teleRatio * 0.9f);
+        }
         if (!onTele || teleCaps == null || logicalCaps == null) return zoom;
         return clamp(zoom / logicalCaps.teleRatio, teleCaps.zoomRange.getLower(), teleCaps.zoomRange.getUpper());
     }
@@ -1142,7 +1149,11 @@ final class CameraController {
             if (af != null && af != lastAfState) onTapAf(af);
             if (af != null) lastAfState = af;
             // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
-            checkNearFar(af, lfd);
+            // na câmera lógica, o sistema pode trocar sozinho para a tele: a distância dela é falsa
+            // (não calibrada) e era lida como se fosse da principal ("longe" → voltava para a tele)
+            boolean mainActive = onTele || physNow == null || logicalCaps == null || logicalCaps.mainId == null
+                    || physNow.equals(logicalCaps.mainId);
+            checkNearFar(af, mainActive ? lfd : null);
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
                 android.hardware.camera2.params.Face best = null;
