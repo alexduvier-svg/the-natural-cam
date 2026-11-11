@@ -1481,7 +1481,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 // recorte do sujeito tocado + profundidade (objetivo: recorte perfeito em qualquer zoom)
                 float[] alpha = PortraitEngine.subjectAlpha(this, depth, fx, fy);
                 // cópias de óptica: faixa nítida atrás do sujeito (≈ 5 % da profundidade relativa)
-                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha, frontScale, frontScale < 1f ? 0.05f : 0f);
+                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha, frontScale, frontScale < 1f ? 0.08f : 0f);
                 long tLayers = System.currentTimeMillis();
                 int w = full.getWidth(), h = full.getHeight();
                 int[] px = new int[w * h];

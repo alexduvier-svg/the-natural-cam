@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.1** (versionCode 69),
-APK: `The_Natural_Cam_1.30.1_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.2** (versionCode 70),
+APK: `The_Natural_Cam_1.30.2_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -400,3 +400,17 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   (+24 níveis ao lado da luz), Granulado (7,9 níveis), Ruído (−85 %, borda intacta), Máscara radial
   (+2,4 EV no centro, canto igual) já OK; Color Grading reforçado .18→.23 (Δab 10,9/11,4 → 13,2/14,7).
   Editor: 37/37 controles medidos no padrão. NÃO INSTALADO: celular com tela bloqueada na hora.
+
+## Feito na 1.30.2 (2026-11-10) — DIRETRIZ: o desfoque não come bordas
+- Defeito visto pelo usuário na cópia de óptica do frasco: a borda de trás da mesa e o fio ficaram
+  borrados como o fundo distante (profundidade de baixa resolução mistura borda perto com piso longe).
+- PortraitEngine.bokeh (Retrato, óptica 3,5×–8×, Desfoque do editor):
+  1. "o perto vence" — profundidade do mais perto da vizinhança (máx. local ~0,5 %) com rampa suave;
+  2. coisas finas pela FOTO — perto de saltos de profundidade (faixa ~1,5 %), contorno forte na
+     imagem (imageEdges) fica nítido;
+  3. incerteza → mais nítido ou desfoque suave, nunca corte duro;
+  4. não vale para o que está claramente à frente do foco (primeiro plano desfocado de propósito).
+  Óptica: faixa nítida atrás do sujeito 5 % → 8 %.
+- BokehEdgeTest (profundidade borrada como a da rede): borda da mesa raio 0,02, fio 0,41, fundo
+  junto da borda 2,19, fundo longe 2,35 (antes: borda e fio recebiam o raio do fundo).
+- Memória: desfoque-nao-come-bordas. NÃO TESTADO no aparelho (tela bloqueada).

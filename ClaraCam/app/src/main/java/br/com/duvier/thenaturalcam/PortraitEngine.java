@@ -341,10 +341,44 @@ final class PortraitEngine {
         final int w = dp.w, h = dp.h, n = w * h;
         final float side = Math.max(w, h);
         final float[] raw = new float[n];
+        // DIRETRIZ "o perto vence" (pedido do usuário: o desfoque não pode comer bordas perto dos
+        // objetos/pessoas): na profundidade de baixa resolução, coisas finas e bordas perto (fio,
+        // borda da mesa, contorno) se misturam com o fundo distante e herdavam o desfoque dele. Para
+        // DESFOCAR, cada pixel usa a profundidade do mais perto da vizinhança (máximo local, ~0,5 % do
+        // lado), com rampa suave para fora (média da mesma escala) — o fundo começa a desfocar aos
+        // poucos a partir da borda, sem contorno nítido em volta (sem halo).
+        int rn = Math.max(2, Math.round(side * .005f));
+        final float[] nearD = PortraitLight.boxBlur(PortraitLight.dilate(dp.d, w, h, rn), w, h, rn);
+        // INCERTEZA: onde a profundidade muda muito num trecho pequeno (borda, fio, objeto vazado) a
+        // rede não "entende" o que está atrás. Regra do usuário: nesse caso, deixar o objeto na cena
+        // (mais nítido) ou cobrir com desfoque SUAVE — nunca um corte duro. O desfoque cai até 65 %
+        // conforme a incerteza (diferença entre o mais perto da vizinhança e a média dela).
+        final float[] meanD = PortraitLight.boxBlur(dp.d, w, h, rn * 2);
+        // Coisas FINAS (fio, haste, borda fina) somem na profundidade de baixa resolução: a pista vem
+        // da IMAGEM. Perto de saltos de profundidade (faixa ~1,5 % do lado), estrutura com contorno
+        // forte na foto fica nítida; área lisa da faixa desfoca normal (ali o desfoque nem aparece).
+        // A transição segue os contornos reais da foto — sem halo, franja ou fantasma.
+        int rj = Math.max(3, Math.round(side * .015f));
+        final float[] jump = new float[n];
+        {
+            float[] hi = PortraitLight.dilate(dp.d, w, h, rj);
+            float[] neg = new float[n];
+            for (int i = 0; i < n; i++) neg[i] = -dp.d[i];
+            float[] lo = PortraitLight.dilate(neg, w, h, rj);
+            for (int i = 0; i < n; i++) jump[i] = hi[i] + lo[i]; // máx − mín local
+        }
+        final float[] edgeStr = imageEdges(dp.guide, w, h);
         for (int i = 0; i < n; i++) {
-            float delta = dp.d[i] - focus;
+            float dv = Math.max(dp.d[i], nearD[i]);
+            float delta = dv - focus;
             if (delta < 0) delta = Math.min(0, delta + sharpBand); // atrás: só além da faixa nítida
-            raw[i] = rawCoc(delta, aperture, side) * (dp.d[i] > focus ? frontScale : 1f);
+            float unsure = smoothstep(.04f, .2f, nearD[i] - meanD[i]);
+            float thin = smoothstep(.12f, .3f, jump[i]) * smoothstep(.05f, .18f, edgeStr[i]);
+            float keepSharp = Math.max(.65f * unsure, .85f * thin);
+            // a proteção vale para o sujeito e o que está atrás dele; o que está claramente À FRENTE
+            // do foco (primeiro plano desfocado de propósito) segue a lente: desfoca e mistura contorno
+            keepSharp *= 1f - smoothstep(focus + .03f, focus + .10f, dp.d[i]);
+            raw[i] = rawCoc(delta, aperture, side) * (dv > focus ? frontScale : 1f) * (1f - keepSharp);
         }
         int rs = Math.max(2, Math.round(side * .01f));
         float[] smooth = box(box(raw, w, h, rs), w, h, rs);
@@ -429,6 +463,28 @@ final class PortraitEngine {
             java.util.Arrays.fill(d, y * w, (y + 1) * w, v);
         }
         return bokeh(new Depth(d, w, h, guide, 0), 1f, aperture, null);
+    }
+
+    /**
+     * Força de contorno da imagem (0..1, brilho): gradiente local suavizado (raio 1) — marca fios,
+     * bordas e hastes que a profundidade de baixa resolução não vê.
+     */
+    static float[] imageEdges(int[] guide, int w, int h) {
+        float[] e = new float[w * h];
+        if (guide == null || guide.length != w * h) return e;
+        float[] l = new float[w * h];
+        for (int i = 0; i < l.length; i++) {
+            int c = guide[i];
+            l[i] = (.299f * ((c >> 16) & 255) + .587f * ((c >> 8) & 255) + .114f * (c & 255)) / 255f;
+        }
+        for (int y = 1; y < h - 1; y++) {
+            for (int x = 1; x < w - 1; x++) {
+                int i = y * w + x;
+                float gx = l[i + 1] - l[i - 1], gy = l[i + w] - l[i - w];
+                e[i] = (float) Math.sqrt(gx * gx + gy * gy) * .5f;
+            }
+        }
+        return PortraitLight.boxBlur(PortraitLight.dilate(e, w, h, 1), w, h, 1);
     }
 
     private static float smoothstep(float a, float b, float x) {
