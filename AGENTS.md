@@ -24,3 +24,11 @@ Diretriz do usuário em 10/11/2026: não escrever junto com o Claude, para não 
 - Fazer as verificações adequadas antes do commit e informar o hash e o resultado do envio. Não criar commits vazios quando não houver alterações.
 - Publicar apenas o trabalho do Codex. Não fazer merge nem enviar alterações à branch do Claude.
 - Manter fotos privadas/de teste, diagnósticos locais do aparelho, SDK, credenciais e artefatos de compilação fora do commit. Referências visuais originais permanecem locais.
+
+## Diretrizes complementares de prompting e validação (11/11/2026)
+
+- Para mudanças complexas, consultar `docs/DIRETRIZ_MESTRA_PROMPTS_CODEX.md` e o modelo contextual `docs/AGENTS_NATURAL_CAM_MODELO.md`; usar `docs/PROMPTS_CODEX_PARA_USAR.md` apenas quando pertinente.
+- Antes de mudar o pipeline ou a interface, identificar base/versionName/versionCode, reproduzir o problema, delimitar escopo, preservar invariantes, executar testes e relatar evidências reais. Validação sintética não comprova qualidade no OPPO.
+- **Este AGENTS.md da branch Codex prevalece sobre modelos e recomendações genéricas dos documentos**, inclusive as autorizações de commits, push e testes no aparelho concedidas acima. Não tocar na pasta do Claude, em sua branch ou no pacote Android `br.com.duvier.thenaturalcam`.
+- Não inferir que a versão instalada no celular esteja sincronizada com o Git: antes de qualquer nova build, reconciliar versão, commit, pacote, assinatura e alterações locais. A informação de versão instalada fornecida pelo usuário prevalece sobre notas desatualizadas do repositório.
+- Esta inclusão documental não modifica o aplicativo nem valida qualquer APK.
