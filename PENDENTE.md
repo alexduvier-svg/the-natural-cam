@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.1** (versionCode 65),
-APK: `The_Natural_Cam_1.29.1_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.29.2** (versionCode 66),
+APK: `The_Natural_Cam_1.29.2_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -371,3 +371,8 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   ruído 1,59, prévia nítida.
 - FALTA: no modo perto a prévia mostra ~10 % a mais de cena que a foto (zoom 3,15 em vez de 3,5) —
   escalar a TextureView pela razão zoom/deviceZoom para igualar o enquadramento.
+- 1.29.2: prévia de perto ampliada na tela (TextureView × zoom/deviceZoom ≈ 1,11) — o TAMANHO do
+  enquadramento agora bate com a foto; o toque de foco é convertido para o miolo. FALTA: posição
+  ~5 % deslocada (na foto o objeto fica mais à direita/abaixo que na prévia) — provável recorte do
+  ISP descentralizado na câmera lógica a 3,15×; medir o SCALER_CROP_REGION da prévia vs o recorte
+  central do app e alinhar (bateria 8 % no teste).

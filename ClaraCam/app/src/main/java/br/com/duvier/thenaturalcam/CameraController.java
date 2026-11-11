@@ -82,6 +82,13 @@ final class CameraController {
 
         /** Aviso rápido que não interrompe o processamento. */
         void onNotice(String text);
+
+        /**
+         * Ampliação da prévia na tela (1 = nenhuma): no modo perto a câmera recebe um zoom um pouco
+         * menor (para não cair na tele) e a tela amplia o resto — o enquadramento fica igual à foto.
+         */
+        default void onPreviewScale(float scale) {
+        }
     }
 
     static final int FLASH_OFF = 0, FLASH_AUTO = 1, FLASH_ON = 2;
@@ -597,8 +604,10 @@ final class CameraController {
     }
 
     /** Toque para foco/medição. nx, ny em 0..1 relativos à prévia em pé (retrato). */
-    void focusAt(float nx, float ny) {
+    void focusAt(float nxView, float nyView) {
         handler.post(() -> {
+            // prévia ampliada na tela (modo perto): o ponto tocado corresponde ao miolo do quadro
+            final float nx = 0.5f + (nxView - 0.5f) / previewScale, ny = 0.5f + (nyView - 0.5f) / previewScale;
             if (session == null || caps == null || capturing) return;
             // Toque de novo no mesmo objeto (perto do toque anterior, mesmo zoom): se o foco já
             // está travado nele, ou a busca ainda está em andamento, MANTÉM — não refaz a busca
@@ -1111,6 +1120,9 @@ final class CameraController {
         }
     }
 
+    /** Ampliação da prévia em uso (zoom pedido ÷ zoom entregue à câmera). */
+    private volatile float previewScale = 1f;
+
     private void startRepeating() {
         if (session == null || device == null) return;
         try {
@@ -1118,6 +1130,11 @@ final class CameraController {
             b.addTarget(previewSurface);
             applyCommon(b, false, false);
             session.setRepeatingRequest(b.build(), liveCallback, handler);
+            float ps = onTele ? 1f : Math.max(1f, zoom / Math.max(0.01f, deviceZoom()));
+            if (Math.abs(ps - previewScale) > 0.001f) {
+                previewScale = ps;
+                main.post(() -> listener.onPreviewScale(ps));
+            }
         } catch (Exception e) {
             Log.w(TAG, "prévia", e);
         }

@@ -1550,6 +1550,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     @Override
+    public void onPreviewScale(float scale) {
+        // modo perto: a câmera recebe ~3,15× (fica na principal, nítida) e a tela amplia o miolo
+        // até o enquadramento exato da foto (3,5×); o quadro do visor recorta o excesso
+        if (texture == null) return;
+        texture.setPivotX(texture.getWidth() / 2f);
+        texture.setPivotY(texture.getHeight() / 2f);
+        texture.setScaleX(scale);
+        texture.setScaleY(scale);
+    }
+
+    @Override
     public void onError(String text) {
         busy = false;
         thumbBusy.setVisibility(View.GONE);
