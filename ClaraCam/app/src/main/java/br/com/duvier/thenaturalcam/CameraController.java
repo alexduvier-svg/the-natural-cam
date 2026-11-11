@@ -177,6 +177,15 @@ final class CameraController {
         return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
     }
 
+    /** A principal mediu há pouco (≤ 10 s, ou celular parado) o objeto ALÉM de ~55 cm (a tele foca)? */
+    private boolean mainFarNow() {
+        if (teleCaps == null || mainFd <= 0) return false;
+        long age = SystemClock.elapsedRealtime() - mainFdAt;
+        boolean fresh = age <= 10_000 || (!onTele && mainFdAt >= openedAt) || (age <= 300_000 && gyro.stillSince(mainFdAt));
+        float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
+        return fresh && mainFd < teleMin * 0.72f;
+    }
+
     private void checkNearFar(Integer af, Float fd) {
         if (capturing || logicalCaps == null || teleCaps == null) return;
         long now = SystemClock.elapsedRealtime();
@@ -445,7 +454,11 @@ final class CameraController {
             // A tele deste aparelho diz "foco travado" (e distâncias falsas) mesmo com o objeto mais
             // perto que o mínimo dela — a foto sai toda desfocada. A PRINCIPAL mede a distância de forma
             // coerente: se ela acabou de medir o objeto perto (< ~46 cm), fica na principal.
-            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && mainNearNow()) {
+            // no ESCURO (ISO ≥ 6400) a principal muitas vezes não consegue medir a distância e a tele
+            // (menos luz, mín. 40 cm) saía desfocada: sem medida de LONGE, fica na principal (volta à
+            // tele sozinha quando a principal medir o objeto longe — motivo 1)
+            boolean darkUnknown = lastIso >= 6400 && !mainFarNow();
+            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && (mainNearNow() || darkUnknown)) {
                 nearMode = true;
                 nearReason = 1;
             }

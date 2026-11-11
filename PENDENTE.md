@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.2** (versionCode 70),
-APK: `The_Natural_Cam_1.30.2_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.3** (versionCode 71),
+APK: `The_Natural_Cam_1.30.3_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -414,3 +414,8 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - BokehEdgeTest (profundidade borrada como a da rede): borda da mesa raio 0,02, fio 0,41, fundo
   junto da borda 2,19, fundo longe 2,35 (antes: borda e fio recebiam o raio do fundo).
 - Memória: desfoque-nao-come-bordas. NÃO TESTADO no aparelho (tela bloqueada).
+- 1.30.3: no ESCURO (ISO ≥ 6400, luz de fundo apagada) a principal não mediu a distância e o 3,5×
+  abriu a tele com o frasco a ~35 cm (ISO 18000, foco 25 m, detalhe 0,1; a proteção "próxima pela
+  principal" funcionou). Regra nova: escuro sem medida de LONGE → 3,5× fica na principal
+  (nearReason 1: volta à tele sozinha se a principal medir > ~55 cm). mainFarNow().
+  NÃO testado no aparelho (usuário usando o app); APK na pasta do PC.
