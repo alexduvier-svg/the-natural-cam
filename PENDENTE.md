@@ -334,3 +334,14 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
 - PRÓXIMO (pedido do usuário): níveis de iluminação estilo "Iluminação de Retrato" do iPhone
   (Natural, Estúdio, Contorno, Palco, Palco Mono, Clave Alta Mono) para pessoas e objetos, nos
   modos Noite, Foto e Retrato (na câmera, como cópia separada) e no editor.
+
+## Feito na 1.28.0 (2026-11-10) — Iluminação de retrato no editor
+- PortraitLight: 6 níveis (Natural, Estúdio, Contorno, Palco, Palco Mono, Clave Alta Mono) em
+  exposição de luz linear, pessoas e objetos; sujeito = toque (MagicTouch + profundidade).
+  Palco/Clave Alta isolam o sujeito (recorte × faixa de profundidade ±0,10) — a mesa da frente não
+  acende; a luz é expandida ~0,6 % antes da transição (a borda do vidro não escurece/deforma).
+  Teste PC: Estúdio +0,77 EV, Palco fundo 80→2, Clave Alta fundo →247, cabelo preto continua preto.
+- Fica SÓ no editor (Ferramentas › Primeiro Plano), pedido do usuário; a câmera não gera cópia.
+- Editor: setinha "‹" fixa em todas as abas (Estilos ↔ Ferramentas pela aba anterior; ferramenta →
+  grade). Aparelho: Palco no frasco = fundo preto, frasco inteiro; base do frasco um pouco escura.
+- Ideia do usuário em aberto: "1000+ paletas de cor" — ver resposta (calibração com cartela).

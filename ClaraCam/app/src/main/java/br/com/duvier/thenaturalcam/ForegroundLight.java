@@ -67,16 +67,7 @@ final class ForegroundLight {
                 float yl = 0.2126f * lr + 0.7152f * lg + 0.0722f * lb;
                 float gain = (float) Math.pow(2, ev);
                 // pé: pretos profundos (< ~1 % de luz) recebem só parte do ganho — preto continua preto
-                float toe = yl / (yl + 0.004f);
-                float z;
-                if (gain >= 1) {
-                    // ganho com pé (preto fica preto) e ombro que preserva o branco exato:
-                    // z = y·G / (1 + (G−1)·y²) → y pequeno ×G; y = 1 continua 1 (sem estourar)
-                    float g = 1 + (gain - 1) * toe;
-                    z = yl * g / (1 + (g - 1) * yl * yl);
-                } else {
-                    z = yl * gain; // fundo escurecendo (Palco): ganho direto em luz linear
-                }
+                float z = gain >= 1 ? lift(yl, gain) : yl * gain; // escurecer (Palco): ganho direto
                 float s = yl > 1e-6f ? z / yl : 1f;
                 float mx = Math.max(lr, Math.max(lg, lb)) * s;
                 if (mx > 1f) s /= mx; // nenhum canal passa do branco
@@ -103,6 +94,25 @@ final class ForegroundLight {
 
     private static int enc(float l) {
         return ENC[Math.max(0, Math.min(4096, Math.round(l * 4096)))];
+    }
+
+    static float lin(int v) {
+        return LIN[v];
+    }
+
+    static int encode(float l) {
+        return enc(l);
+    }
+
+    /**
+     * Ganho de exposição em luz linear com PÉ (pretos profundos < ~1 % recebem só parte do ganho:
+     * preto continua preto) e OMBRO que preserva o branco exato: z = y·G / (1 + (G−1)·y²).
+     */
+    static float lift(float yl, float gain) {
+        if (gain <= 1f) return yl * gain;
+        float toe = yl / (yl + 0.004f);
+        float g = 1 + (gain - 1) * toe;
+        return yl * g / (1 + (g - 1) * yl * yl);
     }
 
     /**
