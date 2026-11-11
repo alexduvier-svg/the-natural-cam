@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.0** (versionCode 68),
-APK: `The_Natural_Cam_1.30.0_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.1** (versionCode 69),
+APK: `The_Natural_Cam_1.30.1_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
@@ -396,3 +396,7 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   antigo passava de 1 com ganho grande). Primeiro Plano/Iluminação seguem passando.
 - Aparelho: Sombras +0,85 no editor — sombra da mesa 41,8→61,7, preto 3,4→3,4.
 - FALTA medir: HSL, Color Grading, Difusão, Granulado, Ruído, Máscaras.
+- 1.30.1: EditorStrength2Test — HSL (Sat ×1,71/×0,01, Lum Azul −17/+22 L*, Matiz +39°), Difusão
+  (+24 níveis ao lado da luz), Granulado (7,9 níveis), Ruído (−85 %, borda intacta), Máscara radial
+  (+2,4 EV no centro, canto igual) já OK; Color Grading reforçado .18→.23 (Δab 10,9/11,4 → 13,2/14,7).
+  Editor: 37/37 controles medidos no padrão. NÃO INSTALADO: celular com tela bloqueada na hora.

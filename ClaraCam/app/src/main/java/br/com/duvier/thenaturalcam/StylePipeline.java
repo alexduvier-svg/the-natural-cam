@@ -680,7 +680,7 @@ public final class StylePipeline {
                 for (int k = 0; k < 4; k++) {
                     float[] c = hueRgb(r.gradeHue[k]);
                     float y = .299f * c[0] + .587f * c[1] + .114f * c[2];
-                    float s = r.gradeSat[k] * .18f;
+                    float s = r.gradeSat[k] * .23f; // nível Lightroom (EditorStrength2Test: Δab ≥ 12 com saturação 1)
                     tint[k][0] = (c[0] - y) * s;
                     tint[k][1] = (c[1] - y) * s;
                     tint[k][2] = (c[2] - y) * s;
