@@ -73,6 +73,14 @@ De 3,5× a 7×, a otimização do recorte e das coordenadas de super-resolução
 
 São capturas individuais em Máx detalhe com a tele direta. No disparo de 6×, a etapa de super-resolução levou 3,80 s, ante 6,23 s na foto da mesma cena da 1.27.7, com pequenas diferenças de luz e posição. A amostra nova confirmou foco ao toque em 467 ms, com AF e AE registrados em regiões separadas. Em 10×, o primeiro quadro chegou em 0,46 s e o último em 1,57 s. O arquivo de 4096 × 3070 saiu a partir da fusão na grade do recorte e da ampliação de entrega. Permanece grão fino na sombra. A meta de aproximadamente 10 s segue pendente em 3,5× e 6× em Máx detalhe. Retomar pelo grão localizado após recuperação de bordas em 3,5× e pela medição repetida de acabamento por região. Retratos humanos e o tempo completo dos demais modos requerem validação física.
 
+## Recuperação de detalhe em sombras na 1.27.9-codex
+
+A retomada partiu do commit `b968fe6` com o pacote Codex 1.27.8-codex, versionCode 74. O JPEG anterior do boné em 3,5× apresentou manchas de grão em áreas escuras depois da recuperação local de três regiões. A ficha registrou ISO 7118 e rejeição da limpeza posterior de luminância. Os quadros intermediários dessa captura não estavam disponíveis.
+
+O teste de regressão acrescenta uma mancha de 4 × 4 pixels à sombra na mesma célula que perde contraste na fusão. A 1.27.8 repôs a mancha (Y 76), e a 1.27.9 manteve a sombra fundida (Y 42), restaurou os traços e passou no verificador. Um segundo teste desloca um contorno de cor e verifica a correção no canal que divergiu, incluindo o interior da faixa deslocada. Cada canal usa sua própria máscara. A referência continua disponível se a recomposição não passar.
+
+No PC, o filtro de sombras foi medido em sete repetições após quatro aquecimentos, em YUV 4096 × 3072 derivado do JPEG anterior. Os planos Y, U e V produziram o mesmo SHA-256 nas duas versões. A mediana do filtro caiu de 387 para 362 ms. A verificação isolada caiu de 89 para 62 ms, com métricas idênticas. Esses tempos abrangem duas etapas isoladas em bancada.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

@@ -209,11 +209,16 @@ final class PortraitEngine {
     /** Média em caixa separável com somas corridas, O(n). */
     static float[] box(float[] src, int w, int h, int r) {
         float[] tmp = new float[w * h], out = new float[w * h];
-        IntStream.range(0, (h + 63) / 64).parallel().forEach(b ->
-                horizontalBox(src, tmp, w, r, b * 64, Math.min(h, (b + 1) * 64)));
-        IntStream.range(0, (w + 127) / 128).parallel().forEach(b ->
-                verticalBox(tmp, out, w, h, r, b * 128, Math.min(w, (b + 1) * 128)));
+        boxParallel(src, tmp, out, w, h, r);
         return out;
+    }
+
+    /** The horizontal pass completes before the output is written, so src can also be out. */
+    static void boxParallel(float[] src, float[] scratch, float[] out, int w, int h, int r) {
+        IntStream.range(0, (h + 63) / 64).parallel().forEach(b ->
+                horizontalBox(src, scratch, w, r, b * 64, Math.min(h, (b + 1) * 64)));
+        IntStream.range(0, (w + 127) / 128).parallel().forEach(b ->
+                verticalBox(scratch, out, w, h, r, b * 128, Math.min(w, (b + 1) * 128)));
     }
 
     /** Scratch belongs to the caller so a strip can be filtered twice without extra full images. */

@@ -1008,7 +1008,7 @@ public final class BurstFusion {
         // memória cai ~4× — em 12 MP a versão em resolução cheia passava de 400 MB e o acabamento
         // falhava por falta de memória (visto no aparelho a 8×, ISO 11000).
         final int w2 = c.chromaWidth, h2 = c.chromaHeight, n2 = w2 * h2;
-        float[] y = new float[n2], y2 = new float[n2];
+        final float[] m1 = new float[n2], m2 = new float[n2];
         for (int yy = 0; yy < h2; yy++) {
             int r0 = Math.min(h - 1, 2 * yy) * w, r1 = Math.min(h - 1, 2 * yy + 1) * w;
             for (int xx = 0; xx < w2; xx++) {
@@ -1017,13 +1017,13 @@ public final class BurstFusion {
                 // desvio local do bloco 2×2 entra no quadrado médio (textura fina não some na redução)
                 float q = ((c.y[r0 + x0] & 0xFF) * (c.y[r0 + x0] & 0xFF) + (c.y[r0 + x1] & 0xFF) * (c.y[r0 + x1] & 0xFF)
                         + (c.y[r1 + x0] & 0xFF) * (c.y[r1 + x0] & 0xFF) + (c.y[r1 + x1] & 0xFF) * (c.y[r1 + x1] & 0xFF)) / 4f;
-                y[yy * w2 + xx] = v;
-                y2[yy * w2 + xx] = q;
+                m1[yy * w2 + xx] = v;
+                m2[yy * w2 + xx] = q;
             }
         }
-        final float[] m1 = PortraitEngine.box(y, w2, h2, 1), m2 = PortraitEngine.box(y2, w2, h2, 1);
-        y = null;
-        y2 = null;
+        float[] scratch = new float[n2];
+        PortraitEngine.boxParallel(m1, scratch, m1, w2, h2, 1);
+        PortraitEngine.boxParallel(m2, scratch, m2, w2, h2, 1);
         final float sig = Math.max(1f, model[8]);
         final float[] maskL = new float[n2], maskC = new float[n2];
         IntStream.range(0, h2).parallel().forEach(yy -> {
@@ -1044,8 +1044,10 @@ public final class BurstFusion {
             }
         });
         // suaviza as máscaras (transição gradual, sem contorno) — raio 2 na meia resolução ≈ 4 px
-        final float[] ms = PortraitEngine.box(PortraitEngine.box(maskL, w2, h2, 2), w2, h2, 2);
-        final float[] msC = PortraitEngine.box(PortraitEngine.box(maskC, w2, h2, 2), w2, h2, 2);
+        for (int pass = 0; pass < 2; pass++) {
+            PortraitEngine.boxParallel(maskL, scratch, maskL, w2, h2, 2);
+            PortraitEngine.boxParallel(maskC, scratch, maskC, w2, h2, 2);
+        }
         final double[] rowSum = new double[h];
         IntStream.range(0, h).parallel().forEach(yy -> {
             float fy = Math.max(0, Math.min(h2 - 1.001f, (yy - .5f) / 2f));
@@ -1057,7 +1059,8 @@ public final class BurstFusion {
                 int x0 = (int) fx;
                 float tx = fx - x0;
                 int o = y0 * w2 + x0;
-                float k = (ms[o] * (1 - tx) + ms[o + 1] * tx) * (1 - ty) + (ms[o + w2] * (1 - tx) + ms[o + w2 + 1] * tx) * ty;
+                float k = (maskL[o] * (1 - tx) + maskL[o + 1] * tx) * (1 - ty)
+                        + (maskL[o + w2] * (1 - tx) + maskL[o + w2 + 1] * tx) * ty;
                 s += k;
                 int i = yy * w + xx;
                 f.y[i] = (byte) Math.round((f.y[i] & 0xFF) * (1 - k) + (c.y[i] & 0xFF) * k);
@@ -1065,7 +1068,7 @@ public final class BurstFusion {
             rowSum[yy] = s;
         });
         for (int i = 0; i < n2; i++) {
-            float k = msC[i];
+            float k = maskC[i];
             f.u[i] = (byte) Math.round((f.u[i] & 0xFF) * (1 - k) + (c.u[i] & 0xFF) * k);
             f.v[i] = (byte) Math.round((f.v[i] & 0xFF) * (1 - k) + (c.v[i] & 0xFF) * k);
         }

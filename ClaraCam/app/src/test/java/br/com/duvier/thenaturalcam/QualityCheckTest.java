@@ -112,12 +112,76 @@ public class QualityCheckTest {
         assertTrue(selected.restoredRegions > 0);
         assertEquals(reference.luma(525, 301), selected.frame.luma(525, 301));
         assertEquals(merged.luma(300, 540), selected.frame.luma(300, 540));
-        assertEquals(128, selected.frame.u[150 * merged.chromaWidth + 262] & 255);
+        assertEquals(132, selected.frame.u[150 * merged.chromaWidth + 262] & 255);
         assertEquals(132, selected.frame.u[270 * merged.chromaWidth + 150] & 255);
         // The wall occupies the same rejected cell as the letters and keeps its clean merge.
         assertEquals(170, selected.frame.luma(540, 252));
         assertEquals(132, selected.frame.u[126 * merged.chromaWidth + 270] & 255);
         assertEquals(170, merged.luma(525, 301));
+    }
+
+    @Test
+    public void recuperaBordaEmPoucaLuzSemTrazerManchasDaReferencia() {
+        YuvFrame merged = new YuvFrame(960, 720);
+        java.util.Arrays.fill(merged.y, (byte) 42);
+        java.util.Arrays.fill(merged.u, (byte) 128);
+        java.util.Arrays.fill(merged.v, (byte) 128);
+        // Textured subject across several cells. In one cell the merge loses its contrast.
+        for (int y = 150; y < 600; y++) for (int x = 125; x < 850; x++) {
+            if (y >= 240 && y < 280 && x >= 480 && x < 600) continue;
+            int slanted = (x + y / 3) % 23;
+            merged.y[y * merged.width + x] = (byte) (slanted < 7 ? 180 : 42);
+        }
+        YuvFrame reference = QualityCheck.copy(merged);
+        for (int y = 280; y < 360; y++) for (int x = 480; x < 600; x++)
+            merged.y[y * merged.width + x] = (byte) 42;
+        // A correlated four-pixel speckle in the same rejected cell as the slanted strokes.
+        for (int y = 252; y < 256; y++) for (int x = 516; x < 520; x++)
+            reference.y[y * reference.width + x] = (byte) 76;
+        for (int y = 126; y < 128; y++) for (int x = 258; x < 260; x++) {
+            int i = y * reference.chromaWidth + x;
+            reference.u[i] = (byte) 176;
+            reference.v[i] = (byte) 92;
+        }
+        BurstFusion.Result result = new BurstFusion.Result();
+        result.framesIn = 12;
+        result.referenceFrame = reference;
+        result.frame = merged;
+        result.noiseBefore = 16;
+        result.noiseAfter = 4;
+        BurstFusion.VerifiedOutput selected = result.verifyOutput();
+        assertFalse(selected.primary.passed);
+        assertFalse(selected.referenceOnly);
+        assertTrue(selected.restoredRegions > 0);
+        assertTrue(QualityCheck.compare(reference, selected.frame, 16, selected.noise).passed);
+        assertTrue(selected.frame.luma(505, 285) > 140);
+        assertEquals(42, selected.frame.luma(517, 253));
+        int speckle = 126 * reference.chromaWidth + 258;
+        assertEquals(128, selected.frame.u[speckle] & 255);
+        assertEquals(128, selected.frame.v[speckle] & 255);
+    }
+
+    @Test
+    public void recuperaContornoCromaticoDeslocadoSemTrocarCorConcordante() {
+        YuvFrame reference = new YuvFrame(960, 720), merged = new YuvFrame(960, 720);
+        java.util.Arrays.fill(reference.v, (byte) 128);
+        java.util.Arrays.fill(merged.v, (byte) 131);
+        for (int y = 0; y < reference.chromaHeight; y++) for (int x = 0; x < reference.chromaWidth; x++) {
+            int i = y * reference.chromaWidth + x;
+            reference.u[i] = (byte) (x < 266 ? 80 : 170);
+            merged.u[i] = (byte) (x < 274 ? 80 : 170);
+        }
+        QualityCheck.Report report = new QualityCheck.Report();
+        report.measuredRegions = 8;
+        report.rejectedRegions = 1;
+        report.rejectedRegionMask = 1L << 20; // row 2, col 4
+        YuvFrame repaired = QualityCheck.repairLocalFailures(reference, merged, report, 16);
+        assertNotNull(repaired);
+        assertEquals(170, repaired.u[150 * reference.chromaWidth + 267] & 255);
+        assertEquals(170, repaired.u[150 * reference.chromaWidth + 270] & 255);
+        assertEquals(131, repaired.v[150 * reference.chromaWidth + 267] & 255);
+        assertEquals(131, repaired.v[150 * reference.chromaWidth + 250] & 255);
+        assertEquals(80, repaired.u[150 * reference.chromaWidth + 250] & 255);
     }
 
     @Test

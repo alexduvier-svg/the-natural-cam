@@ -71,6 +71,7 @@ public final class QualityCheck {
         }
         Report r = new Report();
         int w = ref.width, h = ref.height;
+        boolean sameGrid = fused.width == w && fused.height == h;
         float sx = fused.width / (float) w, sy = fused.height / (float) h;
         // só o miolo (80 %): as bordas da foto têm vinheta e cantos menos nítidos em qualquer lente
         int x0 = w / 10, x1 = w - w / 10, y0 = h / 10, y1 = h - h / 10;
@@ -83,17 +84,27 @@ public final class QualityCheck {
         for (int y = Math.max(2, y0); y < Math.min(h - 2, y1); y += step) {
             int regionRow = (y * REGION_ROWS / h) * REGION_COLS;
             for (int x = Math.max(2, x0); x < Math.min(w - 2, x1); x += step) {
-                int c = ref.luma(x, y);
-                int gx = ref.luma(x + 1, y) - ref.luma(x - 1, y);
-                int gy = ref.luma(x, y + 1) - ref.luma(x, y - 1);
+                int leftRef = ref.luma(x - 1, y), rightRef = ref.luma(x + 1, y);
+                int upRef = ref.luma(x, y - 1), downRef = ref.luma(x, y + 1);
+                int gx = rightRef - leftRef, gy = downRef - upRef;
                 double g = Math.sqrt(gx * gx + gy * gy);
                 if (g < edgeThr) continue;
-                double lr = 4 * c - ref.luma(x - 1, y) - ref.luma(x + 1, y) - ref.luma(x, y - 1) - ref.luma(x, y + 1);
-                // mesma vizinhança na fusão (1 px da referência = s px da fusão)
-                float fx = (x + .5f) * sx - .5f, fy = (y + .5f) * sy - .5f;
-                double fc = sample(fused, fx, fy);
-                double left = sample(fused, fx - sx, fy), right = sample(fused, fx + sx, fy);
-                double up = sample(fused, fx, fy - sy), down = sample(fused, fx, fy + sy);
+                double lr = 4 * ref.luma(x, y) - leftRef - rightRef - upRef - downRef;
+                double fc, left, right, up, down;
+                if (sameGrid) {
+                    fc = fused.luma(x, y);
+                    left = fused.luma(x - 1, y);
+                    right = fused.luma(x + 1, y);
+                    up = fused.luma(x, y - 1);
+                    down = fused.luma(x, y + 1);
+                } else {
+                    float fx = (x + .5f) * sx - .5f, fy = (y + .5f) * sy - .5f;
+                    fc = sample(fused, fx, fy);
+                    left = sample(fused, fx - sx, fy);
+                    right = sample(fused, fx + sx, fy);
+                    up = sample(fused, fx, fy - sy);
+                    down = sample(fused, fx, fy + sy);
+                }
                 double fgx = right - left, fgy = down - up;
                 double lf = 4 * fc - left - right - up - down;
                 lapRef += Math.abs(lr);
@@ -163,45 +174,93 @@ public final class QualityCheck {
                 || report.rejectedRegions == 0 || report.rejectedRegions * 2 > report.measuredRegions
                 || report.detailRatio < MIN_DETAIL || report.edgeCorrelation < MIN_CORRELATION) return null;
         YuvFrame repaired = copy(merged);
-        YuvFrame structure = structureMask(reference, merged, referenceNoise);
+        int scale = Math.max(2, Math.min(4, (int) Math.ceil(referenceNoise / 2.5)));
+        int width = Math.max(1, reference.width / scale), height = Math.max(1, reference.height / scale);
+        YuvFrame luma = new YuvFrame(width, height);
+        YuvFrame chromaU = new YuvFrame(width, height), chromaV = new YuvFrame(width, height);
+        int[] differences = new int[width * height];
+        float lumaThreshold = (float) Math.max(4, 3.6 * referenceNoise / scale);
+        float chromaThreshold = (float) Math.max(6, 7.2 * referenceNoise / scale);
+        markEdgeDisagreement(luma, differences, reference.y, merged.y, reference.width, reference.height, lumaThreshold);
+        markEdgeDisagreement(chromaU, differences, reference.u, merged.u,
+                reference.chromaWidth, reference.chromaHeight, chromaThreshold);
+        extendColorEdge(chromaU, differences, chromaThreshold);
+        markEdgeDisagreement(chromaV, differences, reference.v, merged.v,
+                reference.chromaWidth, reference.chromaHeight, chromaThreshold);
+        extendColorEdge(chromaV, differences, chromaThreshold);
         int margin = Math.max(12, Math.min(reference.width, reference.height) / 96);
         long regions = report.rejectedRegionMask;
         while (regions != 0) {
             int index = Long.numberOfTrailingZeros(regions);
             int col = index % REGION_COLS, row = index / REGION_COLS;
-            restoreRegion(reference.y, repaired.y, reference.width, reference.height, col, row, margin, structure);
-            restoreRegion(reference.u, repaired.u, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, structure);
-            restoreRegion(reference.v, repaired.v, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, structure);
+            restoreRegion(reference.y, repaired.y, reference.width, reference.height, col, row, margin, luma);
+            restoreRegion(reference.u, repaired.u, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, chromaU);
+            restoreRegion(reference.v, repaired.v, reference.chromaWidth, reference.chromaHeight, col, row, margin / 2, chromaV);
             regions &= regions - 1;
         }
         return repaired;
     }
 
-    /** Keep the merged pixels in flat material, including inside a region that contains a bad edge. */
-    private static YuvFrame structureMask(YuvFrame reference, YuvFrame merged, double noise) {
-        int scale = Math.max(2, Math.min(4, (int) Math.ceil(noise / 2.5)));
-        int width = Math.max(1, reference.width / scale), height = Math.max(1, reference.height / scale);
-        YuvFrame original = downTo(reference, width, height);
-        YuvFrame fused = downTo(merged, width, height);
-        YuvFrame mask = new YuvFrame(width, height);
-        float flatRange = (float) Math.max(4, 3.6 * noise / scale);
-        float transition = Math.max(3f, flatRange * .55f);
-        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
-            int minA = 255, maxA = 0, minB = 255, maxB = 0;
-            for (int yy = Math.max(0, y - 1); yy <= Math.min(height - 1, y + 1); yy++) {
-                for (int xx = Math.max(0, x - 1); xx <= Math.min(width - 1, x + 1); xx++) {
-                    int a = original.luma(xx, yy), b = fused.luma(xx, yy);
-                    minA = Math.min(minA, a);
-                    maxA = Math.max(maxA, a);
-                    minB = Math.min(minB, b);
-                    maxB = Math.max(maxB, b);
+    /** Restore only structural disagreement. A brightness offset or an agreed edge cancels out. */
+    private static void markEdgeDisagreement(YuvFrame mask, int[] differences, byte[] reference, byte[] merged,
+                                             int sourceWidth, int sourceHeight, float threshold) {
+        int width = mask.width, height = mask.height;
+        float sx = sourceWidth / (float) width, sy = sourceHeight / (float) height;
+        int[] columns = new int[width + 1];
+        for (int x = 0; x <= width; x++) columns[x] = (int) (x * sx);
+        columns[width] = sourceWidth;
+        for (int y = 0; y < height; y++) {
+            int top = (int) (y * sy);
+            int bottom = y == height - 1 ? sourceHeight : (int) ((y + 1) * sy);
+            for (int x = 0; x < width; x++) {
+                int left = columns[x], right = columns[x + 1];
+                int sum = 0;
+                for (int yy = top; yy < bottom; yy++) {
+                    int row = yy * sourceWidth;
+                    for (int i = row + left; i < row + right; i++)
+                        sum += (reference[i] & 255) - (merged[i] & 255);
                 }
+                differences[y * width + x] = Math.round(sum / (float) ((bottom - top) * (right - left)));
             }
-            int range = Math.max(maxA - minA, maxB - minB);
-            float weight = Math.max(0, Math.min(1, (range - flatRange) / transition));
-            mask.y[y * width + x] = (byte) Math.round(255 * weight * weight * (3 - 2 * weight));
         }
-        return mask;
+        float transition = Math.max(3f, threshold * .55f);
+        for (int y = 0; y < height; y++) {
+            int row = y * width, top = Math.max(0, y - 1) * width, bottom = Math.min(height - 1, y + 1) * width;
+            for (int x = 0; x < width; x++) {
+                int left = Math.max(0, x - 1), right = Math.min(width - 1, x + 1);
+                int a = differences[top + left], b = differences[top + x], c = differences[top + right];
+                int d = differences[row + left], e = differences[row + x], f = differences[row + right];
+                int g = differences[bottom + left], h = differences[bottom + x], i = differences[bottom + right];
+                // Opposite and adjacent sums cover steps and narrow strokes. Summing signed
+                // differences across each side keeps an isolated speckle from voting as an edge.
+                int gx = span(a + d + g, b + e + h, c + f + i);
+                int gy = span(a + b + c, d + e + f, g + h + i);
+                float strength = Math.max(gx, gy) / 3f;
+                float weight = Math.max(0, Math.min(1, (strength - threshold) / transition));
+                mask.y[row + x] = (byte) Math.round(255 * weight * weight * (3 - 2 * weight));
+            }
+        }
+    }
+
+    /** Bridge the interior of a narrow color fringe only where the samples still disagree. */
+    private static void extendColorEdge(YuvFrame mask, int[] differences, float threshold) {
+        int width = mask.width, height = mask.height;
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            int index = y * width + x;
+            int weight = mask.y[index] & 255;
+            if (weight < 255 && Math.abs(differences[index]) > threshold) {
+                if (x > 0) weight = Math.max(weight, mask.y[index - 1] & 255);
+                if (x + 1 < width) weight = Math.max(weight, mask.y[index + 1] & 255);
+                if (y > 0) weight = Math.max(weight, mask.y[index - width] & 255);
+                if (y + 1 < height) weight = Math.max(weight, mask.y[index + width] & 255);
+            }
+            differences[index] = weight;
+        }
+        for (int i = 0; i < differences.length; i++) mask.y[i] = (byte) differences[i];
+    }
+
+    private static int span(int a, int b, int c) {
+        return Math.max(a, Math.max(b, c)) - Math.min(a, Math.min(b, c));
     }
 
     private static void restoreRegion(byte[] reference, byte[] output, int width, int height,
