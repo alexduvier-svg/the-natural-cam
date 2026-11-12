@@ -81,6 +81,19 @@ O teste de regressão acrescenta uma mancha de 4 × 4 pixels à sombra na mesma 
 
 No PC, o filtro de sombras foi medido em sete repetições após quatro aquecimentos, em YUV 4096 × 3072 derivado do JPEG anterior. Os planos Y, U e V produziram o mesmo SHA-256 nas duas versões. A mediana do filtro caiu de 387 para 362 ms. A verificação isolada caiu de 89 para 62 ms, com métricas idênticas. Esses tempos abrangem duas etapas isoladas em bancada.
 
+### Ensaio físico no Reno16 Pro em 12/11/2026
+
+A 1.27.9-codex, versionCode 75, foi instalada sobre a 1.27.8-codex e conferida pelo SHA-256 do APK instalado. As capturas foram feitas em Foto, Máx detalhe, EV 0, com o frasco e o fundo escuro.
+
+| Focal | Caminho de captura | Disparo até JPEG | Tamanho | Observação visual |
+|---|---|---:|---:|---|
+| 3,5× | Tele direta e fusão na grade de captura | 17,89 s | 4,29 MB | Frasco inteiro, com perda de legibilidade nas letras menores. |
+| 3,5× | Tele direta e foco contínuo, 12 quadros recebidos | 14,92 s | 8,17 MB | Frisos e letras legíveis. Sombra com grão visível. O verificador recorreu à referência nas bordas e registrou peso médio 0,02 de fusão nas sombras. |
+| 6× | Tele direta, 12 quadros recebidos | 12,88 s | 2,47 MB | O AF confirmou em 565 ms. O rótulo saiu desfocado. |
+| 6× | Câmera lógica em reserva, 12 quadros recebidos | 4,13 s | 3,85 MB | O rótulo também ficou desfocado. A grade de referência foi 682 × 512 antes da ampliação de entrega. |
+
+Na captura física de referência da 1.27.8 em 3,5×, o rótulo saiu parcialmente fora do quadro e desfocado. A prévia posterior mostrou a mesma composição. As posições variaram entre capturas. O ensaio permite documentar foco, enquadramento e latência individuais, com comparação controlada de ruído e foco por repetir. O caso de manchas reintroduzidas na recuperação local foi reproduzido e corrigido em bancada. As capturas físicas acima seguiram outros caminhos de reserva ou fusão. O foco ao toque, a limpeza das sombras quando prevalece a referência e a meta de aproximadamente 10 s continuam pendentes.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
