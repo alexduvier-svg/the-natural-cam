@@ -1104,7 +1104,7 @@ public final class BurstFusion {
     }
 
     static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise) {
-        sharpenScaled(f,upscale,amount,noise,false);
+        sharpenScaled(f, upscale, amount, noise, false, null);
     }
 
     /** A rejected whole-frame merge can still contribute where dark material is flat and matches the reference. */
@@ -1217,17 +1217,19 @@ public final class BurstFusion {
         return (byte)Math.round(a + (b - a) * weight);
     }
 
-    static void sharpenScaledRegional(YuvFrame f, float upscale, float amount, float noise) {
-        sharpenScaled(f,upscale,amount,noise,true);
+    static void sharpenScaledRegional(YuvFrame f, float upscale, float amount, float noise, float[] focus) {
+        sharpenScaled(f, upscale, amount, noise, true, focus);
     }
 
-    private static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise, boolean regional) {
+    private static void sharpenScaled(YuvFrame f, float upscale, float amount, float noise, boolean regional, float[] focus) {
         final int w = f.width, h = f.height;
         int r = Math.max(1, Math.round(upscale * 0.55f));
         final byte[] source = f.y.clone();
         // detalhe só acima de ~2,5σ do ruído residual (diretriz): o grão do fundo não é realçado
         final float thr = Math.max(2f, noise * 2.5f), limit = regional ? 6f : 14f;
         final float floor = Math.max(1f, noise * 1.1f), transition = Math.max(1f, noise * 2.4f) + 1;
+        final float[] focusColumns = focus == null ? null : focusWeights(w, focus[0]);
+        final float[] focusRows = focus == null ? null : focusWeights(h, focus[1]);
         IntStream.range(0, (h + BAND - 1) / BAND).parallel().forEach(b -> {
             int top = b * BAND, bottom = Math.min(h, top + BAND);
             // Two box filters depend on at most 2r rows on either side.
@@ -1237,17 +1239,46 @@ public final class BurstFusion {
             for (int i = 0; i < blur.length; i++) blur[i] = source[offset + i] & 0xFF;
             PortraitEngine.boxInPlace(blur, scratch, w, height, r);
             PortraitEngine.boxInPlace(blur, scratch, w, height, r);
-            for (int i = top * w; i < bottom * w; i++) {
-                int original = source[i] & 0xFF;
-                float d = original - blur[i - offset], ad = Math.abs(d);
-                if (regional) {
-                    d *= smooth01((ad - floor) / transition);
-                } else if (ad < thr) d *= ad / thr;
-                float s = amount * d;
-                s = s > limit ? limit : (s < -limit ? -limit : s);
-                f.y[i] = (byte) clamp(Math.round(original + s), 0, 255);
+            for (int y = top; y < bottom; y++) {
+                float rowWeight = focusRows == null ? 0 : focusRows[y];
+                for (int x = 0, i = y * w; x < w; x++, i++) {
+                    int original = source[i] & 0xFF;
+                    float d = original - blur[i - offset], ad = Math.abs(d);
+                    if (regional) {
+                        d *= smooth01((ad - floor) / transition);
+                    } else if (ad < thr) d *= ad / thr;
+                    float s = Math.max(-limit, Math.min(limit, amount * d));
+                    if (rowWeight > 0 && focusColumns[x] > 0 && original > 60 && original < 248
+                            && Math.abs(s) < limit && x >= r && x + r < w && y >= r && y + r < h) {
+                        float weight = rowWeight * focusColumns[x] * (1 - shadowWeight(original));
+                        float extra = focusedDetail(source, i, r, w, original, s, d, weight);
+                        s = Math.max(-limit, Math.min(limit, s + extra));
+                    }
+                    f.y[i] = (byte) clamp(Math.round(original + s), 0, 255);
+                }
             }
         });
+    }
+
+    private static float[] focusWeights(int size, float center) {
+        float[] weights = new float[size];
+        for (int i = 0; i < size; i++)
+            weights[i] = smooth01((.17f - Math.abs((i + .5f) / size - center)) / .10f);
+        return weights;
+    }
+
+    /** The added contrast stays inside the local signal envelope and within two Y levels. */
+    private static float focusedDetail(byte[] plane, int i, int radius, int width,
+                                       int original, float base, float detail, float weight) {
+        int left = plane[i - radius] & 255, right = plane[i + radius] & 255;
+        int up = plane[i - radius * width] & 255, down = plane[i + radius * width] & 255;
+        float value = original + base;
+        if (detail > 0) {
+            float headroom = Math.max(0, Math.max(Math.max(left, right), Math.max(up, down)) - value);
+            return Math.min(headroom, Math.min(2f, detail * .10f * weight));
+        }
+        float headroom = Math.max(0, value - Math.min(Math.min(left, right), Math.min(up, down)));
+        return Math.max(-headroom, Math.max(-2f, detail * .10f * weight));
     }
 
     static void sharpenLuma(YuvFrame f, float amount, float threshold) {

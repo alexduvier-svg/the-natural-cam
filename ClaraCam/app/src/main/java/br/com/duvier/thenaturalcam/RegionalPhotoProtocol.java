@@ -4,7 +4,7 @@ import java.util.stream.IntStream;
 
 /** Measured, local finishing of an already aligned photograph. No generated detail or WB guesses. */
 final class RegionalPhotoProtocol {
-    static final String VERSION = "1.3.1";
+    static final String VERSION = "1.3.2";
     @FunctionalInterface
     interface SubjectLocator {
         Subject locate(YuvFrame frame);
@@ -91,21 +91,22 @@ final class RegionalPhotoProtocol {
         if (context.refineResidual && context.faceProtection != ShadowProtection.ALL) {
             result.usedNoiseGuide = context.noiseGuide != null;
             result.residual = result.usedNoiseGuide
-                    ? ResidualNoiseRefiner.applyFromGuide(out, context.noiseGuide, context.temporalNoise)
-                    : ResidualNoiseRefiner.apply(out, context.temporalNoise);
+                    ? ResidualNoiseRefiner.applyFromGuide(out, context.noiseGuide, context.temporalNoise, context.shadowsOnly)
+                    : ResidualNoiseRefiner.apply(out, context.temporalNoise, context.shadowsOnly);
         }
-        if (context.shadowsOnly && (result.residual != null || result.broadCleaning > 0))
+        if (context.shadowsOnly && (result.residual != null && result.residual.applied() || result.broadCleaning > 0))
             ShadowProtection.restrict(source, out, context.faceProtection);
         verifyCleaning(source, out, result, context.refineResidual);
         if (!result.denoiseAccepted && result.usedNoiseGuide) {
             out = QualityCheck.copy(source);
             result.usedNoiseGuide = false;
-            result.residual = ResidualNoiseRefiner.apply(out, context.temporalNoise);
-            if (context.shadowsOnly) ShadowProtection.restrict(source, out, context.faceProtection);
+            result.residual = ResidualNoiseRefiner.apply(out, context.temporalNoise, context.shadowsOnly);
+            if (context.shadowsOnly && result.residual.applied()) ShadowProtection.restrict(source, out, context.faceProtection);
             verifyCleaning(source, out, result, true);
         }
         if (!result.denoiseAccepted) {
-            if (context.shadowsOnly && result.residual != null) {
+            if (context.shadowsOnly && result.residual != null
+                    && (result.residual.chromaApplied || result.broadCleaning > 0)) {
                 // A rejected luminance correction can still leave useful, edge-guided color cleanup in shadows.
                 System.arraycopy(source.y, 0, out.y, 0, source.y.length);
                 result.retainedShadowChroma = true;
@@ -143,7 +144,8 @@ final class RegionalPhotoProtocol {
 
     private static void verifyCleaning(YuvFrame source, YuvFrame out, Result result, boolean refined) {
         result.noiseAfter = Math.min(result.noiseBefore, BurstFusion.noiseModel(out)[8]);
-        result.detail = QualityCheck.compare(source, out, result.noiseBefore, result.noiseAfter);
+        double shadowNoise = result.residual != null && result.residual.lumaApplied ? result.residual.shadowSigma : 0;
+        result.detail = QualityCheck.compare(source, out, result.noiseBefore, result.noiseAfter, shadowNoise);
         result.denoiseAccepted = !result.detail.measurable || (result.detail.passed
                 && (!refined || result.detail.detailRatio >= .93 && result.detail.edgeCorrelation >= .985));
     }

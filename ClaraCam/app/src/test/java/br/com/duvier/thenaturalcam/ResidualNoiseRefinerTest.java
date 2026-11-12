@@ -32,6 +32,74 @@ public class ResidualNoiseRefinerTest {
         assertArrayEquals(before.u,noisy.u);assertArrayEquals(before.v,noisy.v);
     }
 
+    @Test public void cleansSmallNoisyShadowEvenWhenOverallNoiseIsLow() {
+        YuvFrame clean = new YuvFrame(800, 640);
+        Arrays.fill(clean.u, (byte) 124);
+        Arrays.fill(clean.v, (byte) 131);
+        for (int y = 0; y < clean.height; y++) for (int x = 0; x < clean.width; x++)
+            clean.y[y * clean.width + x] = (byte)(x < 150 ? 48 : 160 + (x % 24 < 10 ? 22 : 0));
+        YuvFrame noisy = QualityCheck.copy(clean);
+        Random random = new Random(721);
+        for (int y = 0; y < noisy.height; y += 2) for (int x = 0; x < 150; x += 2) {
+            int grain = Math.round((float)(random.nextGaussian() * 3));
+            for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++)
+                noisy.y[(y + dy) * noisy.width + x + dx] = (byte)(48 + grain);
+        }
+        RegionalPhotoProtocol.Context context = new RegionalPhotoProtocol.Context();
+        context.shadowsOnly = true;
+        context.refineResidual = true;
+        context.denoiseCeiling = context.sharpen = 0;
+        context.temporalNoise = .8;
+        context.faceProtection = new ShadowProtection(.11f, .5f, .035f, .16f);
+        RegionalPhotoProtocol.Result result = RegionalPhotoProtocol.apply(noisy, context);
+        assertTrue(result.residual.sigma < .9);
+        assertTrue(result.residual.shadowSigma >= 2);
+        assertTrue(result.residual.lumaApplied);
+        assertTrue(result.detail.reason + " detail=" + result.detail.detailRatio
+                + " correlation=" + result.detail.edgeCorrelation, result.denoiseAccepted);
+        assertTrue(rmse(clean, result.frame, 10, 20, 140, 140) < rmse(clean, noisy, 10, 20, 140, 140) * .85);
+        assertEquals(mean(noisy, 10, 20, 140, 140), mean(result.frame, 10, 20, 140, 140), .2);
+        for (int y = 270; y < 370; y++) for (int x = 76; x < 98; x++)
+            assertEquals(noisy.luma(x, y), result.frame.luma(x, y));
+        for (int y = 0; y < noisy.height; y++) for (int x = 160; x < noisy.width; x++)
+            assertEquals(noisy.luma(x, y), result.frame.luma(x, y));
+    }
+
+    @Test public void shadowNoiseAllowanceStillRejectsErasedDarkTexture() {
+        YuvFrame original = new YuvFrame(640, 480);
+        for (int y = 0; y < original.height; y++) for (int x = 0; x < original.width; x++)
+            original.y[y * original.width + x] = (byte)(x % 12 < 5 ? 43 : 68);
+        YuvFrame smoothed = QualityCheck.copy(original);
+        Arrays.fill(smoothed.y, (byte) 54);
+        QualityCheck.Report report = QualityCheck.compare(original, smoothed, .8, .8, 3);
+        assertTrue(report.measurable);
+        assertFalse(report.passed);
+    }
+
+    @Test public void detectsChromaGrainInShadowWithConstantLuma() {
+        YuvFrame image = new YuvFrame(640, 480);
+        Arrays.fill(image.u, (byte) 120);
+        Arrays.fill(image.v, (byte) 137);
+        for (int y = 0; y < image.height; y++) for (int x = 0; x < image.width; x++)
+            image.y[y * image.width + x] = (byte)(x < 160 ? 45 + x % 8 : 175);
+        Random random = new Random(26);
+        for (int y = 0; y < image.chromaHeight; y++) for (int x = 0; x < 80; x++) {
+            int i = y * image.chromaWidth + x;
+            image.u[i] = (byte)(120 + random.nextInt(9) - 4);
+        }
+        YuvFrame before = QualityCheck.copy(image);
+        ResidualNoiseRefiner.Report report = ResidualNoiseRefiner.apply(image, .8, true);
+        ShadowProtection.restrict(before, image, null);
+        assertTrue(report.shadowSigma < .9);
+        assertTrue(report.shadowChromaSigma > 1.1);
+        assertTrue(report.chromaApplied);
+        assertFalse(report.lumaApplied);
+        assertArrayEquals(before.y, image.y);
+        double beforeError = chromaError(before.u, 120), afterError = chromaError(image.u, 120);
+        assertTrue("chroma RMS " + beforeError + " -> " + afterError, afterError < beforeError * .8);
+        assertEquals(byteMean(before.u), byteMean(image.u), .2);
+    }
+
     @Test public void preservesColorBoundariesAndBlackWithoutManufacturingDetail() {
         YuvFrame f=new YuvFrame(257,191);
         Arrays.fill(f.y,(byte)74);
@@ -51,9 +119,32 @@ public class ResidualNoiseRefinerTest {
         for(int y=0;y<240;y++)for(int x=0;x<320;x++)
             f.y[y*320+x]=(byte)(x<160?60+(x%2==0?2:-2):90+Math.round(10*(float)Math.cos(x*2*Math.PI/16)));
         YuvFrame before=QualityCheck.copy(f);
-        BurstFusion.sharpenScaledRegional(f,2.5f,.6f,3);
+        BurstFusion.sharpenScaledRegional(f,2.5f,.6f,3,null);
         for(int y=20;y<220;y++)for(int x=20;x<140;x++)assertEquals(before.luma(x,y),f.luma(x,y));
         assertTrue(projection(before,f,180,20,300,220)>=projection(before,before,180,20,300,220)*.99);
+    }
+
+    @Test public void focusedDetailAddsOnlySmallContrastWithoutChangingShadowsOrOtherRegions() {
+        YuvFrame input = new YuvFrame(400, 320);
+        Arrays.fill(input.u, (byte) 122);
+        Arrays.fill(input.v, (byte) 138);
+        for (int y = 0; y < input.height; y++) for (int x = 0; x < input.width; x++) {
+            int tones = (int)Math.round(24 * Math.cos(x * 2 * Math.PI / 6));
+            input.y[y * input.width + x] = (byte)(y < 135 ? 42 + x % 8 : 165 + tones);
+        }
+        YuvFrame normal = QualityCheck.copy(input), focused = QualityCheck.copy(input);
+        BurstFusion.sharpenScaledRegional(normal, 2.5f, .42f, 1.5f, null);
+        BurstFusion.sharpenScaledRegional(focused, 2.5f, .42f, 1.5f, new float[]{.5f, .55f});
+        int changed = 0;
+        for (int y = 0; y < input.height; y++) for (int x = 0; x < input.width; x++) {
+            int delta = Math.abs(focused.luma(x,y) - normal.luma(x,y));
+            if (y < 135 || x < 132 || x >= 268) assertEquals(0, delta);
+            assertTrue(delta <= 2);
+            if (delta > 0) changed++;
+        }
+        assertTrue(changed > 0);
+        assertArrayEquals(input.u, focused.u);
+        assertArrayEquals(input.v, focused.v);
     }
 
     @Test public void sharpeningStripsMatchWholeFrameIncludingStripBoundaries() {
@@ -71,7 +162,7 @@ public class ResidualNoiseRefinerTest {
             float change = Math.max(-6, Math.min(6, .42f * detail));
             expected[i] = (byte)Math.max(0, Math.min(255, Math.round(original[i] + change)));
         }
-        BurstFusion.sharpenScaledRegional(f, 4f, .42f, 3f);
+        BurstFusion.sharpenScaledRegional(f, 4f, .42f, 3f, null);
         assertArrayEquals(expected, f.y);
     }
 

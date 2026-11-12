@@ -4,27 +4,40 @@ import java.util.stream.IntStream;
 
 /** Local residual cleanup on the chroma grid; returns corrections, never a resized photograph. */
 final class ResidualNoiseRefiner {
+    private static final int OVERALL = 16, SHADOW = 17, SHADOW_CHROMA = 18;
+    private static final int SHADOW_TONE_BINS = 6;
+    private static final float MIN_NOISE = .9f;
+
     private static final int[] PATCH_X = {-3, 0, 3, -3, 3, -3, 0, 3};
     private static final int[] PATCH_Y = {-3, -3, -3, 0, 0, 3, 3, 3};
 
     static final class Report {
-        double sigma, meanLumaWeight, meanChromaWeight;
+        double sigma, shadowSigma, shadowChromaSigma, meanLumaWeight, meanChromaWeight;
+        boolean lumaApplied, chromaApplied;
+
+        boolean applied() { return lumaApplied || chromaApplied; }
         long millis;
     }
 
     /** Transfer only the denoise correction, retaining details resolved on the larger grid. */
-    static Report applyFromGuide(YuvFrame output, YuvFrame guide, double temporalNoise) {
+    static Report applyFromGuide(YuvFrame output, YuvFrame guide, double temporalNoise, boolean shadowsOnly) {
         long start = System.currentTimeMillis();
-        YuvFrame cleaned = QualityCheck.copy(guide);
-        Report report = apply(cleaned, temporalNoise);
-        if (report.sigma >= .9) {
-            float lumaTolerance = (float)Math.max(2, 2.5 * report.sigma);
-            float chromaTolerance = (float)Math.max(3, 3.0 * report.sigma);
-            transfer(output.y, output.width, output.height, guide.y, cleaned.y, guide.width, guide.height, lumaTolerance);
-            transfer(output.u, output.chromaWidth, output.chromaHeight, guide.u, cleaned.u,
-                    guide.chromaWidth, guide.chromaHeight, chromaTolerance);
-            transfer(output.v, output.chromaWidth, output.chromaHeight, guide.v, cleaned.v,
-                    guide.chromaWidth, guide.chromaHeight, chromaTolerance);
+        Report report = new Report();
+        float[] sigma = measure(guide, temporalNoise, shadowsOnly, report);
+        if (report.applied()) {
+            YuvFrame cleaned = QualityCheck.copy(guide);
+            refine(cleaned, sigma, report);
+            if (report.lumaApplied) {
+                float tolerance = (float)Math.max(2, 2.5 * Math.max(report.sigma, report.shadowSigma));
+                transfer(output.y, output.width, output.height, guide.y, cleaned.y, guide.width, guide.height, tolerance);
+            }
+            if (report.chromaApplied) {
+                float tolerance = (float)Math.max(3, 3 * Math.max(report.sigma, report.shadowChromaSigma));
+                transfer(output.u, output.chromaWidth, output.chromaHeight, guide.u, cleaned.u,
+                        guide.chromaWidth, guide.chromaHeight, tolerance);
+                transfer(output.v, output.chromaWidth, output.chromaHeight, guide.v, cleaned.v,
+                        guide.chromaWidth, guide.chromaHeight, tolerance);
+            }
         }
         report.millis = System.currentTimeMillis() - start;
         return report;
@@ -59,23 +72,37 @@ final class ResidualNoiseRefiner {
     }
 
     static Report apply(YuvFrame f, double temporalNoise) {
+        return apply(f, temporalNoise, false);
+    }
+
+    static Report apply(YuvFrame f, double temporalNoise, boolean shadowsOnly) {
         long start = System.currentTimeMillis();
         Report report = new Report();
+        float[] sigma = measure(f, temporalNoise, shadowsOnly, report);
+        if (report.applied()) refine(f, sigma, report);
+        report.millis = System.currentTimeMillis() - start;
+        return report;
+    }
+
+    private static float[] measure(YuvFrame f, double temporalNoise, boolean shadowsOnly, Report report) {
+        if (f.chromaWidth < 10 || f.chromaHeight < 10) return null;
+        float[] sigma = profile(f, temporalNoise);
+        report.sigma = sigma[OVERALL];
+        report.shadowSigma = sigma[SHADOW];
+        report.shadowChromaSigma = sigma[SHADOW_CHROMA];
+        boolean general = !shadowsOnly && report.sigma >= MIN_NOISE;
+        report.lumaApplied = general || report.shadowSigma >= MIN_NOISE;
+        report.chromaApplied = general || report.shadowChromaSigma >= 1.1f;
+        return sigma;
+    }
+
+    private static void refine(YuvFrame f, float[] sigma, Report report) {
         final int w = f.chromaWidth, h = f.chromaHeight, n = w*h;
-        if (w < 10 || h < 10) return report;
         final float[] y = new float[n];
-        for (int cy=0;cy<h;cy++) for (int cx=0;cx<w;cx++) {
-            int x0=2*cx, x1=Math.min(f.width-1,x0+1);
-            int y0=2*cy, y1=Math.min(f.height-1,y0+1);
-            y[cy*w+cx]=(f.luma(x0,y0)+f.luma(x1,y0)+f.luma(x0,y1)+f.luma(x1,y1))*.25f;
-        }
-        // Cross differences at a 4-pixel spacing detect correlated grain after zoom/SR.
-        // Straight grooves/ramps cancel in this statistic; it is not a sensor calibration.
-        final float[] sigma = profile(y,w,h,temporalNoise);
-        report.sigma=sigma[16];
-        if (report.sigma < .9) return report;
+        for (int cy = 0; cy < h; cy++) for (int cx = 0; cx < w; cx++)
+            y[cy * w + cx] = chromaLuma(f, cx, cy);
         final byte[] u=f.u.clone(), v=f.v.clone();
-        final float[] correction=new float[n];
+        final float[] correction = report.lumaApplied ? new float[n] : null;
         final double[] weightsY=new double[h], weightsC=new double[h];
         final float[] exp=new float[1025];
         for(int i=0;i<exp.length;i++) exp[i]=(float)Math.exp(-i/128.0);
@@ -96,11 +123,13 @@ final class ResidualNoiseRefiner {
                 for (int p = 0; p < PATCH_X.length; p++) {
                     patchRow(y, w, h, cy + 1, PATCH_Y[p], columns, shifted[(PATCH_X[p] + 3) / 3], sums[p * 3 + next]);
                 }
-                refineRow(f, y, u, v, sigma, correction, weightsY, weightsC, exp, sums, cy, w, h);
+                refineRow(f, y, u, v, sigma, correction, weightsY, weightsC, exp, sums, cy, w, h, report);
             }
         });
-        coarseChroma(f,y,u,v,(float)report.sigma);
-        IntStream.range(0,f.height).parallel().forEach(yy->{
+        if (report.chromaApplied) coarseChroma(f, y, u, v,
+                (float)Math.max(report.sigma, report.shadowSigma),
+                (float)Math.max(report.sigma, Math.min(3, report.shadowChromaSigma)));
+        if (report.lumaApplied) IntStream.range(0,f.height).parallel().forEach(yy->{
             float fy=Math.max(0,Math.min(h-1,(yy-.5f)*.5f));
             int y0=(int)fy,y1=Math.min(h-1,y0+1);float ty=fy-y0;
             for(int x=0;x<f.width;x++) {
@@ -116,8 +145,6 @@ final class ResidualNoiseRefiner {
             }
         });
         for(int row=0;row<h;row++){report.meanLumaWeight+=weightsY[row]/n;report.meanChromaWeight+=weightsC[row]/n;}
-        report.millis=System.currentTimeMillis()-start;
-        return report;
     }
 
     private static int[] patchColumns(int width, int shift) {
@@ -144,13 +171,16 @@ final class ResidualNoiseRefiner {
 
     private static void refineRow(YuvFrame f, float[] y, byte[] u, byte[] v, float[] sigma,
                                   float[] correction, double[] weightsY, double[] weightsC,
-                                  float[] exp, float[][] sums, int cy, int w, int h) {
+                                  float[] exp, float[][] sums, int cy, int w, int h, Report report) {
             double wy=0,wc=0;
             for(int cx=0;cx<w;cx++) {
                 int i=cy*w+cx;
                 float center=y[i], sig=sigma[Math.min(15,(int)center>>4)];
                 float noise2=sig*sig, bandwidth=Math.max(2.5f,noise2*2.2f);
-                float su=u[i]&255, sv=v[i]&255, sy=center, sw=1;
+                float su=u[i]&255, sv=v[i]&255, sy=center, sw=1, swColor=1;
+                float colorSigma = center < SHADOW_TONE_BINS * 16
+                        ? Math.max(sig, (float)Math.min(2.4, report.shadowChromaSigma)) : sig;
+                float colorVariance = colorSigma * colorSigma;
                 for (int p = 0; p < PATCH_X.length; p++) {
                     int nx = cx + PATCH_X[p], ny = cy + PATCH_Y[p];
                     if(nx<0||nx>=w||ny<0||ny>=h)continue;
@@ -158,28 +188,47 @@ final class ResidualNoiseRefiner {
                     int k = p * 3;
                     float distance = sums[k][cx] + sums[k + 1][cx] + sums[k + 2][cx];
                     float du=(u[i]&255)-(u[ni]&255),dv=(v[i]&255)-(v[ni]&255);
-                    float cost=Math.max(0,distance/9-2*noise2)/bandwidth
-                            +Math.max(0,du*du+dv*dv-4*noise2)/Math.max(12,noise2*10);
-                    float weight=exp[Math.min(1024,Math.round(cost*128))];
-                    sy+=weight*y[ni];su+=weight*(u[ni]&255);sv+=weight*(v[ni]&255);sw+=weight;
+                    float structure = Math.max(0, distance / 9 - 2 * noise2) / bandwidth;
+                    float colorDifference = du * du + dv * dv;
+                    if (correction != null) {
+                        float cost = structure + Math.max(0, colorDifference - 4 * noise2) / Math.max(12, noise2 * 10);
+                        float weight = exp[Math.min(1024, Math.round(cost * 128))];
+                        sy += weight * y[ni];
+                        sw += weight;
+                    }
+                    if (report.chromaApplied) {
+                        float cost = structure + Math.max(0, colorDifference - 2 * colorVariance)
+                                / Math.max(12, 3 * colorVariance + 4);
+                        float weight = exp[Math.min(1024, Math.round(cost * 128))];
+                        su += weight * (u[ni] & 255);
+                        sv += weight * (v[ni] & 255);
+                        swColor += weight;
+                    }
                 }
                 // Flat shadows receive more help; bright material and possible skin keep texture.
                 float support=(sw-1)/8;
                 float dark=1-smooth((center-45)/105f);
                 float skin=BurstFusion.skinCbCr(center,u[i]&255,v[i]&255);
                 float ky=(.42f+.3f*dark)*(1-.45f*skin)*smooth(support*2);
-                float kc=(.72f+.16f*dark)*smooth(support*2);
-                float delta=(sy/sw-center)*ky;
-                correction[i]=Math.max(-3*sig,Math.min(3*sig,delta));
-                f.u[i]=(byte)clip(Math.round((u[i]&255)+(su/sw-(u[i]&255))*kc));
-                f.v[i]=(byte)clip(Math.round((v[i]&255)+(sv/sw-(v[i]&255))*kc));
-                wy+=ky;wc+=kc;
+                // A few compatible samples along an edge can support color cleanup.
+                float kc = (.72f + .16f * dark) * smooth((swColor - 1) / 2.5f);
+                if (correction != null) {
+                    float delta = (sy / sw - center) * ky;
+                    correction[i] = Math.max(-3 * sig, Math.min(3 * sig, delta));
+                    wy += ky;
+                }
+                if (report.chromaApplied) {
+                    f.u[i]=(byte)clip(Math.round((u[i]&255)+(su/swColor-(u[i]&255))*kc));
+                    f.v[i]=(byte)clip(Math.round((v[i]&255)+(sv/swColor-(v[i]&255))*kc));
+                    wc += kc;
+                }
             }
             weightsY[cy]=wy;weightsC[cy]=wc;
     }
 
     /** Low-frequency color mottling needs a larger scale than adjacent-pixel grain. */
-    private static void coarseChroma(YuvFrame f,float[] guide,byte[] originalU,byte[] originalV,float sigma) {
+    private static void coarseChroma(YuvFrame f, float[] guide, byte[] originalU, byte[] originalV,
+                                     float lumaSigma, float chromaSigma) {
         final int stride=4,cw=f.chromaWidth,ch=f.chromaHeight,w=(cw+3)/4,h=(ch+3)/4;
         final float[] y=new float[w*h],u=new float[w*h],v=new float[w*h],du=new float[w*h],dv=new float[w*h];
         for(int by=0;by<h;by++)for(int bx=0;bx<w;bx++){
@@ -189,7 +238,7 @@ final class ResidualNoiseRefiner {
             }
             y[i]/=n;u[i]/=n;v[i]/=n;
         }
-        final float rangeY=Math.max(5,3*sigma),rangeC=Math.max(4,4*sigma);
+        final float rangeY = Math.max(5, 3 * lumaSigma), rangeC = Math.max(4, 4 * chromaSigma);
         IntStream.range(0,h).parallel().forEach(cy->{
             for(int cx=0;cx<w;cx++){
                 int i=cy*w+cx;float su=u[i],sv=v[i],sw=1;
@@ -221,23 +270,62 @@ final class ResidualNoiseRefiner {
         });
     }
 
-    private static float[] profile(float[] y,int w,int h,double prior) {
-        int[][] histogram=new int[17][128];int[] count=new int[17];
-        for(int cy=2;cy<h-2;cy+=3)for(int cx=2;cx<w-2;cx+=3){
-            float d=y[(cy+2)*w+cx+2]-y[(cy-2)*w+cx+2]-y[(cy+2)*w+cx-2]+y[(cy-2)*w+cx-2];
-            int q=Math.min(127,Math.round(Math.abs(d)*2)),bin=Math.min(15,(int)y[cy*w+cx]>>4);
-            histogram[bin][q]++;histogram[16][q]++;count[bin]++;count[16]++;
+    /** Probe the native frame before allocating buffers or deciding whether shadows need cleaning. */
+    private static float[] profile(YuvFrame f, double prior) {
+        int w = f.chromaWidth, h = f.chromaHeight;
+        int[][] histogram = new int[SHADOW_CHROMA + 1][128];
+        int[] count = new int[histogram.length];
+        for (int cy = 2; cy < h - 2; cy += 3) for (int cx = 2; cx < w - 2; cx += 3) {
+            // Cross differences suppress simple edges and ramps in the noise estimate.
+            float d = chromaLuma(f, cx + 2, cy + 2) - chromaLuma(f, cx + 2, cy - 2)
+                    - chromaLuma(f, cx - 2, cy + 2) + chromaLuma(f, cx - 2, cy - 2);
+            int bin = (int)chromaLuma(f, cx, cy) >> 4;
+            int q = Math.min(127, Math.round(Math.abs(d) * 2));
+            histogram[bin][q]++;
+            histogram[OVERALL][q]++;
+            count[bin]++;
+            count[OVERALL]++;
+            if (bin < SHADOW_TONE_BINS) {
+                histogram[SHADOW][q]++;
+                count[SHADOW]++;
+                int i = cy * w + cx, top = i - 2 * w, bottom = i + 2 * w;
+                int color = Math.max(Math.abs(crossChroma(f.u, top, bottom)), Math.abs(crossChroma(f.v, top, bottom)));
+                histogram[SHADOW_CHROMA][Math.min(127, color * 2)]++;
+                count[SHADOW_CHROMA]++;
+            }
         }
-        float[] result=new float[17];
-        for(int bin=0;bin<17;bin++) {
-            int use=count[bin]>=128?bin:16,sum=0,k=0;
-            while(k<127 && (sum+=histogram[use][k])<(count[use]+1)/2)k++;
-            float spatial=k*.25f/.67449f;
-            // A temporal prior bounds accidental texture estimates without pretending independent noise.
-            if(Double.isFinite(prior) && prior>0)spatial=Math.max((float)prior*.55f,Math.min(spatial,(float)prior*1.4f));
-            result[bin]=Math.max(.5f,Math.min(6,spatial));
+        float[] result = new float[histogram.length];
+        for (int bin = SHADOW; bin <= SHADOW_CHROMA; bin++)
+            result[bin] = count[bin] >= 128 ? histogramSigma(histogram[bin], count[bin]) : .5f;
+        for (int bin = 0; bin <= OVERALL; bin++) {
+            boolean dark = bin < SHADOW_TONE_BINS;
+            int use = count[bin] >= 128 ? bin : dark && count[SHADOW] >= 128 ? SHADOW : OVERALL;
+            float spatial = histogramSigma(histogram[use], count[use]);
+            if (Double.isFinite(prior) && prior > 0) {
+                float ceiling = (float)prior * 1.4f;
+                if (dark) ceiling = Math.max(ceiling, result[SHADOW]);
+                spatial = Math.max((float)prior * .55f, Math.min(spatial, ceiling));
+            }
+            result[bin] = Math.max(.5f, Math.min(6, spatial));
         }
         return result;
+    }
+
+    private static float histogramSigma(int[] bins, int count) {
+        int sum = 0, k = 0;
+        while (k < 127 && (sum += bins[k]) < (count + 1) / 2) k++;
+        return Math.max(.5f, Math.min(6, k * .25f / .67449f));
+    }
+
+    private static float chromaLuma(YuvFrame f, int cx, int cy) {
+        int x0 = cx * 2, x1 = Math.min(f.width - 1, x0 + 1);
+        int y0 = cy * 2, y1 = Math.min(f.height - 1, y0 + 1);
+        return (f.luma(x0, y0) + f.luma(x1, y0) + f.luma(x0, y1) + f.luma(x1, y1)) * .25f;
+    }
+
+    private static int crossChroma(byte[] plane, int top, int bottom) {
+        return (plane[bottom + 2] & 255) - (plane[top + 2] & 255)
+                - (plane[bottom - 2] & 255) + (plane[top - 2] & 255);
     }
     private static float mix(float a,float b,float c,float d,float x,float y){return (a*(1-x)+b*x)*(1-y)+(c*(1-x)+d*x)*y;}
     private static int bound(int x,int n){return Math.max(0,Math.min(n-1,x));}

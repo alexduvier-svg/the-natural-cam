@@ -54,6 +54,11 @@ public final class QualityCheck {
 
     /** noiseFused = ruído que sobrou na fusão (já na grade da referência). */
     public static Report compare(YuvFrame ref, YuvFrame fused, double noise, double noiseFused) {
+        return compare(ref, fused, noise, noiseFused, 0);
+    }
+
+    /** A separately measured shadow floor keeps dark grain from voting as a scene edge. */
+    static Report compare(YuvFrame ref, YuvFrame fused, double noise, double noiseFused, double shadowNoise) {
         if (fused.width > ref.width * 1.05f) {
             // super-resolução: reduz a fusão para a grade da referência (média de área) e compara
             // na MESMA escala — antes a 2,5× a comparação era injusta e reprovava fusões boas
@@ -68,6 +73,7 @@ public final class QualityCheck {
             fused = downTo(fused, ref.width, ref.height);
             noise /= k;
             noiseFused /= k;
+            shadowNoise /= k;
         }
         Report r = new Report();
         int w = ref.width, h = ref.height;
@@ -76,6 +82,7 @@ public final class QualityCheck {
         // só o miolo (80 %): as bordas da foto têm vinheta e cantos menos nítidos em qualquer lente
         int x0 = w / 10, x1 = w - w / 10, y0 = h / 10, y1 = h - h / 10;
         double edgeThr = Math.max(10, 5 * noise);
+        double shadowEdgeThr = Math.max(edgeThr, 5 * shadowNoise);
         double lapRef = 0, lapFus = 0, gxy = 0, gxx = 0, gyy = 0;
         int count = 0;
         Region[] regions = new Region[REGION_COLS * REGION_ROWS];
@@ -89,7 +96,10 @@ public final class QualityCheck {
                 int gx = rightRef - leftRef, gy = downRef - upRef;
                 double g = Math.sqrt(gx * gx + gy * gy);
                 if (g < edgeThr) continue;
-                double lr = 4 * ref.luma(x, y) - leftRef - rightRef - upRef - downRef;
+                int centerRef = ref.luma(x, y);
+                if (g < shadowEdgeThr && Math.max(centerRef, Math.max(Math.max(leftRef, rightRef),
+                        Math.max(upRef, downRef))) < 96) continue;
+                double lr = 4 * centerRef - leftRef - rightRef - upRef - downRef;
                 double fc, left, right, up, down;
                 if (sameGrid) {
                     fc = fused.luma(x, y);

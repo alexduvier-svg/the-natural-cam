@@ -341,6 +341,7 @@ final class CameraController {
         float srScale = 1f, sharpen = 0.24f, denoiseCeiling = 0.5f;
         RegionalPhotoProtocol.Context regional;
         float[] portraitFocus;
+        float[] detailFocus;
         final Map<Long, TotalCaptureResult> rawResults = new HashMap<>();
         /** Força da limpeza de ruído decidida pela diretriz (0 = só a da fusão). */
         float denoise;
@@ -1622,6 +1623,10 @@ final class CameraController {
                 }
             }
             final float seedX = seed[0], seedY = seed[1];
+            if (mode == Mode.FOTO && regions != null && !j.regional.face && !tapScanning
+                    && tapConfirmedForCapture() && (lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                    || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED))
+                j.detailFocus = seed;
             if (j.regional.targeted) j.portraitFocus = toSensor((360 - j.orientation) % 360, seedX, seedY);
             if (j.regional.allowTone) j.regional.locateSubject = frame -> locateForeground(frame, j.orientation, seedX, seedY);
         }
@@ -2539,7 +2544,7 @@ final class CameraController {
                     stamp(j, "tempo_etapa_sombras_ms", tt);
                 }
                 j.referenceFinish = true;
-                j.regional.refineResidual = finishNoise > 1.5;
+                j.regional.refineResidual = true;
                 j.regional.denoiseCeiling = 0;
                 j.regional.sharpen = 0;
                 // Measure and remove grain before enlarging a crop to the delivery size.
@@ -2562,8 +2567,9 @@ final class CameraController {
                 // Um único realce, na escala de entrega e com limite de halo.
                 float sharpness = j.regional.face ? .24f : .42f;
                 float noise = (float) Math.max(1.0, Math.max(finishNoise, BurstFusion.noiseModel(finalFrame)[8]));
-                BurstFusion.sharpenScaledRegional(finalFrame, Math.min(4f, detailScale), sharpness, noise);
+                BurstFusion.sharpenScaledRegional(finalFrame, Math.min(4f, detailScale), sharpness, noise, j.detailFocus);
                 j.sheet.put("nitidez_final", "uma passagem por escala, limitada pelo ruído e pelo contorno");
+                if (j.detailFocus != null) j.sheet.put("nitidez_alvo_confirmado", true);
                 j.sheet.put("grade_quadro_referencia", refFrame.width + "×" + refFrame.height);
                 if (refFrame.iso > 0) j.sheet.put("iso_quadro_referencia", refFrame.iso);
                 if (refFrame.exposureNs > 0) j.sheet.put("exposicao_quadro_referencia_ns", refFrame.exposureNs);
@@ -2609,6 +2615,7 @@ final class CameraController {
             busy("Tratando sombras e texturas…", .94f);
             if (!j.referenceFinish) {
                 j.regional.denoiseCeiling = j.denoiseCeiling;
+                j.regional.refineResidual = j.denoiseCeiling > 0;
                 j.regional.sharpen = j.regional.face ? Math.min(.16f,j.sharpen) : j.sharpen;
             }
             j.regional.temporalNoise = temporalNoise;
@@ -2626,6 +2633,9 @@ final class CameraController {
             if (j.regional.shadowsOnly) regions.put("limpeza_forte", "sombras; rosto protegido na região detectada quando disponível");
             if(result.residual!=null) {
                 regions.put("ruido_correlacionado_estimado", round2(result.residual.sigma));
+                regions.put("ruido_luminancia_sombras", round2(result.residual.shadowSigma));
+                regions.put("ruido_cor_sombras", round2(result.residual.shadowChromaSigma));
+                regions.put("refino_residual_executado", result.residual.applied());
                 regions.put("peso_residual_luminancia", result.denoiseAccepted ? round2(result.residual.meanLumaWeight) : 0);
                 regions.put("peso_residual_cor", result.denoiseAccepted || result.retainedShadowChroma ? round2(result.residual.meanChromaWeight) : 0);
                 regions.put("tempo_residual_ms", result.residual.millis);
