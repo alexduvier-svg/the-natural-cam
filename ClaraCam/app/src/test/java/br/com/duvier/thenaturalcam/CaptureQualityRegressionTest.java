@@ -117,6 +117,14 @@ public class CaptureQualityRegressionTest {
         assertEquals(preview, BurstExposurePolicy.targetExposure(155, preview, 20_000_000L, true));
     }
 
+    @Test public void uncalibratedLogicalZoomDoesNotChangeSensorGridAtShutter() {
+        assertFalse(BurstExposurePolicy.allowNativeGrid(true, "2", "2", false, 6f));
+        assertFalse(BurstExposurePolicy.allowNativeGrid(true, "2", "4", false, 10f));
+        assertTrue(BurstExposurePolicy.allowNativeGrid(true, "2", "2", false, 2f));
+        assertTrue(BurstExposurePolicy.allowNativeGrid(false, null, null, false, 10f));
+        assertTrue(BurstExposurePolicy.allowNativeGrid(true, "2", "2", true, 6f));
+    }
+
     @Test public void publishedPhotoPlanKeepsPreviewCropWhenActivePhysicalGridDiffers() {
         CaptureDirector.Scene scene = new CaptureDirector.Scene();
         scene.maxPolicy = true;

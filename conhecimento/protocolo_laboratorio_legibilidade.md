@@ -186,6 +186,14 @@ Em 10×, a reserva apresentou Y/C de 6,00/2,22 no ponto de checagem e de 6,00/2,
 
 A 1.27.15 descarta leitura antiga de foco, exposição e movimento ao fechar a câmera, invalida as amostras de movimento na troca de zoom e aplica o EV restaurado antes da primeira requisição. Foto e Retrato mantêm ajustes independentes de desfoque. Em Foto, quando a câmera oferece o controle manual para o sensor ativo, uma cena sem rosto em ISO elevado pode usar um tempo um pouco maior e ISO proporcionalmente menor se as medições de movimento permitirem. A estimativa de movimento é conservadora e precisa ser conferida em cenas reais com pessoas e objetos em movimento.
 
+### Diferença entre o foco da prévia e o JPEG em zoom longo
+
+Na rodada física da 1.27.15 em Foto automática, 1×, 2× e 3,5× tiveram fusão aprovada e tempos de 15,06 s, 10,65 s e 10,12 s. Em 2×, o plano de exposição usou 33,33 ms e ISO 2814 a partir da medição de 16,67 ms e ISO 5627. A tele direta de 3,5× confirmou foco em 518 ms. As tentativas de 0,6× e 10× foram vetadas por ruído. Em 10×, o veto ocorreu tanto no automático quanto com Máx detalhe.
+
+Em 6×, 7× e 8×, a 1.27.15 usou a física 2 após falha da tele e entregou em 6,86 s, 4,77 s e 4,36 s. Apesar de foco confirmado nos metadados, os JPEGs tinham o rótulo desfocado. A rajada pediu zoom 1 para obter o recorte central, com grades de 682 × 512, 584 × 438 e 512 × 384. Em 6×, a posição de foco reportada passou de 2,17 na prévia a 1,54 durante a captura. Os números do atuador não representam distância física no firmware observado.
+
+A 1.27.16 preserva a razão de zoom da prévia ao disparar acima de 3× quando a câmera lógica não oferece foco calibrado. A tele direta conserva o fluxo de reconstrução com recorte nativo. A medida de resolução do JPEG não indica a resolução óptica do recorte. A regressão de software cobre a escolha da grade no caminho lógico e na tele direta.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

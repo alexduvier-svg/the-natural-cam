@@ -2124,7 +2124,8 @@ final class CameraController {
                 CaptureDirector.Kind kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE
                         : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
                 CaptureDirector.Scene sc = captureScene(kind);
-                sc.nativeGridSafe = BurstExposurePolicy.allowAutomaticManual(caps.logicalMultiCamera, caps.mainId, lastPhys);
+                sc.nativeGridSafe = BurstExposurePolicy.allowNativeGrid(caps.logicalMultiCamera, caps.mainId, lastPhys,
+                        caps.focusCalibrated, sc.zoom);
                 j.sheet.put("tremor_rad_s", round2(Math.max(0, sc.shakeRadS)));
                 plan = mode == Mode.NOITE ? CaptureDirector.decide(sc) : CaptureDirector.decidePublished(sc);
                 burstTarget = plan.frames;

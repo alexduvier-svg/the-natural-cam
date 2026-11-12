@@ -21,6 +21,12 @@ final class BurstExposurePolicy {
     static boolean allowAutomaticManual(boolean logical, String mainId, String activeId) {
         return !logical || (mainId != null && mainId.equals(activeId));
     }
+    static boolean allowNativeGrid(boolean logical, String mainId, String activeId, boolean focusCalibrated,
+                                   float zoom) {
+        // On the logical Reno camera, a native-grid request can refocus the uncalibrated actuator.
+        return allowAutomaticManual(logical, mainId, activeId) && (!logical || focusCalibrated || zoom < 3f);
+    }
+
     /** Zero means keep HAL AE: clipping ISO would change the photon exposure and darken/blow out the shot. */
     static int equivalentIso(int currentIso,long currentNs,long targetNs,int lower,int upper) {
         if(currentIso<=0 || currentNs<=0 || targetNs<=0 || lower<=0 || upper<lower)return 0;
