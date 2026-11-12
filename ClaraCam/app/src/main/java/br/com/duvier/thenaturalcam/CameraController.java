@@ -214,8 +214,7 @@ final class CameraController {
             mainFd = fd;
             mainFdAt = now;
         }
-        // volta automática para a tele só quando a PRINCIPAL tinha medido perto (motivo 1); se foi a
-        // tele que não focou (escuro, pouca textura), fica na principal até escolher o zoom de novo
+        // Retorna à tele quando a principal confirma afastamento estável após escolher o recorte por proximidade.
         if (!onTele && nearMode && nearReason == 1 && zoom >= logicalCaps.teleRatio * 0.97f) {
             // na principal por estar perto: objeto além de ~55 cm por 1,5 s → a tele já foca
             float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
@@ -2153,7 +2152,12 @@ final class CameraController {
                 j.sheet.put("longa_duracao_s", longSeconds);
             }
             j.sheet.put("tamanho", caps.nightYuvSize.toString());
-            j.sheet.put("reducao_ruido_por_quadro", caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL) ? "MINIMAL" : "FAST");
+            boolean noisyUltrawide = mode == Mode.FOTO && CaptureDirector.darkUltrawide(zoom, lastIso);
+            int frameNr = CameraMetadata.NOISE_REDUCTION_MODE_FAST;
+            if ((!noisyUltrawide || !caps.supportsNr(frameNr))
+                    && caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL))
+                frameNr = CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL;
+            j.sheet.put("reducao_ruido_por_quadro", caps.supportsNr(frameNr) ? nrName(frameNr) : "padrão da câmera");
             job = j;
             // Alinhamento corrige o deslocamento entre quadros. Noite pode expor mais por quadro
             // quando o movimento observado permite; Foto preserva um obturador já rápido.
@@ -2229,11 +2233,7 @@ final class CameraController {
                     b.set(CaptureRequest.SENSOR_FRAME_DURATION, mode == Mode.LONGA ? Math.max(nightExp, Math.min(lastExposure, 33_333_333L)) : nightExp);
                 }
                 // A fusão limpa o ruído; pedir pouca redução por quadro preserva o detalhe fino.
-                if (caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL)) {
-                    b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_MINIMAL);
-                } else if (caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_FAST)) {
-                    b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_FAST);
-                }
+                if (caps.supportsNr(frameNr)) b.set(CaptureRequest.NOISE_REDUCTION_MODE, frameNr);
                 if (teleFallback() && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
                     // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
@@ -2599,7 +2599,8 @@ final class CameraController {
                 stamp(j, "tempo_etapa_verificador_ms", tt);
                 busy("Gravando…", 0.95f);
                 if (j.denoise > 0 && finishNoise > 1.5 && j.regional.noiseGuide == null
-                        && j.regional.faceProtection != ShadowProtection.ALL) {
+                        && j.regional.faceProtection != ShadowProtection.ALL
+                        && (!j.checksPhotoDelivery() || ResidualNoiseRefiner.needsStrongShadowCleaning(finalFrame))) {
                     busy("Limpando sombras…", 0.935f);
                     BurstFusion.shadowDenoise(finalFrame, BurstFusion.noiseModel(finalFrame), 0.9f);
                     ShadowProtection.restrict(safe[0], finalFrame, j.regional.faceProtection);

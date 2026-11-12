@@ -117,6 +117,18 @@ public class CaptureQualityRegressionTest {
         assertEquals(preview, BurstExposurePolicy.targetExposure(155, preview, 20_000_000L, true));
     }
 
+    @Test public void darkUltrawideCanCollectTwelveFramesWithMaximumOff() {
+        CaptureDirector.Scene scene = new CaptureDirector.Scene();
+        scene.iso = 4143;
+        scene.zoom = .6f;
+        assertEquals(12, CaptureDirector.decidePublished(scene).frames);
+        scene.zoom = 1f;
+        assertEquals(10, CaptureDirector.decidePublished(scene).frames);
+        scene.zoom = .6f;
+        scene.iso = 200;
+        assertEquals(6, CaptureDirector.decidePublished(scene).frames);
+    }
+
     @Test public void uncalibratedLogicalZoomDoesNotChangeSensorGridAtShutter() {
         assertFalse(BurstExposurePolicy.allowNativeGrid(true, "2", "2", false, 6f));
         assertFalse(BurstExposurePolicy.allowNativeGrid(true, "2", "4", false, 10f));

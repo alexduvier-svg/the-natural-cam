@@ -12,6 +12,7 @@ public class ResidualNoiseRefinerTest {
         Arrays.fill(frame.u, (byte) 124);
         Arrays.fill(frame.v, (byte) 132);
         assertFalse(ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+        assertFalse(ResidualNoiseRefiner.needsStrongShadowCleaning(frame));
 
         Random random = new Random(3450);
         for (int y = 0; y < frame.height; y += 2) for (int x = 0; x < frame.width; x += 2) {
@@ -27,6 +28,7 @@ public class ResidualNoiseRefinerTest {
             frame.v[i] = (byte) (132 + random.nextInt(23) - 11);
         }
         assertTrue(ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+        assertTrue(ResidualNoiseRefiner.needsStrongShadowCleaning(frame));
 
         Arrays.fill(frame.y, (byte) 175);
         assertFalse("Without enough shadow samples the shadow veto is inconclusive",

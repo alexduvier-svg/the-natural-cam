@@ -26,6 +26,11 @@ final class ResidualNoiseRefiner {
                 Math.min(near[SHADOW_CHROMA], far[SHADOW_CHROMA]));
     }
 
+    static boolean needsStrongShadowCleaning(YuvFrame frame) {
+        float[] estimates = profile(frame, Double.NaN);
+        return estimates[SHADOW] >= 1.8f || estimates[SHADOW_CHROMA] >= 1.4f;
+    }
+
     static final class Report {
         double sigma, shadowSigma, shadowChromaSigma, meanLumaWeight, meanChromaWeight;
         boolean lumaApplied, chromaApplied;

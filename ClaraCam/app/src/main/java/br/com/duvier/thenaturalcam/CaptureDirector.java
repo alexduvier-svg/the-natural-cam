@@ -139,6 +139,10 @@ public final class CaptureDirector {
         return p;
     }
 
+    static boolean darkUltrawide(float zoom, int iso) {
+        return zoom < .9f && iso >= 3200;
+    }
+
     /** Published 1.24.1 Photo/Portrait capture policy, retained after device A/B regressions. */
     static Plan decidePublished(Scene s) {
         Plan p = new Plan();
@@ -151,6 +155,7 @@ public final class CaptureDirector {
         if (s.kind == Kind.NOITE) frames += 2;
         if (s.kind == Kind.RUA) frames = 3;
         if (s.maxPolicy) frames += 4;
+        if (s.kind == Kind.FOTO && darkUltrawide(s.zoom, iso)) frames = Math.max(frames, 12);
         if (s.stackOff) frames = 1;
         // ---- zoom por super-resolução ------------------------------------------------------
         boolean srKind = s.kind == Kind.FOTO || s.kind == Kind.RETRATO || s.kind == Kind.NOITE;

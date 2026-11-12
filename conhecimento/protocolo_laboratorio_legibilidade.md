@@ -194,6 +194,22 @@ Em 6×, 7× e 8×, a 1.27.15 usou a física 2 após falha da tele e entregou em 
 
 A 1.27.16 preserva a razão de zoom da prévia ao disparar acima de 3× quando a câmera lógica não oferece foco calibrado. A tele direta conserva o fluxo de reconstrução com recorte nativo. A medida de resolução do JPEG não indica a resolução óptica do recorte. A regressão de software cobre a escolha da grade no caminho lógico e na tele direta.
 
+### Validação do foco em 1.27.16 e ajuste da ultra-angular em 1.27.17
+
+Com a razão de zoom preservada na captura da câmera lógica, a física 2 produziu JPEGs com o rótulo novamente legível em 6×, 7× e 8×. Em 6× automático, a posição reportada foi 2,72185 tanto na prévia quanto na rajada, com zoom 6 efetivamente registrado. São ensaios sob iluminação interna, com diferenças de posição, exposição e movimento entre disparos.
+
+| Zoom | Automático | Máx detalhe |
+| --- | ---: | ---: |
+| 1× | 15,06 s na 1.27.15 | 23,23 s |
+| 2× | 10,65 s na 1.27.15 | 10,07 s |
+| 3,5× | 10,12 s na 1.27.15, tele direta | 16,59 s, física 2 pela lógica |
+| 6× | 16,93 s | 20,92 s |
+| 7× | 12,50 s | 16,75 s |
+| 8× | 8,92 s | 18,29 s |
+| 10× | Vetada por ruído | Vetada por ruído |
+
+Em 6× a 8×, as reservas do Máx detalhe deixaram grão mais visível que as fusões aprovadas do automático em 7× e 8×. Em 6×, o automático e o Máx detalhe produziram ruído semelhante. A 1.27.17 decide pela limpeza forte de sombras a partir da medição espacial do candidato. Isso evita chamar a etapa de vários segundos quando a fusão já baixou o ruído de sombra. Em 0,6× com ISO a partir de 3200, o automático pode usar 12 quadros e solicitar FAST por quadro quando anunciado pelo dispositivo. A regra foi motivada pelas recusas repetidas da ultra-angular no ensaio físico da 1.27.14 e 1.27.15.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
