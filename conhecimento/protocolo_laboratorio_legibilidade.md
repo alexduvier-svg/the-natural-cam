@@ -128,6 +128,25 @@ O usuário relatou oscilação entre 35 e 40 cm. A câmera lógica passa a aceit
 
 O controle de desfoque em Foto fica disponível a partir de 3×. Quando ligado, a cópia começa o desfoque depois de uma faixa curta de profundidade atrás do plano focado e preserva o JPEG da captura. Para a cópia à distância, a mistura em luz linear conserva os níveis das áreas uniformes, inclusive nos realces. A regressão de laboratório verifica frente, plano focado, faixa adjacente e cor uniforme do fundo. A revisão de JPEG de 4096 pixels carrega a dimensão original. A validação de 35–40 cm e do desfoque em cenas reais de 3× a 10× requer a câmera disponível e distância aferida.
 
+### Ensaio físico da 1.27.13 a 35–40 cm informados pelo usuário
+
+Em 3,5× e EV 0, o toque no rótulo confirmou foco em 508 ms na tele direta. Duas capturas em Máx detalhe com um único toque registraram AF travado e a mesma posição do atuador de 2,6316. O segundo disparo ocorreu depois de a primeira cópia óptica ficar disponível. O resultado verifica persistência nesta cena e posição, com foco ainda por repetir em outras distâncias e assuntos.
+
+Os originais de 12,58 MP foram publicados em 22,40 s e 16,03 s e pesaram 7.955.020 e 8.051.491 bytes. Em ambos, a super-resolução a 1,5× e a fusão simples perderam contraste numa região. O verificador conservou um quadro, aceitou a limpeza de cor nas sombras e reverteu a limpeza de luminância. A captura continua acima da meta de aproximadamente 10 s e o grão permanece nos originais. Na primeira, o último quadro chegou em 1,35 s, enquanto fusão, verificação e acabamento regional somaram 17,43 s em etapas consecutivas.
+
+As duas cópias ópticas saíram em f/11. A primeira manteve 3072 × 4096 pixels e pesou 6.347.797 bytes. Na comparação com seu original, o perfil de contraste do rótulo foi de 6,57 para 6,55 níveis Y e o dos frisos permaneceu em 3,53. Na área amostrada do fundo, o resíduo espacial Y caiu de 16,75 para 1,25 e a média subiu de 71,59 para 72,52. A medida do fundo inclui o desfoque aplicado à cópia. O contorno, as letras e a textura da mesa à frente ficaram visualmente preservados. O teste em 3,5× cobre o acionamento e o resultado físico do bokeh.
+
+Na mesma cena, a tele direta confirmou o foco após novo toque em cada focal. Os arquivos foram avaliados no trecho do rótulo que permaneceu no quadro. O frasco ficou parcialmente cortado pela esquerda conforme o enquadramento já mostrado na prévia.
+
+| Zoom | Foco ao toque | Quadros recebidos | Tempo do JPEG original | Bytes do original | Verificador |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 6× | 402 ms | 12 | 10,39 s | 2.561.711 | Fusão e limpeza regional aceitas |
+| 7× | 404 ms | 12 | 11,28 s | 5.489.241 | Referência preservada e ruído de cor tratado |
+| 8× | 616 ms | 12 | 10,35 s | 2.322.407 | Fusão e limpeza regional aceitas |
+| 10× | 517 ms | 16 | 9,33 s | 2.122.373 | Fusão e limpeza regional aceitas |
+
+Nas quatro focais, a cópia em f/11 foi gravada depois do original. A inspeção visual confirmou a suavização no fundo com o contorno e as letras visíveis preservados. Em 7×, o original ficou mais granulado que a cópia e a fusão foi recusada por perda de contraste em uma região. A prévia em 8× e 10× exigiu novo toque para recuperar foco no frasco após a troca de enquadramento. São resultados individuais em Máx detalhe. A persistência após disparos consecutivos foi testada em 3,5×.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
