@@ -1113,21 +1113,31 @@ public final class BurstFusion {
         if (fused == null || fused.width != w || fused.height != h || gw < 3 || gh < 3) return 0;
         int[] original = down4(reference.y, w, h), merged = down4(fused.y, w, h);
         float[] weights = new float[gw * gh];
-        float rangeLimit = (float)Math.max(4, Math.min(9, noise * 1.2));
-        float differenceLimit = (float)Math.max(3, Math.min(8, noise));
+        float[] colorWeights = new float[gw * gh];
+        int[] colorDeltaU = shadowColorDelta(reference.u, fused.u, reference.chromaWidth, gw, gh);
+        int[] colorDeltaV = shadowColorDelta(reference.v, fused.v, reference.chromaWidth, gw, gh);
+        float guideNoise = (float)Math.max(1, Math.min(16, noise));
+        float levelTolerance = Math.max(2f, guideNoise * .35f);
+        float levelFade = Math.max(3f, guideNoise * .65f);
         for (int y = 1; y < gh - 1; y++) for (int x = 1; x < gw - 1; x++) {
             int i = y * gw + x;
-            int min = 255, max = 0, difference = 0;
-            for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
-                int p = i + dy * gw + dx;
-                min = Math.min(min, Math.min(original[p], merged[p]));
-                max = Math.max(max, Math.max(original[p], merged[p]));
-                difference = Math.max(difference, Math.abs(original[p] - merged[p]));
-            }
-            weights[i] = shadowWeight(max) * (1 - smooth01((max - min - 3) / rangeLimit))
-                    * (1 - smooth01((difference - 2) / differenceLimit));
+            float referenceLevel = patchLevel(original, i, gw);
+            float mergedLevel = patchLevel(merged, i, gw);
+            // A single grain peak cannot veto a whole patch. Coherent dark ridges still vote.
+            float referenceContrast = patchContrast(original, i, gw, guideNoise);
+            float mergedContrast = patchContrast(merged, i, gw, 0);
+            float structure = Math.max(referenceContrast, mergedContrast);
+            float levelDifference = Math.abs(referenceLevel - mergedLevel);
+            weights[i] = shadowWeight(Math.round(Math.max(referenceLevel, mergedLevel)))
+                    * (1 - smooth01((structure - 4f) / 8f))
+                    * (1 - smooth01((levelDifference - levelTolerance) / levelFade));
+            if (weights[i] < .01f) continue;
+            float colorBias = Math.max(Math.abs(patchLevel(colorDeltaU, i, gw)), Math.abs(patchLevel(colorDeltaV, i, gw)));
+            float colorEdge = Math.max(patchContrast(colorDeltaU, i, gw, 0), patchContrast(colorDeltaV, i, gw, 0));
+            colorWeights[i] = 1 - smooth01((Math.max(colorBias, colorEdge) - 2f) / 4f);
         }
-        float detailLimit = (float)Math.max(6, noise * 2.5);
+        float detailLimit = Math.max(5f, guideNoise * 1.5f);
+        float colorLimit = Math.max(6f, Math.min(12f, guideNoise));
         double[] rows = new double[reference.chromaHeight];
         IntStream.range(0, reference.chromaHeight).parallel().forEach(cy -> {
             double sum = 0;
@@ -1138,19 +1148,56 @@ public final class BurstFusion {
                 for (int dy = 0; dy < 2 && cy * 2 + dy < h; dy++) for (int dx = 0; dx < 2 && cx * 2 + dx < w; dx++) {
                     int i = (cy * 2 + dy) * w + cx * 2 + dx;
                     int a = reference.y[i] & 255, b = fused.y[i] & 255;
-                    float accepted = weight * shadowWeight(Math.max(a, b))
+                    float accepted = Math.min(weight, shadowWeight(Math.max(a, b)))
                             * (1 - smooth01((Math.abs(a - b) - detailLimit) / detailLimit));
                     reference.y[i] = blendByte(a, b, accepted);
                     chromaWeight = Math.min(chromaWeight, accepted);
                     sum += accepted;
                 }
                 int i = cy * reference.chromaWidth + cx;
-                reference.u[i] = blendByte(reference.u[i] & 255, fused.u[i] & 255, chromaWeight);
-                reference.v[i] = blendByte(reference.v[i] & 255, fused.v[i] & 255, chromaWeight);
+                int u = reference.u[i] & 255, v = reference.v[i] & 255;
+                int fusedU = fused.u[i] & 255, fusedV = fused.v[i] & 255;
+                // Isoluminant color boundaries can move without any change in the luma guide.
+                int colorDifference = Math.max(Math.abs(u - fusedU), Math.abs(v - fusedV));
+                float compatibleColor = interpolateShadow(colorWeights, gw, gh, 2 * cx + .5f, 2 * cy + .5f)
+                        * (1 - smooth01((colorDifference - colorLimit) / colorLimit));
+                reference.u[i] = blendByte(u, fusedU, chromaWeight * compatibleColor);
+                reference.v[i] = blendByte(v, fusedV, chromaWeight * compatibleColor);
             }
             rows[cy] = sum;
         });
         return Arrays.stream(rows).sum() / reference.y.length;
+    }
+
+    private static float patchLevel(int[] guide, int i, int stride) {
+        int sum = 0;
+        for (int row = i - stride; row <= i + stride; row += stride)
+            sum += guide[row - 1] + guide[row] + guide[row + 1];
+        return sum / 9f;
+    }
+
+    private static int[] shadowColorDelta(byte[] reference, byte[] merged, int stride, int width, int height) {
+        int[] differences = new int[width * height];
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            differences[y * width + x] = avg2x2(reference, stride, x * 2, y * 2)
+                    - avg2x2(merged, stride, x * 2, y * 2);
+        }
+        return differences;
+    }
+
+    private static float patchContrast(int[] guide, int i, int stride, float noise) {
+        int a = guide[i - stride - 1], b = guide[i - stride], c = guide[i - stride + 1];
+        int d = guide[i - 1], e = guide[i], f = guide[i + 1];
+        int g = guide[i + stride - 1], h = guide[i + stride], j = guide[i + stride + 1];
+        int horizontal = span(a + d + g, b + e + h, c + f + j);
+        int vertical = span(a + b + c, d + e + f, g + h + j);
+        float range = Math.max(horizontal, vertical) / 3f;
+        float directional = Math.abs(horizontal - vertical) / 2f;
+        return Math.max(range - .45f * noise, directional);
+    }
+
+    private static int span(int a, int b, int c) {
+        return Math.max(a, Math.max(b, c)) - Math.min(a, Math.min(b, c));
     }
 
     private static float interpolateShadow(float[] weights, int w, int h, float x, float y) {

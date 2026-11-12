@@ -10,6 +10,12 @@ final class FocusScanGuard {
     static boolean captureReady(boolean requiresFocus, boolean searching, boolean terminal, long elapsedMs) {
         return !requiresFocus || (!searching && terminal) || elapsedMs >= 1800;
     }
+    /** A stable, textured patch can disprove a focus lock when its detail drops sharply. */
+    static boolean lostDetail(float before, float after, boolean motionMeasured, double speed) {
+        return motionMeasured && speed <= 120 && Float.isFinite(before) && Float.isFinite(after)
+                && before >= .002f && after >= 0 && after < before * .5f;
+    }
+
     boolean accept(long requestToken, boolean startResult, boolean scanning, boolean terminal) {
         if (!pending || requestToken != token) return false;
         if (startResult || scanning) acknowledged = true;

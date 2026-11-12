@@ -94,6 +94,14 @@ A 1.27.9-codex, versionCode 75, foi instalada sobre a 1.27.8-codex e conferida p
 
 Na captura física de referência da 1.27.8 em 3,5×, o rótulo saiu parcialmente fora do quadro e desfocado. A prévia posterior mostrou a mesma composição. As posições variaram entre capturas. O ensaio permite documentar foco, enquadramento e latência individuais, com comparação controlada de ruído e foco por repetir. O caso de manchas reintroduzidas na recuperação local foi reproduzido e corrigido em bancada. As capturas físicas acima seguiram outros caminhos de reserva ou fusão. O foco ao toque, a limpeza das sombras quando prevalece a referência e a meta de aproximadamente 10 s continuam pendentes.
 
+## Reserva de sombras e foco ao toque na 1.27.10-codex
+
+A retomada partiu do commit `1e2afb9`, versão 1.27.9-codex, código 75, com hash do APK local confirmado no Reno. No frasco em 3,5×, a captura nítida anterior usou pouco da fusão nas sombras. O verificador recusou duas limpezas posteriores de luminância. No código, um extremo entre nove blocos vizinhos podia vetar todo o trecho, inclusive numa sombra plana.
+
+A reserva agora compara níveis médios e contraste direcional em regiões alinhadas. A crominância tem sua própria verificação de compatibilidade e a validação final continua protegendo bordas e rosto. O teste sintético de 4096 × 3072, após quatro aquecimentos e sete medições por versão, reduziu o erro RMS de luminância na parede de 4,42 para 0,38 níveis Y e recuperou os oito níveis de contraste dos frisos escuros. A etapa isolada passou de 51 para 101 ms no PC. A regressão unitária também protege a posição de bordas cromáticas isoluminantes e reproduziu a falha na base.
+
+Na tele direta, a primeira falha explícita permite tentar uma região maior. Se a tentativa não convergir ou a tele exceder o tempo da busca, o app pode usar a câmera lógica e refazer o foco no ponto tocado. Um disparo que já aguardava o foco continua após a mudança. No firmware Reno observado, uma queda forte de nitidez num alvo estável pode rejeitar a confirmação do AF travado. Essa comparação exige uma região inicialmente texturizada e dados válidos de movimento da prévia. A exposição mantém o valor pedido pelo usuário em EV, com a quantização da lente em uso. O sensor físico escolhido pela câmera lógica deve ser conferido na ficha.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

@@ -145,14 +145,24 @@ final class CameraController {
     private volatile long openedAt;
 
     /** Troca de lente física: fecha e abre a outra (≈ meio segundo), sem travar a tela. */
-    private void switchLens(boolean tele) {
-        if (tele == onTele && device != null) return; // troca já feita (pedidos repetidos)
+    private void switchLens(boolean tele, boolean preserveTarget) {
+        if (tele == onTele && device != null) return;
+        restoreTapOnPreview = preserveTarget && (regions != null || restoreTapOnPreview);
         onTele = tele;
         caps = tele ? teleCaps : logicalCaps;
         regions = null;
+        confirmedTapRequest = 0;
+        if (!restoreTapOnPreview) activeTapRequest = 0;
         tapFocusMs = -1L;
-        tapStartedAtMs = 0L;
+        if (!restoreTapOnPreview) tapStartedAtMs = 0L;
         tapHold = -1f;
+        lastCrop = null;
+        lastPhys = null;
+        lastAfRegions = null;
+        faceRegions = null;
+        lastAfState = lastAfMode = -1;
+        lastFocusDistance = -1f;
+        previewMotion.reset();
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
         closeAll();
@@ -180,7 +190,7 @@ final class CameraController {
     }
 
     private void checkNearFar(Integer af, Float fd) {
-        if (capturing || logicalCaps == null || teleCaps == null) return;
+        if (capturing || userLock || focusDistance >= 0 || logicalCaps == null || teleCaps == null) return;
         long now = SystemClock.elapsedRealtime();
         // Ao abrir, a lente começa parada num extremo e o AF ainda procura: decidir troca de lente
         // nessa hora fazia o foco "agarrar" (troca no meio da procura). Só depois de 1,5 s aberta e
@@ -207,31 +217,37 @@ final class CameraController {
                 if (farSince == 0) farSince = now;
                 else if (now - farSince > 1500) {
                     nearMode = false;
-                    handler.post(() -> switchLens(true));
+                    switchLens(true, true);
+                    return;
                 }
             } else {
                 farSince = 0;
             }
         }
-        if (onTele) {
-            // Só o ESTADO do AF decide: a distância informada pela tele NÃO é calibrada neste
-            // aparelho (o sistema declara UNCALIBRATED) — a regra "lente no limite" trocava para a
-            // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
+        if (onTele && regions == null) {
             boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
                     || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
             if (unfocused && !teleFailUsed) {
                 if (nearSince == 0) nearSince = now;
-                else if (now - nearSince > 2500) {
-                    nearMode = true; // tele não consegue focar: tenta a principal (uma vez só)
-                    nearReason = 2;
-                    teleFailUsed = true;
-                    handler.post(() -> switchLens(false));
-                }
+                else if (now - nearSince > 2500) fallbackFromTele(2);
             } else {
                 nearSince = 0;
             }
         }
-        // a volta para a tele acontece ao escolher um zoom de novo (setZoom zera nearMode)
+    }
+
+    private boolean fallbackFromTele(int reason) {
+        boolean waitingForTap = capturing && job == null && regions != null
+                && (preState == PRE_WAIT_START || preState == PRE_WAIT_DONE || preState == PRE_WAIT_FOCUS);
+        if (!onTele || teleFailUsed || (capturing && !waitingForTap) || userLock || focusDistance >= 0
+                || logicalCaps == null || session == null) return false;
+        long queuedShutter = waitingForTap ? shutterAtMs : 0;
+        nearMode = true;
+        nearReason = reason;
+        teleFailUsed = true;
+        switchLens(false, true);
+        shutterAfterFocusSwitch = queuedShutter;
+        return true;
     }
 
     /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
@@ -386,7 +402,12 @@ final class CameraController {
     }
 
     void stop() {
-        handler.post(() -> { wanted = false; colorSensors.stop(); closeAll(); });
+        handler.post(() -> {
+            wanted = false;
+            restoreTapOnPreview = false;
+            colorSensors.stop();
+            closeAll();
+        });
     }
 
     void release() {
@@ -409,11 +430,7 @@ final class CameraController {
 
     float activeFocusLimit() { return caps != null ? caps.minFocus : 0f; }
 
-    int afStateNow() {
-        return lastAfState;
-    }
-
-    /**
+     /**
      * Trava a lente na distância indicada (dioptrias) — usado para "agarrar" o ponto de maior
      * nitidez medido durante a varredura do toque. Vale até novo toque, troca de zoom ou modo.
      */
@@ -446,6 +463,8 @@ final class CameraController {
             }
             tapHold = -1f;
             regions = null;
+            restoreTapOnPreview = false;
+            activeTapRequest = confirmedTapRequest = 0;
             configure();
         });
     }
@@ -482,12 +501,17 @@ final class CameraController {
             }
             boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
             if (wantTele != onTele && !capturing) {
-                switchLens(wantTele);
+                switchLens(wantTele, false);
                 return;
             }
             // enquadramento mudou: o ponto tocado antes não corresponde mais ao mesmo objeto
-            if (regions != null && !userLock && Math.abs(Math.log(zoom / regionsZoom)) > 0.05) {
+            if ((regions != null || restoreTapOnPreview) && !userLock
+                    && Math.abs(Math.log(zoom / regionsZoom)) > 0.05) {
                 regions = null;
+                restoreTapOnPreview = false;
+                activeTapRequest = confirmedTapRequest = 0;
+                focusScan.invalidate();
+                tapScanning = false;
                 tapHold = -1f;
             }
             if (session != null && !capturing) startRepeating();
@@ -515,6 +539,7 @@ final class CameraController {
         handler.post(() -> {
             if (session == null || capturing) return;
             userLock = on;
+            confirmedTapRequest = 0;
             focusScan.invalidate();
             tapScanning = false;
             if (on) {
@@ -631,38 +656,54 @@ final class CameraController {
     }
 
     /** Toque para focar. nx, ny em 0..1 relativos à prévia em pé (retrato). */
-    void focusAt(float nx, float ny) {
+    long focusAt(float nx, float ny) {
+        long request = ++nextTapRequest;
         handler.post(() -> {
             if (session == null || caps == null || capturing) return;
-            // Toque de novo no mesmo objeto (perto do toque anterior, mesmo zoom): se o foco já
-            // está travado nele, ou a busca ainda está em andamento, MANTÉM — não refaz a busca
-            // (antes o foco "respirava" a cada toque). Outro ponto da cena busca normalmente.
             float dx = nx - tapX, dy = ny - tapY;
-            boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < 0.01f && dx * dx + dy * dy < 0.08f * 0.08f;
-            if (samePlace && (tapScanning || lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED)) {
-                Log.w(TAG, "foco mantido: toque no mesmo ponto já focado (" + nx + "," + ny + ")");
-                return;
-            }
+            boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < .01f
+                    && dx * dx + dy * dy < .08f * .08f;
+            activeTapRequest = request;
+            confirmedTapRequest = 0;
+            if (samePlace && tapScanning) return;
             tapX = nx;
             tapY = ny;
-            tapRetries = 0;
-            tapCaf = false;
-            tapHold = -1f;
-            regions = regionAt(nx, ny, 0.07f, MeteringRectangle.METERING_WEIGHT_MAX - 1);
-            if (regions == null) return;
-            regionsZoom = zoom;
             tapStartedAtMs = SystemClock.elapsedRealtime();
-            tapFocusMs = -1L;
-            scanTap();
-            Rect rr = regions[0].getRect();
-            Rect crop = lastCrop;
-            Log.w(TAG, "foco toque n=(" + nx + "," + ny + ") zoom=" + zoom + " regiao=" + rr.toShortString()
-                    + " recorte=" + (crop == null ? "?" : crop.toShortString()));
-            // o ponto tocado vale até novo toque, troca de zoom ou de modo (não expira sozinho)
+            beginTapScan();
+        });
+        return request;
+    }
+
+    private void beginTapScan() {
+        tapRetries = 0;
+        tapHold = -1f;
+        regions = regionAt(tapX, tapY, .07f, MeteringRectangle.METERING_WEIGHT_MAX - 1);
+        if (regions == null) return;
+        regionsZoom = zoom;
+        tapFocusMs = -1L;
+        scanTap();
+    }
+
+    boolean tapFocusLocked(long request) {
+        return confirmedTapRequest == request;
+    }
+
+    void verifyTapDetail(long request, float before, float after) {
+        handler.post(() -> {
+            if (request != activeTapRequest || confirmedTapRequest != request || regions == null
+                    || !verifiedRenoFocusProfile() || capturing || userLock || focusDistance >= 0
+                    || followFocusPoint || lastAfState != CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) return;
+            PreviewMotionMeter.Reading motion = previewMotion.reading(SystemClock.elapsedRealtimeNanos());
+            if (FocusScanGuard.lostDetail(before, after, motion.measured, motion.pixelsPerSecond))
+                fallbackFromTele(3);
         });
     }
 
     private float tapX, tapY;
+    private long nextTapRequest, activeTapRequest;
+    private volatile long confirmedTapRequest;
+    private boolean restoreTapOnPreview;
+    private long shutterAfterFocusSwitch;
     private long tapStartedAtMs, tapFocusMs = -1L;
     private int tapRetries;
     private boolean tapScanning;
@@ -691,6 +732,8 @@ final class CameraController {
     private void scanTap() {
         if (session == null || device == null) return;
         final long focusToken = focusScan.begin();
+        tapScanning = true;
+        confirmedTapRequest = 0;
         tapCaf = false;
         try {
             startRepeating(); // a prévia passa a pedir AF AUTO com a nova região
@@ -707,22 +750,22 @@ final class CameraController {
                     b.addTarget(previewSurface);
                     applyCommon(b, false, false);
                     b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
-                    tapScanning = true;
                     session.capture(b.build(), liveCallback, handler);
                     handler.postDelayed(() -> {
                         if (gen != generation || job != null || !focusScan.timeout(focusToken)) return;
                         tapScanning = false;
                         lastAfState = -1;
-                        if (tapRetries < 2 && regions != null) {
-                            tapRetries++;
-                            scanTap();
-                        } else Log.w(TAG, "foco sem confirmação: timeout");
-                    }, 1500);
+                        retryTap(true);
+                    }, onTele ? 1050 : 1500);
                 } catch (Exception e) {
+                    tapScanning = false;
+                    focusScan.invalidate();
                     Log.w(TAG, "foco", e);
                 }
             }, 70);
         } catch (Exception e) {
+            tapScanning = false;
+            focusScan.invalidate();
             Log.w(TAG, "foco", e);
         }
     }
@@ -735,73 +778,77 @@ final class CameraController {
         Integer trigger = request.get(CaptureRequest.CONTROL_AF_TRIGGER);
         if (!focusScan.accept(token, trigger != null && trigger == CameraMetadata.CONTROL_AF_TRIGGER_START,
                 st == CameraMetadata.CONTROL_AF_STATE_ACTIVE_SCAN, afDone(st))) return;
+        tapScanning = false;
         if (st == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) {
-            tapScanning = false;
-            if (tapStartedAtMs > 0) {
-                tapFocusMs = SystemClock.elapsedRealtime() - tapStartedAtMs;
-                tapStartedAtMs = 0;
-            }
+            confirmedTapRequest = activeTapRequest;
+            if (tapStartedAtMs > 0) tapFocusMs = SystemClock.elapsedRealtime() - tapStartedAtMs;
             if (followFocusPoint && !userLock && focusDistance < 0) {
                 tapCaf = true;
                 tapHold = -1f;
                 startRepeating();
             }
         } else if (st == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {
-            tapScanning = false;
-            if (tapRetries < 2 && regions != null) {
-                // Área sem textura em pouca luz: amplia a área (pega bordas próximas do ponto)
-                // e varre de novo — 14% e depois 26% do quadro em volta do toque.
-                tapRetries++;
-                regions = regionAt(tapX, tapY, tapRetries == 1 ? 0.14f : 0.26f, MeteringRectangle.METERING_WEIGHT_MAX - 1);
-                Log.w(TAG, "foco falhou; tentativa " + (tapRetries + 1) + " com área maior");
-                scanTap();
-            } else {
-                // Não volta ao foco contínuo (é ele que fica "indo e voltando"): o AF AUTO
-                // mantém a lente onde a última varredura parou até um novo toque.
-                Log.w(TAG, "foco não confirmado após 3 tentativas; mantendo a lente parada");
-            }
+            retryTap(false);
+        }
+    }
+
+    private void retryTap(boolean timeout) {
+        if (regions == null || job != null) return;
+        if ((timeout || tapRetries > 0) && fallbackFromTele(2)) return;
+        if (tapRetries < 2) {
+            tapRetries++;
+            regions = regionAt(tapX, tapY, tapRetries == 1 ? .14f : .26f, MeteringRectangle.METERING_WEIGHT_MAX - 1);
+            if (regions != null) scanTap();
         }
     }
 
     void capture() {
-        handler.post(() -> {
-            if (capturing || device == null || (session == null && ext == null)) return;
-            capturing = true;
-            shutterAtMs = SystemClock.elapsedRealtime();
-            reusedPreviewAe = false;
-            lastShotCrop = false;
-            lastShotZoom = 0f;
-            busy("Capturando…", -1);
-            try {
-                if (ext != null) {
-                    captureExtension();
-                } else if (yuvReader != null && mode == Mode.ASTRO) {
-                    astroBurst(); // tripé: exposição manual, sem medir
-                } else if (yuvReader != null && mode == Mode.RUA) {
-                    burst(); // Rua: dispara na hora, sem esperar foco/medição (instante decisivo)
-                } else if (mode == Mode.RAW && rawReader != null) {
-                    precaptureThen(() -> {
-                        if (isManual()) {
-                            rawBurst();
-                            return;
-                        }
-                        aeLocked = true;
-                        startRepeating();
-                        preAction = this::rawBurst;
-                        preState = PRE_WAIT_LOCK;
-                        preStartedAt = SystemClock.elapsedRealtime();
-                    });
-                } else if (yuvReader != null && (mode == Mode.NOITE || mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.LONGA)) {
-                    precaptureThen(this::lockAeThenBurst);
-                } else if (isManual()) {
-                    stillCapture();
-                } else {
-                    precaptureThen(this::stillCapture);
-                }
-            } catch (Exception e) {
-                fail("Falha ao capturar: " + e.getMessage());
+        long requestedAtMs = SystemClock.elapsedRealtime();
+        handler.post(() -> captureOnHandler(requestedAtMs));
+    }
+
+    private void captureOnHandler(long requestedAtMs) {
+        if (capturing) return;
+        if (restoreTapOnPreview) {
+            if (shutterAfterFocusSwitch == 0) shutterAfterFocusSwitch = requestedAtMs;
+            return;
+        }
+        if (device == null || (session == null && ext == null)) return;
+        capturing = true;
+        shutterAtMs = requestedAtMs;
+        reusedPreviewAe = false;
+        lastShotCrop = false;
+        lastShotZoom = 0f;
+        busy("Capturando…", -1);
+        try {
+            if (ext != null) {
+                captureExtension();
+            } else if (yuvReader != null && mode == Mode.ASTRO) {
+                astroBurst(); // tripé: exposição manual, sem medir
+            } else if (yuvReader != null && mode == Mode.RUA) {
+                burst(); // Rua: dispara na hora, sem esperar foco/medição (instante decisivo)
+            } else if (mode == Mode.RAW && rawReader != null) {
+                precaptureThen(() -> {
+                    if (isManual()) {
+                        rawBurst();
+                        return;
+                    }
+                    aeLocked = true;
+                    startRepeating();
+                    preAction = this::rawBurst;
+                    preState = PRE_WAIT_LOCK;
+                    preStartedAt = SystemClock.elapsedRealtime();
+                });
+            } else if (yuvReader != null && (mode == Mode.NOITE || mode == Mode.FOTO || mode == Mode.RETRATO || mode == Mode.LONGA)) {
+                precaptureThen(this::lockAeThenBurst);
+            } else if (isManual()) {
+                stillCapture();
+            } else {
+                precaptureThen(this::stillCapture);
             }
-        });
+        } catch (Exception e) {
+            fail("Falha ao capturar: " + e.getMessage());
+        }
     }
 
     // =====================================================================================
@@ -823,11 +870,17 @@ final class CameraController {
                         + logicalCaps.teleRatio + "×" : "indisponível"));
             }
             opening = true;
-            manager.openCamera(caps.id, new CameraDevice.StateCallback() {
+            CameraCaps openingCaps = caps;
+            int openingGeneration = generation;
+            manager.openCamera(openingCaps.id, new CameraDevice.StateCallback() {
                 @Override
                 public void onOpened(CameraDevice cameraDevice) {
                     opening = false;
-                    if (!wanted) { cameraDevice.close(); return; }
+                    if (!wanted || caps != openingCaps || generation != openingGeneration) {
+                        cameraDevice.close();
+                        if (wanted && device == null) openCamera();
+                        return;
+                    }
                     if (device != null && device != cameraDevice) device.close();
                     reopenTries = 0;
                     device = cameraDevice;
@@ -874,6 +927,7 @@ final class CameraController {
     private void closeAll() {
         burstAwbLocked = false;
         focusScan.invalidate();
+        confirmedTapRequest = 0;
         tapScanning = false;
         generation++;
         closeSession();
@@ -883,6 +937,8 @@ final class CameraController {
         }
         capturing = false;
         preState = PRE_IDLE;
+        preAction = null;
+        shutterAfterFocusSwitch = 0;
         burstFrames.clear();
         burstResults.clear();
     }
@@ -914,6 +970,13 @@ final class CameraController {
 
     private void configure() {
         if (device == null || texture == null) return;
+        if (regions != null && activeTapRequest != 0 && !userLock && focusDistance < 0) {
+            restoreTapOnPreview = true;
+            regions = null;
+        }
+        focusScan.invalidate();
+        confirmedTapRequest = 0;
+        tapScanning = false;
         generation++;
         closeSession();
         aeLocked = false;
@@ -1124,6 +1187,13 @@ final class CameraController {
         return CameraMetadata.CONTROL_AE_MODE_ON;
     }
 
+    private int compensationForLens() {
+        double uiStep = logicalCaps.evStep.doubleValue();
+        double lensStep = caps.evStep.doubleValue();
+        int steps = lensStep > 0 ? (int) Math.round(ev * uiStep / lensStep) : ev;
+        return clampI(steps, caps.evRange.getLower(), caps.evRange.getUpper());
+    }
+
     private void applyCommon(CaptureRequest.Builder b, boolean still, boolean maxRes) {
         b.setTag(Long.valueOf(focusScan.token()));
         b.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
@@ -1177,7 +1247,7 @@ final class CameraController {
         } else {
             b.set(CaptureRequest.CONTROL_AE_MODE, aeMode());
             b.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION,
-                    clampI(ev, caps.evRange.getLower(), caps.evRange.getUpper()));
+                    compensationForLens());
             b.set(CaptureRequest.CONTROL_AE_LOCK, (aeLocked || userLock) && caps.aeLock);
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO);
@@ -1225,7 +1295,7 @@ final class CameraController {
             Integer requestedEv = request.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION);
             Integer ae = result.get(CaptureResult.CONTROL_AE_STATE);
             boolean sameMetering = requestedZoom != null && Math.abs(requestedZoom - deviceZoom()) < .015f
-                    && requestedEv != null && requestedEv == clampI(ev, caps.evRange.getLower(), caps.evRange.getUpper());
+                    && requestedEv != null && requestedEv == compensationForLens();
             stablePreviewAeAtMs = sameMetering && aeReady(ae) ? SystemClock.elapsedRealtime() : 0;
             if (zoomRequestedAtMs > 0) {
                 Float observed = result.get(CaptureResult.CONTROL_ZOOM_RATIO);
@@ -1262,9 +1332,19 @@ final class CameraController {
             String physNow = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             if (physNow != null) lastPhys = physNow;
             if (af != null) onTapAf(af, request);
+            if (s != session) return;
             if (af != null) lastAfState = af;
-            // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
+            if (restoreTapOnPreview && requestedZoom != null && Math.abs(requestedZoom - deviceZoom()) < .015f) {
+                restoreTapOnPreview = false;
+                beginTapScan();
+                if (shutterAfterFocusSwitch != 0) {
+                    long queuedShutter = shutterAfterFocusSwitch;
+                    shutterAfterFocusSwitch = 0;
+                    captureOnHandler(queuedShutter);
+                }
+            }
             checkNearFar(af, lfd);
+            if (s != session) return;
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
                 android.hardware.camera2.params.Face best = null;
@@ -1395,7 +1475,7 @@ final class CameraController {
         // foco contínuo: dispara uma varredura final e só fotografa quando confirmar (até ~1,2 s)
         afTriggered = afNeedsTrigger();
         if (reusedPreviewAe && !afTriggered && !tapScanning && (regions == null
-                || lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED || tapHold >= 0 || focusDistance >= 0)) {
+                || tapConfirmedForCapture() || tapHold >= 0 || focusDistance >= 0)) {
             action.run();
             return;
         }
@@ -1412,14 +1492,21 @@ final class CameraController {
         }, 2300);
     }
 
+    private boolean tapConfirmedForCapture() {
+        return (activeTapRequest != 0 && activeTapRequest == confirmedTapRequest)
+                || (tapCaf && lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED);
+    }
+
     private void stepPrecapture(Integer ae) {
         if (preState == PRE_IDLE) return;
         long elapsed = SystemClock.elapsedRealtime() - preStartedAt;
         int st = ae != null ? ae : -1;
         // espera o foco confirmar quando foi disparado (limite 1,2 s para não travar o disparo)
         boolean requiresFocus = afTriggered || (regions != null && caps.minFocus > 0 && focusDistance < 0 && tapHold < 0);
-        boolean focusReady = FocusScanGuard.captureReady(requiresFocus, tapScanning,
-                afDone(lastAfState) || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED, elapsed);
+        boolean confirmed = regions != null && activeTapRequest != 0 ? tapConfirmedForCapture()
+                : lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                        || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
+        boolean focusReady = FocusScanGuard.captureReady(requiresFocus, tapScanning, confirmed, elapsed);
         switch (preState) {
             case PRE_WAIT_FOCUS:
                 if (focusReady && (aeReady(ae) || elapsed > 600)) runPreAction();
@@ -1547,7 +1634,7 @@ final class CameraController {
             j.sheet.put("sessao_geracao", generation);
             j.sheet.put("camera_logica", caps.logicalMultiCamera);
             j.sheet.put("foco_calibrado", caps.focusCalibrated);
-            j.sheet.put("alternativa_foco", nearMode ? (nearReason == 3 ? "perfil_empirico_reno_af_falso_sucesso"
+            j.sheet.put("alternativa_foco", nearMode ? (nearReason == 3 ? "perda_de_nitidez_no_alvo_da_previa"
                     : nearReason == 2 ? "falha_af_tele" : "distancia_calibrada") : JSONObject.NULL);
             j.sheet.put("foco_coordenadas", "retangulo_visivel_HAL_compatibilidade_referencia");
             j.sheet.put("foco_regiao_pedida", meteringJson(regions));
@@ -1563,7 +1650,7 @@ final class CameraController {
             j.sheet.put("processo", pipeline);
             j.sheet.put("zoom", zoom);
             j.sheet.put("ev", ev);
-            j.sheet.put("ev_compensacao_passos_ev", round2(ev * caps.evStep.doubleValue()));
+            j.sheet.put("ev_compensacao_passos_ev", round2(compensationForLens() * caps.evStep.doubleValue()));
             j.sheet.put("iso_manual", isManual() ? manualIso : 0);
             j.sheet.put("exposicao_manual_ns", isManual() ? manualExposureNs : 0);
             j.sheet.put("flash", flash);
@@ -2377,7 +2464,10 @@ final class CameraController {
                 if (selected.referenceOnly) {
                     finalFrame = QualityCheck.copy(refFrame);
                     float[] model = BurstFusion.noiseModel(finalFrame);
-                    double recovered = BurstFusion.recoverFusedShadows(finalFrame, shadowCandidate, model[8]);
+                    // The burst estimates grain before filtering. Bound its influence by the
+                    // reference estimate to avoid treating texture as noise in a moving scene.
+                    double guideNoise = Math.max(model[8], Math.min(model[8] * 1.6, fr.noiseBefore));
+                    double recovered = BurstFusion.recoverFusedShadows(finalFrame, shadowCandidate, guideNoise);
                     boolean colorFromReference = recovered < .01 && model[8] > 1.5f
                             && j.regional.faceProtection != ShadowProtection.ALL;
                     if (colorFromReference) {

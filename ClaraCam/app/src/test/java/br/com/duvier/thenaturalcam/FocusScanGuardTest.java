@@ -10,6 +10,15 @@ public class FocusScanGuardTest {
         assertTrue(FocusScanGuard.captureReady(true, true, false, 1800));
         assertTrue(FocusScanGuard.captureReady(false, false, false, 0));
     }
+    @Test public void onlyClearLossOnAStableTexturedTargetCanDisproveLock() {
+        assertTrue(FocusScanGuard.lostDetail(.03f, .008f, true, 48));
+        assertFalse(FocusScanGuard.lostDetail(.03f, .017f, true, 48));
+        assertFalse(FocusScanGuard.lostDetail(.001f, 0, true, 48));
+        assertFalse(FocusScanGuard.lostDetail(.03f, .008f, false, 0));
+        assertFalse(FocusScanGuard.lostDetail(.03f, .008f, true, 156));
+        assertFalse(FocusScanGuard.lostDetail(.03f, -1f, true, 48));
+    }
+
     @Test public void oldFocusCannotCompleteNewTap() {
         FocusScanGuard guard = new FocusScanGuard();
         long old = guard.begin(), current = guard.begin();

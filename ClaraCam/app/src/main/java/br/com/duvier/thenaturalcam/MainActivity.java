@@ -1229,15 +1229,20 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * anota a distância da lente. No fim, trava a lente na distância de MAIOR nitidez — o foco
      * para onde ficou nítido, em vez de passar por ali e voltar a embaçar.
      */
-    private void startFocusTracker(float nx, float ny) {
+    private void startFocusTracker(float nx, float ny, float before, long request) {
         if (focusTracker != null) main.removeCallbacks(focusTracker);
         final long t0 = SystemClock.uptimeMillis();
         final float[] lag = {-1f, -1f, -1f}; // distâncias recentes: a prévia exibida atrasa ~2 quadros
         final java.util.ArrayList<float[]> trace = new java.util.ArrayList<>(); // {nitidez, distância}
         focusTracker = new Runnable() {
+            long lockedAt;
+            final float[] settled = new float[3];
+            int count;
+
             @Override
             public void run() {
-                long el = SystemClock.uptimeMillis() - t0;
+                long now = SystemClock.uptimeMillis();
+                long el = now - t0;
                 float s = regionSharpness(nx, ny);
                 float dNow = camera.focusDistanceNow();
                 float dShown = lag[0] >= 0 ? lag[0] : dNow;
@@ -1245,17 +1250,23 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 lag[1] = lag[2];
                 lag[2] = dNow;
                 if (s >= 0 && dShown >= 0 && el > 100) trace.add(new float[]{s, dShown});
-                int st = camera.afStateNow();
-                boolean scanEnded = st == android.hardware.camera2.CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
-                        || st == android.hardware.camera2.CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
-                if (el > 2600 || (el > 500 && scanEnded)) {
-                    // Memória do foco: sempre trava a lente ao fim da busca (fica até novo toque,
-                    // zoom ou modo) — 1º pico claro de nitidez; 2º onde a câmera confirmou o foco;
-                    // 3º a distância mais nítida medida.
+                boolean scanEnded = camera.tapFocusLocked(request);
+                if (scanEnded) {
+                    if (lockedAt == 0) lockedAt = now;
+                    if (now - lockedAt >= 100 && s >= 0 && count < settled.length) settled[count++] = s;
+                } else {
+                    lockedAt = 0;
+                    count = 0;
+                }
+                if (el > 2600 || count == settled.length) {
+                    if (count == settled.length) {
+                        java.util.Arrays.sort(settled);
+                        camera.verifyTapDetail(request, before, settled[1]);
+                    }
                     float d = clearPeak(trace);
-                    if (d < 0 && st == android.hardware.camera2.CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) d = dNow;
+                    if (d < 0 && scanEnded) d = dNow;
                     if (d < 0) d = sharpestSmoothed(trace);
-                    if (d >= 0 && !followFocusPoint) camera.holdFocus(d);
+                    if (d >= 0 && scanEnded && !followFocusPoint) camera.holdFocus(d);
                     focusTracker = null;
                     return;
                 }
@@ -1652,8 +1663,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 public boolean onSingleTapUp(MotionEvent e) {
                     x = e.getX();
                     y = e.getY();
-                    camera.focusAt(x / getWidth(), y / getHeight());
-                    startFocusTracker(x / getWidth(), y / getHeight());
+                    float nx = x / getWidth(), ny = y / getHeight();
+                    float before = regionSharpness(nx, ny);
+                    long request = camera.focusAt(nx, ny);
+                    startFocusTracker(nx, ny, before, request);
                     evShownUntil = SystemClock.uptimeMillis() + 1500;
                     invalidate();
                     return true;

@@ -100,6 +100,48 @@ public class ResidualNoiseRefinerTest {
         assertEquals(reference.v[face], output.v[face]);
     }
 
+    @Test public void fallbackRejectsGhostsButUsesAlignedShadowWithCorrelatedGrain() {
+        YuvFrame reference = new YuvFrame(480, 320), fused = new YuvFrame(480, 320);
+        for (int y = 0; y < reference.height; y++) for (int x = 0; x < reference.width; x++) {
+            int i = y * reference.width + x;
+            boolean wall = x < 170;
+            boolean ridge = x >= 185 && x < 300 && x % 8 < 4;
+            boolean object = x >= 330 && x < 375 && y >= 110 && y < 235;
+            boolean shifted = x >= 385 && x < 430 && y >= 110 && y < 235;
+            int grain = (x / 4 % 3 == 0 && y / 4 % 3 == 0) ? 12 : -2;
+            reference.y[i] = (byte)(44 + (wall ? grain : ridge ? 8 : object ? 40 : 0));
+            fused.y[i] = (byte)(44 + (shifted ? 40 : 0));
+        }
+        Arrays.fill(reference.u, (byte) 112);
+        Arrays.fill(reference.v, (byte) 140);
+        Arrays.fill(fused.u, (byte) 112);
+        Arrays.fill(fused.v, (byte) 140);
+        // Same luma, different color on the displaced part of a foreground edge.
+        for (int y = 30; y < 80; y++) {
+            Arrays.fill(reference.u, y * reference.chromaWidth + 170, y * reference.chromaWidth + 200, (byte) 158);
+            Arrays.fill(fused.u, y * fused.chromaWidth + 177, y * fused.chromaWidth + 207, (byte) 158);
+        }
+        for (int y = 85; y < 130; y++) {
+            Arrays.fill(reference.u, y * reference.chromaWidth + 170, y * reference.chromaWidth + 200, (byte) 120);
+            Arrays.fill(fused.u, y * fused.chromaWidth + 177, y * fused.chromaWidth + 207, (byte) 120);
+        }
+        YuvFrame output = QualityCheck.copy(reference);
+        double recovered = BurstFusion.recoverFusedShadows(output, fused, 10);
+        double before = rmse(fused, reference, 20, 20, 150, 290);
+        double after = rmse(fused, output, 20, 20, 150, 290);
+        assertTrue("shadow RMSE " + before + " -> " + after, after < before * .65);
+        assertTrue(recovered > .1);
+        assertTrue("dark ridges keep contrast",
+                projection(reference, output, 198, 30, 286, 285)
+                        >= .95 * projection(reference, reference, 198, 30, 286, 285));
+        assertEquals(84, output.luma(350, 150));
+        assertEquals(44, output.luma(405, 150));
+        assertEquals(158, output.u[50 * output.chromaWidth + 174] & 255);
+        assertEquals(112, output.u[50 * output.chromaWidth + 203] & 255);
+        assertEquals(120, output.u[100 * output.chromaWidth + 174] & 255);
+        assertEquals(112, output.u[100 * output.chromaWidth + 203] & 255);
+    }
+
     @Test public void singleFrameColorCleanupOutsideShadowsKeepsLuminanceAndFace() {
         YuvFrame reference = new YuvFrame(80, 64);
         Arrays.fill(reference.y, (byte) 158);
