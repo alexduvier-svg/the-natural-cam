@@ -147,6 +147,12 @@ Na mesma cena, a tele direta confirmou o foco após novo toque em cada focal. Os
 
 Nas quatro focais, a cópia em f/11 foi gravada depois do original. A inspeção visual confirmou a suavização no fundo com o contorno e as letras visíveis preservados. Em 7×, o original ficou mais granulado que a cópia e a fusão foi recusada por perda de contraste em uma região. A prévia em 8× e 10× exigiu novo toque para recuperar foco no frasco após a troca de enquadramento. São resultados individuais em Máx detalhe. A persistência após disparos consecutivos foi testada em 3,5×.
 
+### Verificação física do botão de desfoque após reenquadrar o rótulo
+
+No Reno com a 1.27.13, o botão em OFF deixou a captura de 8× com apenas o JPEG original, confirmado na lista de arquivos antes do disparo seguinte. O visor em f/11 confirmou a ativação. A foto seguinte ocorreu em 3,5× e gerou original de 6144 × 4608 e cópia f/11 com as mesmas dimensões em retrato. O desfoque é aplicado após o disparo e a câmera mantém a prévia óptica. A comparação usa o original e a cópia do mesmo disparo. Na cadeira, o resíduo espacial Y caiu de 2,03 para 0,43. No rótulo, o perfil de contraste passou de 4,58 para 4,56 níveis Y.
+
+Com o rótulo reenquadrado, o original de 7× saiu em 10,14 s e o de 8× em 9,69 s, ambos com 12 quadros e fusão aprovada. Em 10×, o teste alternou de OFF para f/11. O foco confirmou em 451 ms, a fusão usou 16 quadros e o original de 2.268.347 bytes saiu em 8,87 s. A cópia de 3.235.117 bytes em f/11 suavizou o armário e manteve a legibilidade do trecho de rótulo no quadro. A borda esquerda do rótulo já ficava fora do visor em 10×. Os tempos acima medem a publicação do original.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
