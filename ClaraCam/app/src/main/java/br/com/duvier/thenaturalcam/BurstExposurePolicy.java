@@ -9,6 +9,15 @@ final class BurstExposurePolicy {
         return previewNs <= capNs / 4 ? previewNs * 4 : capNs;
     }
 
+    /** At most two sensor exposures, bounded by measured motion at a 4096 px delivery scale. */
+    static long photoShadowExposure(int iso, long previewNs, long capNs, boolean face,
+                                    boolean steady, double pixelsPerSecond) {
+        if (iso < 3200 || face || !steady || !Double.isFinite(pixelsPerSecond) || pixelsPerSecond < 0)
+            return 0;
+        long movementCap = (long) (1.5e9 / Math.max(1, pixelsPerSecond));
+        return Math.min(Math.min(previewNs * 2, capNs), movementCap);
+    }
+
     static boolean allowAutomaticManual(boolean logical, String mainId, String activeId) {
         return !logical || (mainId != null && mainId.equals(activeId));
     }

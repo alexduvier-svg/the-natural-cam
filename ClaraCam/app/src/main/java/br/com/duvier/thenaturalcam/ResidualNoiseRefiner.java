@@ -14,7 +14,7 @@ final class ResidualNoiseRefiner {
     record ShadowNoise(float luminance, float chrominance) {
         boolean excessive() {
             // Require strong evidence in both channels so luminance texture alone cannot veto a photo.
-            return luminance >= 4.5f && chrominance >= 2.5f;
+            return luminance >= 4.5f && chrominance >= 2.5f || luminance >= 5.8f && chrominance >= 2f;
         }
     }
 

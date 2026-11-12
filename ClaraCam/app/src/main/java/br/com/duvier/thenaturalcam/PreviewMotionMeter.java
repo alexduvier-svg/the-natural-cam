@@ -14,13 +14,19 @@ final class PreviewMotionMeter {
     }
     private byte[] previous;
     private int width, height, samples, blocks;
-    private long previousNs, firstNs;
+    private long previousNs, firstNs, validAfterNs;
     private double speed = Double.NaN;
 
-    synchronized void reset() { previous = null; samples = 0; firstNs = previousNs = 0; speed = Double.NaN; blocks = 0; }
+    synchronized void reset(long now) {
+        validAfterNs = now;
+        previous = null;
+        samples = blocks = 0;
+        firstNs = previousNs = 0;
+        speed = Double.NaN;
+    }
 
     synchronized void add(int[] rgb, int w, int h, long now, float focusX, float focusY) {
-        if (rgb.length != w * h || w < 24 || h < 24) return;
+        if (now <= validAfterNs || rgb.length != w * h || w < 24 || h < 24) return;
         byte[] current = new byte[rgb.length];
         for (int i = 0; i < rgb.length; i++) {
             int c = rgb[i];

@@ -8,6 +8,16 @@ import java.util.Random;
 import static org.junit.Assert.*;
 
 public class CaptureQualityRegressionTest {
+    @Test public void photoCanCollectMoreLightOnlyWhenMeasuredMotionPermits() {
+        long preview = 16_666_000L, cap = 66_666_666L;
+        assertEquals(preview * 2, BurstExposurePolicy.photoShadowExposure(5000, preview, cap, false, true, 30));
+        assertEquals(20_000_000L, BurstExposurePolicy.photoShadowExposure(5000, preview, cap, false, true, 75));
+        assertEquals(0, BurstExposurePolicy.photoShadowExposure(5000, preview, cap, true, true, 30));
+        assertEquals(0, BurstExposurePolicy.photoShadowExposure(5000, preview, cap, false, false, 30));
+        assertEquals(0, BurstExposurePolicy.photoShadowExposure(5000, preview, cap, false, true, Double.NaN));
+        assertEquals(0, BurstExposurePolicy.photoShadowExposure(1200, preview, cap, false, true, 30));
+    }
+
     @Test public void uncalibratedRenoKeepsPreviewZoomAndDoesNotCropToOneMegapixel() {
         for (float zoom : new float[]{3.5f, 6f, 7f, 8f}) {
             CaptureDirector.Scene scene = new CaptureDirector.Scene();

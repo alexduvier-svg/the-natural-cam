@@ -49,6 +49,12 @@ public class PreviewMotionMeterTest {
         assertTrue(stable.measured); assertEquals(0,stable.pixelsPerSecond,.1);
         assertTrue(motion.measured); assertTrue(motion.pixelsPerSecond>100);
         assertTrue(motion.pixelsPerSecond<250);
-        moving.reset(); assertFalse(moving.reading(1_900_000_000L).measured);
+        moving.reset(1_900_000_000L);
+        for (int k = 0; k < 6; k++)
+            moving.add(image(k, false), 96, 128, 1_000_000_000L + k * 180_000_000L, .5f, .5f);
+        assertFalse(moving.reading(1_900_000_000L).measured);
+        for (int k = 0; k < 6; k++)
+            moving.add(image(0, false), 96, 128, 2_000_000_000L + k * 180_000_000L, .5f, .5f);
+        assertTrue(moving.reading(2_900_000_000L).measured);
     }
 }

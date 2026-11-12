@@ -94,12 +94,14 @@ public final class MainActivity extends Activity implements CameraController.Lis
         capturePreferences = getSharedPreferences("capture_settings", MODE_PRIVATE);
         stackPolicy = capturePreferences.getInt("stack", CameraController.STACK_MAX);
         blurLevel = capturePreferences.getFloat("blur", 0f);
-        aperture = apertureOf(blurLevel);
+        portraitBlurLevel = capturePreferences.getFloat("portrait_blur", .5f);
+        aperture = apertureOf(portraitBlurLevel);
         followFocusPoint = capturePreferences.getBoolean("follow_focus", false);
         ev = capturePreferences.getInt("ev", 0);
         camera = new CameraController(this, this);
         camera.setStackPolicy(stackPolicy);
         camera.setFollowFocusPoint(followFocusPoint);
+        camera.setEv(ev);
         buildUi();
         restoreLastPhoto();
         orientationListener = new OrientationEventListener(this) {
@@ -493,6 +495,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         }
         setLocked(false);
         camera.setMode(m);
+        buildApertureRow();
         refreshModes();
         status.setText("");
     }
@@ -1530,7 +1533,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * Dial de desfoque (como o de EV): 0 = desligado (lente longa) / f/16 (Retrato), 1 = f/8.
      * Regra do usuário: nunca mais aberto que f/8 — sem bokeh exagerado (sempre acima de f/5,6).
      */
-    private float blurLevel = 0f; // enable the dial explicitly for a depth copy of ordinary photos
+    private float blurLevel;
+    private float portraitBlurLevel = .5f;
 
     /** Abertura simulada do nível (f/16 → f/8, contínuo). */
     private static float apertureOf(float level) {
@@ -1552,7 +1556,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private String blurLabel() {
         if (mode != CameraController.Mode.RETRATO && blurLevel < 0.02f) return "◎\noff";
-        return "◎\n" + PortraitEngine.label(Math.round(apertureOf(blurLevel) * 10) / 10f);
+        float level = mode == CameraController.Mode.RETRATO ? portraitBlurLevel : blurLevel;
+        return "◎\n" + PortraitEngine.label(Math.round(apertureOf(level) * 10) / 10f);
     }
 
     private void refreshBlurUi() {
@@ -1573,17 +1578,22 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private void buildApertureRow() {
         apertureRow.removeAllViews();
-        PillSlider s = new PillSlider(this, "Desfoque", blurLevel, 0f, 1f);
+        boolean portrait = mode == CameraController.Mode.RETRATO;
+        PillSlider s = new PillSlider(this, "Desfoque", portrait ? portraitBlurLevel : blurLevel, 0f, 1f);
         s.setFormat(v -> {
-            if (mode != CameraController.Mode.RETRATO && v < 0.02f) return "desligado";
+            if (!portrait && v < 0.02f) return "desligado";
             return PortraitEngine.label(Math.round(apertureOf(v) * 10) / 10f);
         });
         s.setListener((v, drag) -> {
-            blurLevel = v;
-            aperture = apertureOf(v);
+            if (portrait) {
+                portraitBlurLevel = v;
+                aperture = apertureOf(v);
+            } else {
+                blurLevel = v;
+            }
             refreshBlurUi();
             if (!drag) {
-                capturePreferences.edit().putFloat("blur", blurLevel).apply();
+                capturePreferences.edit().putFloat(portrait ? "portrait_blur" : "blur", v).apply();
                 if (!busy) status.setText(statusHint());
             }
         });

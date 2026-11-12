@@ -113,7 +113,7 @@ final class CameraController {
     // chega antes do onOpened, e permite reabrir se outro processo tomou a câmera (tela preta).
     private boolean wanted;
     private int reopenTries;
-    private int generation;
+    private volatile int generation;
 
     private SurfaceTexture texture;
     private Surface previewSurface;
@@ -166,7 +166,6 @@ final class CameraController {
         faceRegions = null;
         lastAfState = lastAfMode = -1;
         lastFocusDistance = -1f;
-        previewMotion.reset();
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
         if (wanted) beginPreviewTransition(false);
@@ -361,7 +360,6 @@ final class CameraController {
         boolean done;
         boolean finishQueued;
         boolean referenceFinish;
-        ResidualNoiseRefiner.ShadowNoise deliveryNoise;
         boolean deliveryFallback = true;
         JSONObject sheet = new JSONObject();
 
@@ -435,7 +433,7 @@ final class CameraController {
             awaitingPreviewFrame = false;
             restoreTapOnPreview = false;
             colorSensors.stop();
-            closeAll();
+            closeInterruptedCamera();
         });
     }
 
@@ -514,6 +512,7 @@ final class CameraController {
             if (Math.abs(zoom - before) > 0.01f && !capturing) {
                 zoomRequestedAtMs = SystemClock.elapsedRealtime();
                 zoomPreviewMs = -1L;
+                previewMotion.reset(SystemClock.elapsedRealtimeNanos());
             }
             boolean inTeleRange = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
             // An animated zoom can send several ratios. Keep a successful fallback in this range.
@@ -925,7 +924,7 @@ final class CameraController {
                 public void onDisconnected(CameraDevice cameraDevice) {
                     opening = false;
                     cameraDevice.close();
-                    if (device == cameraDevice) { closeAll(); }
+                    if (device == cameraDevice) closeInterruptedCamera();
                     Log.w(TAG, "câmera desconectada (wanted=" + wanted + ")");
                     retryOpen();
                 }
@@ -934,7 +933,7 @@ final class CameraController {
                 public void onError(CameraDevice cameraDevice, int error) {
                     opening = false;
                     cameraDevice.close();
-                    if (device == cameraDevice) { closeAll(); }
+                    if (device == cameraDevice) closeInterruptedCamera();
                     Log.w(TAG, "câmera erro " + error);
                     if (retryOpen()) return;
                     error("A câmera está ocupada ou falhou (código " + error + "). Feche outros apps de câmera.");
@@ -954,8 +953,21 @@ final class CameraController {
         return true;
     }
 
+    private void closeInterruptedCamera() {
+        boolean interruptedCapture = capturing && (job != null || preState != PRE_IDLE);
+        closeAll();
+        if (interruptedCapture) error("Captura interrompida. Tente novamente.");
+    }
+
     private void closeAll() {
+        job = null;
         burstAwbLocked = false;
+        lastIso = 0;
+        lastExposure = 0;
+        lastAfState = -1;
+        lastPhys = null;
+        mainFdAt = 0;
+        previewMotion.reset(SystemClock.elapsedRealtimeNanos());
         focusScan.invalidate();
         confirmedTapRequest = 0;
         tapScanning = false;
@@ -2175,10 +2187,17 @@ final class CameraController {
                         : mode == Mode.NOITE ? 66_666_666L : 33_333_333L;
                 // Um limite de 1/30 s não deve substituir uma exposição já rápida, como 1/120 s.
                 long target = BurstExposurePolicy.targetExposure(lastIso, lastExposure, cap, mode == Mode.NOITE);
+                if (mode == Mode.FOTO && !userLock && canOverrideBurstExposure()) {
+                    PreviewMotionMeter.Reading motion = previewMotion.reading(SystemClock.elapsedRealtimeNanos());
+                    target = Math.max(target, BurstExposurePolicy.photoShadowExposure(lastIso, lastExposure,
+                            cap, j.regional.face, colorSensors.steady(), motion.pixelsPerSecond));
+                }
                 target = Math.max(caps.exposureRange.getLower(), Math.min(target, caps.exposureRange.getUpper()));
-                boolean change = target < lastExposure * 0.83 || mode == Mode.NOITE && target > lastExposure * 1.2;
+                boolean change = target < lastExposure * 0.83
+                        || (mode == Mode.NOITE || mode == Mode.FOTO) && target > lastExposure * 1.2;
                 j.sheet.put("exposicao_alvo_quadro_ns", target);
-                j.sheet.put("politica_obturador", mode == Mode.NOITE ? "limite_noite_por_movimento" : "preserva_ae_rapida");
+                j.sheet.put("politica_obturador", mode == Mode.NOITE ? "limite_noite_por_movimento"
+                        : mode == Mode.FOTO && target > lastExposure * 1.2 ? "mais_luz_com_movimento_medido" : "preserva_ae_rapida");
                 int matchingIso = BurstExposurePolicy.equivalentIso(lastIso,lastExposure,target,
                         caps.isoRange.getLower(),caps.isoRange.getUpper());
                 if(change && !canOverrideBurstExposure()) {
@@ -2598,11 +2617,10 @@ final class CameraController {
                 j.regional.sharpen = 0;
                 // Measure and remove grain before enlarging a crop to the delivery size.
                 finalFrame = finishRegions(j, finalFrame, temporalNoiseMeasured ? finishNoise : Double.NaN);
-                if (j.checksPhotoDelivery()) {
-                    // Keep the measurement on the processed grid, before any delivery enlargement.
-                    j.deliveryNoise = ResidualNoiseRefiner.measureShadowNoise(finalFrame);
-                    if (j.deliveryFallback && j.deliveryNoise.excessive()) {
-                        rejectNoisyPhoto(j.deliveryNoise);
+                if (j.checksPhotoDelivery() && j.deliveryFallback) {
+                    ResidualNoiseRefiner.ShadowNoise noise = ResidualNoiseRefiner.measureShadowNoise(finalFrame);
+                    if (noise.excessive()) {
+                        rejectNoisyPhoto(noise);
                         return;
                     }
                 }
@@ -2635,7 +2653,6 @@ final class CameraController {
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
                 Log.w(TAG, "fusão/acabamento falhou", t);
-                j.deliveryNoise = null;
                 j.deliveryFallback = true;
                 if (safe[0] != null) {
                     // falhou só o acabamento (ex.: memória): salva a fusão já aprovada, sem alarme
@@ -2801,8 +2818,7 @@ final class CameraController {
 
     private void saveYuv(Job j, YuvFrame f) throws Exception {
         if (j.checksPhotoDelivery()) {
-            ResidualNoiseRefiner.ShadowNoise noise = j.deliveryNoise != null
-                    ? j.deliveryNoise : ResidualNoiseRefiner.measureShadowNoise(f);
+            ResidualNoiseRefiner.ShadowNoise noise = ResidualNoiseRefiner.measureShadowNoise(f);
             if (j.deliveryFallback && noise.excessive()) {
                 rejectNoisyPhoto(noise);
                 return;
@@ -2810,7 +2826,7 @@ final class CameraController {
             JSONObject quality = new JSONObject();
             quality.put("ruido_residual_sombras_y", round2(noise.luminance()));
             quality.put("ruido_residual_sombras_cor", round2(noise.chrominance()));
-            quality.put("grade", j.deliveryNoise != null ? "acabamento antes da ampliação de entrega" : "quadro de reserva");
+            quality.put("grade", "candidato final de publicação");
             quality.put("reserva_verificada", j.deliveryFallback);
             j.sheet.put("qualidade_publicacao", quality);
         }

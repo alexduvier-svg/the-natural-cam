@@ -167,6 +167,25 @@ A 1.27.14 verifica as sombras na grade do candidato antes de ampliar. Em Foto co
 
 O dial passa a receber o arraste diretamente. O app guarda empilhamento, nível de desfoque, EV e modo de foco entre recriações da tela. A primeira foto após reabrir, o veto físico e a sequência por focal precisam ser conferidos no Reno com a 1.27.14.
 
+### Primeira sequência automática no Reno e ajuste da 1.27.15-codex
+
+Na 1.27.14, em pouca luz, houve tentativas físicas nas oito posições de zoom com Máx detalhe desligado. A tela confirmou veto em 0,6× e 1× e a miniatura anterior permaneceu no visor. Uma repetição de 1× após iniciar o processo novamente preservou a seleção de empilhamento e gravou o original em 18,96 s. A abertura do processo levou 1,16 s na medida de lançamento do Android. O mesmo gesto horizontal que deixava o dial em f/11 na 1.27.13 passou a ajustar para f/9,3 na 1.27.14.
+
+| Zoom | Tempo até JPEG | Observação |
+| --- | ---: | --- |
+| 0,6× | Sem JPEG | Veto por ruído na primeira tentativa |
+| 1× | 18,96 s | Após reabrir, no automático. A primeira tentativa em outra composição foi vetada |
+| 2× | 8,53 s | Fusão na física 2 com ISO 4992 |
+| 3,5× | 6,48 s | Fusão sem super-resolução na física 2. Houve movimento do assunto no disparo |
+| 6× | 4,46 s | Fusão na física 2, recorte de 682 × 512 antes da reconstrução |
+| 7× | 3,60 s | Reserva regional na física 2, recorte de 584 × 438 |
+| 8× | 3,56 s | Recuperação de bordas na física 2, recorte de 512 × 384. Rótulo desfocado no JPEG |
+| 10× | 12,11 s | Física 4 pela câmera lógica. Fusão recusada, ruído visível na foto publicada |
+
+Em 10×, a reserva apresentou Y/C de 6,00/2,22 no ponto de checagem e de 6,00/2,97 no replay do JPEG efetivamente salvo. A 1.27.15 mantém a checagem antes de ampliar a reserva, verifica também o candidato que vai ao codificador e endurece o limite quando a luminância chega ao extremo medido. A medição em JPEG e em YUV tem pequenas diferenças por causa da conversão de cor e codificação.
+
+A 1.27.15 descarta leitura antiga de foco, exposição e movimento ao fechar a câmera, invalida as amostras de movimento na troca de zoom e aplica o EV restaurado antes da primeira requisição. Foto e Retrato mantêm ajustes independentes de desfoque. Em Foto, quando a câmera oferece o controle manual para o sensor ativo, uma cena sem rosto em ISO elevado pode usar um tempo um pouco maior e ISO proporcionalmente menor se as medições de movimento permitirem. A estimativa de movimento é conservadora e precisa ser conferida em cenas reais com pessoas e objetos em movimento.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
