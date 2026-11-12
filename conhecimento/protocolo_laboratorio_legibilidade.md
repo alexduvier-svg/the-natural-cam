@@ -153,6 +153,12 @@ No Reno com a 1.27.13, o botão em OFF deixou a captura de 8× com apenas o JPEG
 
 Com o rótulo reenquadrado, o original de 7× saiu em 10,14 s e o de 8× em 9,69 s, ambos com 12 quadros e fusão aprovada. Em 10×, o teste alternou de OFF para f/11. O foco confirmou em 451 ms, a fusão usou 16 quadros e o original de 2.268.347 bytes saiu em 8,87 s. A cópia de 3.235.117 bytes em f/11 suavizou o armário e manteve a legibilidade do trecho de rótulo no quadro. A borda esquerda do rótulo já ficava fora do visor em 10×. Os tempos acima medem a publicação do original.
 
+### Ruído no segundo plano nos JPEGs do Reno
+
+Nas áreas mais escuras e lisas amostradas do armário, o resíduo espacial RMS de luminância dos originais reenquadrados foi 1,12 nível Y em 3,5×, 0,96 em 7×, 0,97 em 8× e 0,89 em 10×. Nas cópias f/11 do mesmo disparo, a medida passou a 0,34 em 3,5×, 0,32 em 7× e 0,32 em 10×. Nessas amostras, a média Y mudou entre 0,34 e 0,48 nível. A medida compara a suavização do bokeh com o JPEG original já processado. Os originais reenquadrados tiveram fusão aprovada. A ficha registrou refino de luminância em 7×, 8× e 10×.
+
+No disparo anterior em 7×, com outro enquadramento, a fusão foi recusada. A sombra lisa amostrada apresentou resíduo de 14,93 níveis Y e grão e manchas visíveis a 100%. A ficha registrou reversão do refino de luminância com a correção de crominância conservada. A variação entre disparos indica que é preciso testar o caminho de reserva com a mesma composição, exposição e iluminação, inclusive com textura escura no plano de foco. As áreas de medições distintas servem como diagnóstico e não constituem um comparativo controlado.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
