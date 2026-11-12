@@ -361,7 +361,13 @@ final class CameraController {
         boolean done;
         boolean finishQueued;
         boolean referenceFinish;
+        ResidualNoiseRefiner.ShadowNoise deliveryNoise;
+        boolean deliveryFallback = true;
         JSONObject sheet = new JSONObject();
+
+        boolean checksPhotoDelivery() {
+            return "fusao_foto".equals(pipeline);
+        }
 
         void noteImageArrival() {
             lastImageMs = SystemClock.elapsedRealtime() - shutterAtMs;
@@ -2454,7 +2460,7 @@ final class CameraController {
             j.sheet.put("exposicao_quadros_medidos",measured);
             j.sheet.put("exposicao_somada_quadros_ns",measured==frames.size() && measured>0 ? total:JSONObject.NULL);
         } catch(Exception ignored) { }
-        if (!frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
+        if (!j.checksPhotoDelivery() && !frames.isEmpty()) quickPreview(frames.get(0), j.orientation);
         final YuvFrame[] safe = new YuvFrame[1]; // fusão aprovada, antes do acabamento
         worker.execute(() -> {
             try {
@@ -2489,9 +2495,10 @@ final class CameraController {
                 if (fr.superResMemoryFallback) j.sheet.put("super_resolucao_reserva", "memória insuficiente; verificada a fusão na grade de captura");
                 if (fr.superResSameSamplingGrid) j.sheet.put("super_resolucao_reserva", "sem amostras subpixel distintas em bordas; fusão na grade de captura");
                 YuvFrame finalFrame = selected.frame;
+                j.deliveryFallback = selected.referenceOnly || fr.framesUsed <= 1;
                 double finishNoise = selected.noise;
                 boolean temporalNoiseMeasured = fr.framesUsed > 1;
-                if (!q.passed && fr.framesIn > 1 && isDebuggable()) {
+                if (!j.checksPhotoDelivery() && !q.passed && fr.framesIn > 1 && isDebuggable()) {
                     // versão de teste: guarda também a fusão reprovada e a referência, para conferir o verificador
                     try {
                         saver.saveYuv(j.name + "_DBG_FUSAO", fr.frame, j.orientation, new JSONObject().put("verificador", qj));
@@ -2548,7 +2555,7 @@ final class CameraController {
                 }
                 j.sheet.put("verificador_qualidade", qj);
                 safe[0] = QualityCheck.copy(finalFrame);
-                if (isDebuggable()) {
+                if (!j.checksPhotoDelivery() && isDebuggable()) {
                     // laboratório: a imagem ANTES do acabamento, para comparar ajustes no PC
                     try {
                         saver.saveYuv(j.name + "_DBG_PRE", finalFrame, j.orientation, new JSONObject().put("ruido_depois", fr.noiseAfter));
@@ -2591,6 +2598,14 @@ final class CameraController {
                 j.regional.sharpen = 0;
                 // Measure and remove grain before enlarging a crop to the delivery size.
                 finalFrame = finishRegions(j, finalFrame, temporalNoiseMeasured ? finishNoise : Double.NaN);
+                if (j.checksPhotoDelivery()) {
+                    // Keep the measurement on the processed grid, before any delivery enlargement.
+                    j.deliveryNoise = ResidualNoiseRefiner.measureShadowNoise(finalFrame);
+                    if (j.deliveryFallback && j.deliveryNoise.excessive()) {
+                        rejectNoisyPhoto(j.deliveryNoise);
+                        return;
+                    }
+                }
                 stamp(j, "tempo_etapa_acabamento_regional_ms", tt);
                 float detailScale = j.cropUpscale * selected.scale;
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
@@ -2620,6 +2635,8 @@ final class CameraController {
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
                 Log.w(TAG, "fusão/acabamento falhou", t);
+                j.deliveryNoise = null;
+                j.deliveryFallback = true;
                 if (safe[0] != null) {
                     // falhou só o acabamento (ex.: memória): salva a fusão já aprovada, sem alarme
                     frames.clear();
@@ -2641,7 +2658,7 @@ final class CameraController {
                 }
                 try {
                     j.sheet.put("fusao", "falhou: " + t.getClass().getSimpleName() + " — salvo quadro original");
-                    error("Fusão falhou; salvando o quadro original.");
+                    if (!j.checksPhotoDelivery()) error("Fusão falhou; salvando o quadro original.");
                     saveYuv(j, keep);
                 } catch (Throwable t2) {
                     error("Não foi possível salvar: " + t2.getMessage());
@@ -2776,7 +2793,27 @@ final class CameraController {
         }
     }
 
+    private void rejectNoisyPhoto(ResidualNoiseRefiner.ShadowNoise noise) {
+        Log.w(TAG, "JPEG recusado: ruído nas sombras Y=" + noise.luminance() + " C=" + noise.chrominance());
+        idle();
+        error("Foto não salva: ruído excessivo nas sombras.");
+    }
+
     private void saveYuv(Job j, YuvFrame f) throws Exception {
+        if (j.checksPhotoDelivery()) {
+            ResidualNoiseRefiner.ShadowNoise noise = j.deliveryNoise != null
+                    ? j.deliveryNoise : ResidualNoiseRefiner.measureShadowNoise(f);
+            if (j.deliveryFallback && noise.excessive()) {
+                rejectNoisyPhoto(noise);
+                return;
+            }
+            JSONObject quality = new JSONObject();
+            quality.put("ruido_residual_sombras_y", round2(noise.luminance()));
+            quality.put("ruido_residual_sombras_cor", round2(noise.chrominance()));
+            quality.put("grade", j.deliveryNoise != null ? "acabamento antes da ampliação de entrega" : "quadro de reserva");
+            quality.put("reserva_verificada", j.deliveryFallback);
+            j.sheet.put("qualidade_publicacao", quality);
+        }
         // JPEG direto do YUV (NV21): sem bitmap ARGB gigante — cabe até a saída de 28 MP
         j.addAcquisitionTiming();
         Uri uri = saver.saveYuv(j.name, f, j.orientation, j.sheet, exifTags(j.result), j.shutterAtMs);

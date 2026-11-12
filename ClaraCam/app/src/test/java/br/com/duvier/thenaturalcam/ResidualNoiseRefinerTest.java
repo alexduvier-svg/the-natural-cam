@@ -6,6 +6,45 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class ResidualNoiseRefinerTest {
+    @Test public void deliveryVetoRequiresSevereGrainInBothShadowMeasurements() {
+        YuvFrame frame = new YuvFrame(320, 240);
+        Arrays.fill(frame.y, (byte) 54);
+        Arrays.fill(frame.u, (byte) 124);
+        Arrays.fill(frame.v, (byte) 132);
+        assertFalse(ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+
+        Random random = new Random(3450);
+        for (int y = 0; y < frame.height; y += 2) for (int x = 0; x < frame.width; x += 2) {
+            byte signal = (byte) (54 + random.nextInt(37) - 18);
+            for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++)
+                frame.y[(y + dy) * frame.width + x + dx] = signal;
+        }
+        assertFalse("Dark luminance structure alone can be real texture",
+                ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+
+        for (int i = 0; i < frame.u.length; i++) {
+            frame.u[i] = (byte) (124 + random.nextInt(23) - 11);
+            frame.v[i] = (byte) (132 + random.nextInt(23) - 11);
+        }
+        assertTrue(ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+
+        Arrays.fill(frame.y, (byte) 175);
+        assertFalse("Without enough shadow samples the shadow veto is inconclusive",
+                ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+    }
+
+    @Test public void deliveryVetoDoesNotMistakeRegularColorWeaveForGrain() {
+        YuvFrame frame = new YuvFrame(320, 240);
+        for (int y = 0; y < frame.height; y++) for (int x = 0; x < frame.width; x++)
+            frame.y[y * frame.width + x] = (byte) (((x / 8 + y / 8) & 1) == 0 ? 44 : 56);
+        for (int y = 0; y < frame.chromaHeight; y++) for (int x = 0; x < frame.chromaWidth; x++) {
+            int i = y * frame.chromaWidth + x;
+            frame.u[i] = (byte) (((x / 4 + y / 4) & 1) == 0 ? 110 : 126);
+            frame.v[i] = (byte) 132;
+        }
+        assertFalse(ResidualNoiseRefiner.measureShadowNoise(frame).excessive());
+    }
+
     @Test public void reducesCorrelatedGrainInTwoPlanesWithoutDimmingForegroundOrErasingGrooves() {
         int w=960,h=640;
         YuvFrame clean=new YuvFrame(w,h),noisy=new YuvFrame(w,h);

@@ -74,6 +74,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private boolean lowLight;
     private int stackPolicy = CameraController.STACK_MAX;
     private int nrPolicy = CameraController.NR_LIGHT;
+    private android.content.SharedPreferences capturePreferences;
     private boolean busy;
     private boolean resumed;
     private Uri lastUri;
@@ -90,7 +91,15 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        capturePreferences = getSharedPreferences("capture_settings", MODE_PRIVATE);
+        stackPolicy = capturePreferences.getInt("stack", CameraController.STACK_MAX);
+        blurLevel = capturePreferences.getFloat("blur", 0f);
+        aperture = apertureOf(blurLevel);
+        followFocusPoint = capturePreferences.getBoolean("follow_focus", false);
+        ev = capturePreferences.getInt("ev", 0);
         camera = new CameraController(this, this);
+        camera.setStackPolicy(stackPolicy);
+        camera.setFollowFocusPoint(followFocusPoint);
         buildUi();
         restoreLastPhoto();
         orientationListener = new OrientationEventListener(this) {
@@ -200,14 +209,12 @@ public final class MainActivity extends Activity implements CameraController.Lis
         FrameLayout.LayoutParams hb = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         hb.setMargins(dp(16), dp(16), dp(16), 0);
         stage.addView(hintBanner, hb);
-        // seletor de abertura simulada (só no modo Retrato), na base do visor
+        // A barra ocupa a largura disponível e recebe o arraste diretamente.
         apertureRow = Ui.row(this);
         apertureRow.setGravity(Gravity.CENTER);
-        HorizontalScrollView apScroll = Ui.horizontal(this, apertureRow);
-        apScroll.setBackgroundColor(0x6608090B);
-        apScroll.setVisibility(View.GONE);
-        apertureScroll = apScroll;
-        stage.addView(apScroll, new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM));
+        apertureRow.setBackgroundColor(0x6608090B);
+        apertureRow.setVisibility(View.GONE);
+        stage.addView(apertureRow, new FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM));
         buildApertureRow();
         // ícone pequeno à direita do quadro: mostra a abertura e abre/fecha o dial (não ocupa espaço)
         blurIcon = Ui.text(this, "", 11, Ui.TEXT);
@@ -219,6 +226,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 boolean enable = longLensAperture() == 0f;
                 blurLevel = enable ? (float)(Math.log(16.0 / 11.0) / Math.log(2)) : 0f;
                 blurOpen = enable;
+                capturePreferences.edit().putFloat("blur", blurLevel).apply();
                 buildApertureRow();
             } else {
                 blurOpen = !blurOpen;
@@ -517,6 +525,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (mode != CameraController.Mode.FOTO && mode != CameraController.Mode.RETRATO && mode != CameraController.Mode.NOITE) return;
         stackPolicy = stackPolicy == CameraController.STACK_MAX ? CameraController.STACK_AUTO : CameraController.STACK_MAX;
         camera.setStackPolicy(stackPolicy);
+        capturePreferences.edit().putInt("stack", stackPolicy).apply();
         refreshModes();
     }
 
@@ -635,7 +644,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private void setEv(int value) {
         if (caps == null) return;
+        int previous = ev;
         ev = Math.max(caps.evRange.getLower(), Math.min(caps.evRange.getUpper(), value));
+        if (previous != ev) capturePreferences.edit().putInt("ev", ev).apply();
         double stops = ev * caps.evStep.doubleValue();
         evLabel.setText(String.format(PT, "EV %s%.1f", stops > 0.04 ? "+" : "", stops));
         camera.setEv(ev);
@@ -663,7 +674,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             zoomAnimator.addUpdateListener(animation -> camera.setZoom((Float) animation.getAnimatedValue()));
             zoomAnimator.start();
         } else camera.setZoom(zoom);
-        if (apertureScroll != null) {
+        if (apertureRow != null) {
             refreshBlurUi();
             buildApertureRow();
         }
@@ -956,14 +967,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     () -> setResolution((resIndex + 1) % caps.resolutions.size())));
         }
         captura.add(new SettingCard("❏", "Empilhamento", () -> stackNames[stackPolicy], () -> {
+            if (busy) return;
             stackPolicy = (stackPolicy + 1) % 3;
             camera.setStackPolicy(stackPolicy);
+            capturePreferences.edit().putInt("stack", stackPolicy).apply();
             refreshModes();
         }));
         captura.add(new SettingCard("◐", "Sombras", () -> "limpeza automática", null));
         captura.add(new SettingCard("◎", "Foco na área tocada", () -> followFocusPoint ? "Contínuo" : "Disparo único", () -> {
             followFocusPoint = !followFocusPoint;
             camera.setFollowFocusPoint(followFocusPoint);
+            capturePreferences.edit().putBoolean("follow_focus", followFocusPoint).apply();
         }));
         settingsGrid(root, "Captura", captura);
         root.addView(note("O empilhamento considera luz e movimento. Noite usa até 15 quadros; a limpeza protege textura, pele e bordas."));
@@ -1510,7 +1524,6 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private float aperture = apertureOf(0.5f); // ≈ f/11, mesmo ponto inicial do dial
     private LinearLayout apertureRow;
-    private View apertureScroll;
     private final java.util.concurrent.ExecutorService portraitWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     /**
@@ -1543,7 +1556,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private void refreshBlurUi() {
-        if (apertureScroll == null || blurIcon == null) return;
+        if (apertureRow == null || blurIcon == null) return;
         boolean vis = blurDialVisible();
         blurIcon.setVisibility(vis ? View.VISIBLE : View.GONE);
         blurIcon.setText(blurLabel());
@@ -1551,7 +1564,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 ? (longLensAperture() > 0 ? "Desligar desfoque à distância" : "Ligar desfoque à distância")
                 : "Ajustar abertura simulada");
         blurIcon.setTextColor(blurOpen ? Ui.ACCENT : Ui.TEXT);
-        apertureScroll.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
+        apertureRow.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
     }
 
     private boolean blurDialVisible() {
@@ -1568,11 +1581,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
         s.setListener((v, drag) -> {
             blurLevel = v;
             aperture = apertureOf(v);
-            if (blurIcon != null) blurIcon.setText(blurLabel());
-            if (!busy && !drag) status.setText(statusHint());
+            refreshBlurUi();
+            if (!drag) {
+                capturePreferences.edit().putFloat("blur", blurLevel).apply();
+                if (!busy) status.setText(statusHint());
+            }
         });
-        int width = getResources().getDisplayMetrics().widthPixels - dp(32);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(width, dp(40));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(40));
         lp.setMargins(dp(16), dp(4), dp(16), dp(4));
         apertureRow.addView(s, lp);
     }
@@ -1781,7 +1796,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         }
 
         float barCenterY() {
-            boolean apertureVisible = (apertureScroll != null && apertureScroll.getVisibility() == View.VISIBLE)
+            boolean apertureVisible = (apertureRow != null && apertureRow.getVisibility() == View.VISIBLE)
                     || (longScroll != null && longScroll.getVisibility() == View.VISIBLE)
                     || (astroScroll != null && astroScroll.getVisibility() == View.VISIBLE);
             return getHeight() - dp(30) - (apertureVisible ? dp(48) : 0);

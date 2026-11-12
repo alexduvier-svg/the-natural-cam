@@ -11,6 +11,21 @@ final class ResidualNoiseRefiner {
     private static final int[] PATCH_X = {-3, 0, 3, -3, 3, -3, 0, 3};
     private static final int[] PATCH_Y = {-3, -3, -3, 0, 0, 3, 3, 3};
 
+    record ShadowNoise(float luminance, float chrominance) {
+        boolean excessive() {
+            // Require strong evidence in both channels so luminance texture alone cannot veto a photo.
+            return luminance >= 4.5f && chrominance >= 2.5f;
+        }
+    }
+
+    static ShadowNoise measureShadowNoise(YuvFrame frame) {
+        float[] near = profile(frame, Double.NaN, 2);
+        float[] far = profile(frame, Double.NaN, 4);
+        // A regular weave can resemble grain at one spacing. Require both spacings.
+        return new ShadowNoise(Math.min(near[SHADOW], far[SHADOW]),
+                Math.min(near[SHADOW_CHROMA], far[SHADOW_CHROMA]));
+    }
+
     static final class Report {
         double sigma, shadowSigma, shadowChromaSigma, meanLumaWeight, meanChromaWeight;
         boolean lumaApplied, chromaApplied;
@@ -272,13 +287,17 @@ final class ResidualNoiseRefiner {
 
     /** Probe the native frame before allocating buffers or deciding whether shadows need cleaning. */
     private static float[] profile(YuvFrame f, double prior) {
+        return profile(f, prior, 2);
+    }
+
+    private static float[] profile(YuvFrame f, double prior, int radius) {
         int w = f.chromaWidth, h = f.chromaHeight;
         int[][] histogram = new int[SHADOW_CHROMA + 1][128];
         int[] count = new int[histogram.length];
-        for (int cy = 2; cy < h - 2; cy += 3) for (int cx = 2; cx < w - 2; cx += 3) {
+        for (int cy = radius; cy < h - radius; cy += 3) for (int cx = radius; cx < w - radius; cx += 3) {
             // Cross differences suppress simple edges and ramps in the noise estimate.
-            float d = chromaLuma(f, cx + 2, cy + 2) - chromaLuma(f, cx + 2, cy - 2)
-                    - chromaLuma(f, cx - 2, cy + 2) + chromaLuma(f, cx - 2, cy - 2);
+            float d = chromaLuma(f, cx + radius, cy + radius) - chromaLuma(f, cx + radius, cy - radius)
+                    - chromaLuma(f, cx - radius, cy + radius) + chromaLuma(f, cx - radius, cy - radius);
             int bin = (int)chromaLuma(f, cx, cy) >> 4;
             int q = Math.min(127, Math.round(Math.abs(d) * 2));
             histogram[bin][q]++;
@@ -288,8 +307,9 @@ final class ResidualNoiseRefiner {
             if (bin < SHADOW_TONE_BINS) {
                 histogram[SHADOW][q]++;
                 count[SHADOW]++;
-                int i = cy * w + cx, top = i - 2 * w, bottom = i + 2 * w;
-                int color = Math.max(Math.abs(crossChroma(f.u, top, bottom)), Math.abs(crossChroma(f.v, top, bottom)));
+                int i = cy * w + cx, top = i - radius * w, bottom = i + radius * w;
+                int color = Math.max(Math.abs(crossChroma(f.u, top, bottom, radius)),
+                        Math.abs(crossChroma(f.v, top, bottom, radius)));
                 histogram[SHADOW_CHROMA][Math.min(127, color * 2)]++;
                 count[SHADOW_CHROMA]++;
             }
@@ -323,9 +343,9 @@ final class ResidualNoiseRefiner {
         return (f.luma(x0, y0) + f.luma(x1, y0) + f.luma(x0, y1) + f.luma(x1, y1)) * .25f;
     }
 
-    private static int crossChroma(byte[] plane, int top, int bottom) {
-        return (plane[bottom + 2] & 255) - (plane[top + 2] & 255)
-                - (plane[bottom - 2] & 255) + (plane[top - 2] & 255);
+    private static int crossChroma(byte[] plane, int top, int bottom, int radius) {
+        return (plane[bottom + radius] & 255) - (plane[top + radius] & 255)
+                - (plane[bottom - radius] & 255) + (plane[top - radius] & 255);
     }
     private static float mix(float a,float b,float c,float d,float x,float y){return (a*(1-x)+b*x)*(1-y)+(c*(1-x)+d*x)*y;}
     private static int bound(int x,int n){return Math.max(0,Math.min(n-1,x));}

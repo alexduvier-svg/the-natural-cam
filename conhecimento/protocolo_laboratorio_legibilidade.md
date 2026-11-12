@@ -159,6 +159,14 @@ Nas áreas mais escuras e lisas amostradas do armário, o resíduo espacial RMS 
 
 No disparo anterior em 7×, com outro enquadramento, a fusão foi recusada. A sombra lisa amostrada apresentou resíduo de 14,93 níveis Y e grão e manchas visíveis a 100%. A ficha registrou reversão do refino de luminância com a correção de crominância conservada. A variação entre disparos indica que é preciso testar o caminho de reserva com a mesma composição, exposição e iluminação, inclusive com textura escura no plano de foco. As áreas de medições distintas servem como diagnóstico e não constituem um comparativo controlado.
 
+### Publicação após falha de fusão e retomada na 1.27.14-codex
+
+Na 1.27.13, dois disparos físicos em 3,5×, Foto automática e tele direta, receberam dez quadros e tiveram foco confirmado em 397 e 390 ms. A foto anterior, em ISO 2643, passou na verificação da fusão e saiu em 8,32 s. Na foto indicada pelo usuário, em ISO 3450, cinco regiões perderam contraste. O app preservou um quadro único e publicou o JPEG em 10,61 s. A estimativa de ruído espacial antes e depois do acabamento permaneceu em 9,96. As duas fotos têm enquadramentos diferentes e diagnosticam caminhos de processamento distintos.
+
+A 1.27.14 verifica as sombras na grade do candidato antes de ampliar. Em Foto com empilhamento, quando resta um quadro de referência ou uma reserva de emergência, a publicação exige que não haja evidência simultânea de ruído severo de luminância e cor nas duas escalas amostradas. Em caso de veto, o app informa que a foto não foi salva, conserva a última foto na interface e não cria cópia óptica. A regra cobre automático e Máx detalhe nessa rota. Nos testes locais, a sonda marcou Y/C 6,00/6,00 no JPEG ruidoso indicado e 0,74/0,74 no outro JPEG de 3,5×. Também marcou as reservas granuladas anteriores de 3,5× e 7×. Os controles limpos ficaram em até 1,12/0,74. O ensaio usa JPEG já gravado e não simula o pipeline inteiro. A regressão inclui tecido escuro de cor e brilho alternados.
+
+O dial passa a receber o arraste diretamente. O app guarda empilhamento, nível de desfoque, EV e modo de foco entre recriações da tela. A primeira foto após reabrir, o veto físico e a sequência por focal precisam ser conferidos no Reno com a 1.27.14.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.
