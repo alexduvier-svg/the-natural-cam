@@ -110,6 +110,16 @@ O acabamento YUV e o JPEG revelado do RAW+ medem o ruído das sombras em separad
 
 No PC, o replay em memória do JPEG indicado pelo usuário reduziu a variação RMS de luminância numa região lisa da sombra de 1,0311 para 0,7234 níveis Y. A média ficou em 48,99 antes e 49,00 depois e os dois canais de cor ficaram idênticos nesse exemplo. O realce adicional variou até dois níveis Y e ficou na zona do toque. O replay parte do JPEG já salvo. A próxima verificação física deve comparar textura, ruído, cor e legibilidade com enquadramento e exposição equivalentes, incluindo pele, tecido e cenas noturnas em cada lente disponível.
 
+## Transições de prévia e contraste na 1.27.12-codex
+
+A abertura revela a prévia ao chegar o primeiro quadro da câmera. Na troca física, a interface guarda temporariamente o quadro anterior e o desvanece ao chegar a imagem da nova lente. No Reno, a gravação de 16,97 s registrou 1× → 0,6× → 1× → 2× → 3,5× → 6× → 7× → 8× → 3,5×, sem períodos pretos detectados na região da prévia. O ensaio verifica a continuidade visível. A abertura a frio e o tempo de cada troca física ainda precisam de medidas próprias.
+
+O ganho automático do assunto foi limitado a 0,32 EV, ou 0,24 EV quando há rosto, com ação concentrada nos meios-tons. O acabamento regional roda nos dois modos. Na cena do frasco, a ficha indicou zero de ganho adicional, pois os tons do primeiro plano já estavam na faixa adequada.
+
+Em 3,5× e EV 0, o Reno usou a física 2 nas três capturas. Os JPEGs foram publicados em 12,51 s no Máx detalhe (12 quadros, 2.003.894 bytes), 5,95 s no automático (10 quadros, 4.393.591 bytes) e 9,29 s no automático após novo toque (10 quadros, 2.315.454 bytes). O primeiro confirmou o foco em 1,05 s e aplicou o realce localizado. O texto pequeno e os frisos ficaram mais definidos no JPEG máximo. O primeiro automático registrou AF sem travamento confirmado e o seguinte ainda registrava varredura. As comparações incluem diferença de foco. A persistência após o disparo precisa ser reproduzida e investigada.
+
+Na área lisa amostrada do armário, o resíduo espacial Y foi 0,84 no Máx detalhe e 0,93 no primeiro automático, com médias de 67,43 e 67,09. Trata-se de duas capturas, ambas no mesmo recorte nativo de 1170 × 878. A limitação de resolução na captura e a prévia interna de até 3000 pixels também afetam a leitura dos menores caracteres.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

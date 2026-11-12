@@ -4,7 +4,7 @@ import java.util.stream.IntStream;
 
 /** Measured, local finishing of an already aligned photograph. No generated detail or WB guesses. */
 final class RegionalPhotoProtocol {
-    static final String VERSION = "1.3.2";
+    static final String VERSION = "1.3.3";
     @FunctionalInterface
     interface SubjectLocator {
         Subject locate(YuvFrame frame);
@@ -173,7 +173,7 @@ final class RegionalPhotoProtocol {
         if (count == 0) return source;
         result.subjectMedian = percentile(histogram, count, .5);
         int bright = percentile(histogram, count, .95);
-        double lift = (context.face ? .5 : .65) * smooth01((135 - result.subjectMedian) / 70.0);
+        double lift = (context.face ? .24 : .32) * smooth01((135 - result.subjectMedian) / 70.0);
         if (bright > 0) lift = Math.min(lift, -.8 * Math.log(ForegroundLight.lin(bright)) / Math.log(2));
         if (bright < Math.max(24, result.noiseAfter * 5) || lift < .08) {
             result.liftDecision = "tons do sujeito fora da faixa de correção";
@@ -210,7 +210,7 @@ final class RegionalPhotoProtocol {
         }
         final double[] visibleSignal = new double[256];
         for (int y = 0; y < visibleSignal.length; y++)
-            visibleSignal[y] = smooth01((y - 5 - sigma) / Math.max(12, 3 * sigma));
+            visibleSignal[y] = smooth01((y - 22 - sigma) / Math.max(30, 3 * sigma));
         IntStream.range(0,f.chromaHeight).parallel().forEach(cy->{
             for(int cx=0;cx<f.chromaWidth;cx++) {
                 float weight = subjectWeight(subject, f, 2*cx+.5f, 2*cy+.5f);

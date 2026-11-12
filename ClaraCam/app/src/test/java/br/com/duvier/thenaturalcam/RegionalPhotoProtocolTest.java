@@ -34,11 +34,11 @@ public class RegionalPhotoProtocolTest {
         c.allowTone=true; c.ev100=3; c.sharpen=0; c.denoiseCeiling=0;
         c.locateSubject = ignored -> rightSide(.35f);
         RegionalPhotoProtocol.Result result=RegionalPhotoProtocol.apply(f,c);
-        assertTrue(result.frame.luma(160,120)>60);
+        assertTrue(result.frame.luma(160,120)>50 && result.frame.luma(160,120)<=57);
         assertEquals(0,result.frame.luma(308,232));
         assertEquals(50,result.frame.luma(4,4));
         assertTrue(result.frame.luma(308,4)>=248 && result.frame.luma(308,4)<255);
-        assertTrue(result.maxLiftEv<=.65);
+        assertTrue(result.maxLiftEv<=.32);
         assertEquals(50,f.luma(160,120));
         c.allowTone=false;
         assertArrayEquals(f.y,RegionalPhotoProtocol.apply(f,c).frame.y);
@@ -52,7 +52,7 @@ public class RegionalPhotoProtocolTest {
         c.locateSubject = ignored -> rightSide(.35f);
         RegionalPhotoProtocol.Result result=RegionalPhotoProtocol.apply(f,c);
         double[] before=linearRgb(f),after=linearRgb(result.frame);
-        assertTrue(result.maxLiftEv<=.5);
+        assertTrue(result.maxLiftEv<=.24);
         assertTrue(result.frame.luma(80,60)>64 && result.frame.luma(80,60)<100);
         double sb=before[0]+before[1]+before[2],sa=after[0]+after[1]+after[2];
         // Two 8-bit YUV/RGB round trips have quantization; linear chromaticity remains within 1%.
@@ -84,13 +84,18 @@ public class RegionalPhotoProtocolTest {
             boolean ink = y >= 210 && x % 12 < 4 && y % 14 < 10;
             f.y[y * f.width + x] = (byte)(groove ? 68 : ink ? 44 : 82);
         }
+        for (int y = 350; y < 430; y++) for (int x = 465; x < 550; x++)
+            f.y[y * f.width + x] = (byte)(x < 510 ? 18 : 245);
         RegionalPhotoProtocol.Context c = new RegionalPhotoProtocol.Context();
         c.allowTone = true; c.targeted = true; c.ev100 = 12; c.sharpen = 0; c.denoiseCeiling = 0;
         c.locateSubject = ignored -> rightSide(.63f);
         RegionalPhotoProtocol.Result result = RegionalPhotoProtocol.apply(f, c);
-        assertTrue(result.liftDecision, result.maxLiftEv > .4);
+        assertTrue(result.liftDecision, result.maxLiftEv >= .10 && result.maxLiftEv <= .32);
         assertEquals(185, result.frame.luma(80, 260));
-        assertTrue(result.frame.luma(532, 180) >= 92);
+        assertEquals(18, result.frame.luma(480, 370));
+        assertEquals(245, result.frame.luma(530, 370));
+        assertTrue(result.frame.luma(532, 180) > 82);
+        assertTrue(result.frame.luma(532, 180) <= 90);
         assertTrue(result.frame.luma(532, 180) - result.frame.luma(529, 180) >= 14);
         assertTrue(result.frame.luma(534, 286) - result.frame.luma(528, 286) >= 38);
         assertTrue(result.liftDetail.passed);

@@ -22,6 +22,7 @@ Diretriz do usuário em 10/11/2026: não escrever junto com o Claude, para não 
 
 - Ao concluir cada tarefa com alterações, criar o commit local e enviá-lo ao GitHub na branch exclusiva `codex/natural-cam-memory`, sem pedir novamente autorização para esse fluxo.
 - Fazer as verificações adequadas antes do commit e informar o hash e o resultado do envio. Não criar commits vazios quando não houver alterações.
+- Ao fechar alterações do aplicativo, gerar o APK Codex atualizado neste worktree do PC e atualizar o Reno pelo ADB quando disponível. Conferir o pacote, o código de versão e a assinatura antes da atualização, mantendo os dados do aparelho.
 - Publicar apenas o trabalho do Codex. Não fazer merge nem enviar alterações à branch do Claude.
 - Manter fotos privadas/de teste, diagnósticos locais do aparelho, SDK, credenciais e artefatos de compilação fora do commit. Referências visuais originais permanecem locais.
 

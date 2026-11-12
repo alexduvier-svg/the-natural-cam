@@ -65,6 +65,8 @@ final class CameraController {
         void onOpened(CameraCaps caps);
 
         void onSessionReady(Mode mode, Size previewSize, String description);
+        void onPreviewTransition(long id, boolean opening);
+        void onPreviewFrame(long id, long timestamp);
 
         void onLive(int iso, long exposureNs, String nr);
 
@@ -141,6 +143,8 @@ final class CameraController {
     private boolean teleFailUsed;
     private long nearSince, farSince;
     private long zoomRequestedAtMs, zoomPreviewMs = -1L;
+    private long previewTransitionId;
+    private boolean awaitingPreviewFrame;
     /** Quando o dispositivo atual abriu (para não trocar de lente durante a primeira procura de foco). */
     private volatile long openedAt;
 
@@ -165,6 +169,7 @@ final class CameraController {
         previewMotion.reset();
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
+        if (wanted) beginPreviewTransition(false);
         closeAll();
         if (wanted) openCamera();
     }
@@ -398,13 +403,28 @@ final class CameraController {
             reopenTries = 0;
             if (previewSurface != null) previewSurface.release();
             previewSurface = new Surface(texture);
+            beginPreviewTransition(true);
             openCamera();
         });
+    }
+
+    private void beginPreviewTransition(boolean opening) {
+        long id = ++previewTransitionId;
+        awaitingPreviewFrame = true;
+        main.post(() -> listener.onPreviewTransition(id, opening));
+    }
+
+    private void notifyPreviewFrame(long timestamp) {
+        if (!awaitingPreviewFrame || timestamp <= 0) return;
+        awaitingPreviewFrame = false;
+        long id = previewTransitionId;
+        main.post(() -> listener.onPreviewFrame(id, timestamp));
     }
 
     void stop() {
         handler.post(() -> {
             wanted = false;
+            awaitingPreviewFrame = false;
             restoreTapOnPreview = false;
             colorSensors.stop();
             closeAll();
@@ -1142,7 +1162,12 @@ final class CameraController {
                         try {
                             CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
                             b.addTarget(previewSurface);
-                            s.setRepeatingRequest(b.build(), handlerExecutor, new CameraExtensionSession.ExtensionCaptureCallback() { });
+                            s.setRepeatingRequest(b.build(), handlerExecutor, new CameraExtensionSession.ExtensionCaptureCallback() {
+                                @Override
+                                public void onCaptureStarted(CameraExtensionSession session, CaptureRequest request, long timestamp) {
+                                    if (session == ext) notifyPreviewFrame(timestamp);
+                                }
+                            });
                         } catch (Exception e) {
                             Log.w(TAG, "prévia extensão", e);
                         }
@@ -1289,6 +1314,11 @@ final class CameraController {
     }
 
     private final CameraCaptureSession.CaptureCallback liveCallback = new CameraCaptureSession.CaptureCallback() {
+        @Override
+        public void onCaptureStarted(CameraCaptureSession s, CaptureRequest request, long timestamp, long frameNumber) {
+            if (s == session) notifyPreviewFrame(timestamp);
+        }
+
         @Override
         public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest request, TotalCaptureResult result) {
             if (s != session) return;

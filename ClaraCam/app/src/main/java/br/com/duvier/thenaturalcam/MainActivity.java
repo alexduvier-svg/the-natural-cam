@@ -122,6 +122,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onPause() {
         if (zoomAnimator != null) zoomAnimator.cancel();
         resumed = false;
+        hidePreviewCover();
         orientationListener.disable();
         camera.stop();
         super.onPause();
@@ -145,6 +146,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         lastOrientation = -1;
         status.setText("");
+        hidePreviewCover();
+        previewCover.setAlpha(1);
+        previewCover.setVisibility(View.VISIBLE);
         camera.start(texture.getSurfaceTexture());
     }
 
@@ -181,6 +185,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
         texture = new TextureView(this);
         overlay = new Overlay(this);
         stage.addView(texture, new FrameLayout.LayoutParams(-1, -1));
+        previewCover = new android.widget.ImageView(this);
+        previewCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+        previewCover.setBackgroundColor(Ui.BG);
+        previewCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        stage.addView(previewCover, new FrameLayout.LayoutParams(-1, -1));
         stage.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
         // aviso no visor: distância de foco, tele trocada por recorte (some sozinho)
         hintBanner = Ui.text(this, "", 13, Ui.TEXT);
@@ -254,6 +263,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture s) {
+                maybeRevealPreview(s.getTimestamp());
                 long now = android.os.SystemClock.elapsedRealtimeNanos();
                 if (!resumed || busy || now - lastMotionProbe < 180_000_000L) return;
                 lastMotionProbe = now;
@@ -1067,6 +1077,53 @@ public final class MainActivity extends Activity implements CameraController.Lis
         }
         details.setText(description);
         if (!busy) status.setText(statusHint());
+    }
+
+    private android.widget.ImageView previewCover;
+    private long previewCoverId, previousPreviewTimestamp, nextPreviewTimestamp;
+
+    @Override
+    public void onPreviewTransition(long id, boolean opening) {
+        if (!resumed || !texture.isAvailable()) return;
+        boolean alreadyWaiting = previewCoverId != 0;
+        previousPreviewTimestamp = texture.getSurfaceTexture().getTimestamp();
+        previewCoverId = id;
+        nextPreviewTimestamp = 0;
+        previewCover.animate().cancel();
+        previewCover.setAlpha(1);
+        previewCover.setVisibility(View.VISIBLE);
+        if (opening || previousPreviewTimestamp == 0) {
+            previewCover.setImageDrawable(null);
+        } else if (!alreadyWaiting) {
+            int width = Math.min(432, texture.getWidth());
+            int height = texture.getWidth() > 0 ? Math.round(width * texture.getHeight() / (float)texture.getWidth()) : 0;
+            previewCover.setImageBitmap(width > 0 && height > 0 ? texture.getBitmap(width, height) : null);
+        }
+        main.postDelayed(() -> {
+            if (previewCoverId == id) hidePreviewCover();
+        }, 1400);
+    }
+
+    @Override
+    public void onPreviewFrame(long id, long timestamp) {
+        if (previewCoverId != id || !texture.isAvailable()) return;
+        nextPreviewTimestamp = timestamp;
+        maybeRevealPreview(texture.getSurfaceTexture().getTimestamp());
+    }
+
+    private void maybeRevealPreview(long timestamp) {
+        if (previewCoverId == 0 || nextPreviewTimestamp == 0 || timestamp == previousPreviewTimestamp
+                || timestamp < nextPreviewTimestamp) return;
+        previewCoverId = 0;
+        previewCover.animate().alpha(0).setDuration(125).withEndAction(this::hidePreviewCover).start();
+    }
+
+    private void hidePreviewCover() {
+        previewCoverId = 0;
+        if (previewCover == null) return;
+        previewCover.animate().cancel();
+        previewCover.setVisibility(View.GONE);
+        previewCover.setImageDrawable(null);
     }
 
     /** Rodapé limpo: sem dicas de uso (só andamento da captura, "Salva" e erros aparecem ali). */
