@@ -194,7 +194,7 @@ final class CameraController {
         return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
     }
 
-    private void checkNearFar(Integer af, Float fd) {
+    private void checkNearFar(Integer af, Float fd, String physicalId) {
         if (capturing || userLock || focusDistance >= 0 || logicalCaps == null || teleCaps == null) return;
         long now = SystemClock.elapsedRealtime();
         // Ao abrir, a lente começa parada num extremo e o AF ainda procura: decidir troca de lente
@@ -208,8 +208,10 @@ final class CameraController {
         }
         boolean focused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
                 || af == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED);
-        if (!onTele && focused && fd != null && fd > 0) {
-            // distância medida pela principal (coerente neste aparelho, ao contrário da tele)
+        boolean mainObserved = !onTele && logicalCaps.mainId != null
+                && logicalCaps.mainId.equals(physicalId)
+                && (logicalCaps.focusCalibrated || verifiedRenoFocusProfile());
+        if (mainObserved && focused && fd != null && fd > 0) {
             mainFd = fd;
             mainFdAt = now;
         }
@@ -218,7 +220,7 @@ final class CameraController {
         if (!onTele && nearMode && nearReason == 1 && zoom >= logicalCaps.teleRatio * 0.97f) {
             // na principal por estar perto: objeto além de ~55 cm por 1,5 s → a tele já foca
             float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f;
-            if (focused && fd != null && fd > 0 && fd < teleMin * 0.72f) {
+            if (mainObserved && focused && fd != null && fd > 0 && fd < teleMin * 0.72f) {
                 if (farSince == 0) farSince = now;
                 else if (now - farSince > 1500) {
                     nearMode = false;
@@ -503,12 +505,13 @@ final class CameraController {
             if (caps == null || logicalCaps == null) return;
             float before = zoom;
             zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
-            // escolher um zoom de novo sempre tenta a tele outra vez (antes ficava presa na principal)
-            if (Math.abs(zoom - before) > 0.01f || zoom < logicalCaps.teleRatio * 0.97f) {
-                if (Math.abs(zoom - before) > 0.01f && !capturing) {
-                    zoomRequestedAtMs = SystemClock.elapsedRealtime();
-                    zoomPreviewMs = -1L;
-                }
+            if (Math.abs(zoom - before) > 0.01f && !capturing) {
+                zoomRequestedAtMs = SystemClock.elapsedRealtime();
+                zoomPreviewMs = -1L;
+            }
+            boolean inTeleRange = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+            // An animated zoom can send several ratios. Keep a successful fallback in this range.
+            if (!inTeleRange) {
                 nearMode = false;
                 nearReason = 0;
                 teleFailUsed = false;
@@ -516,11 +519,11 @@ final class CameraController {
             // A tele deste aparelho diz "foco travado" (e distâncias falsas) mesmo com o objeto mais
             // perto que o mínimo dela — a foto sai toda desfocada. A PRINCIPAL mede a distância de forma
             // coerente: se ela acabou de medir o objeto perto (< ~46 cm), fica na principal.
-            if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && mainNearNow()) {
+            if (!onTele && inTeleRange && !nearMode && mainNearNow()) {
                 nearMode = true;
                 nearReason = 1;
             }
-            boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
+            boolean wantTele = inTeleRange && !nearMode;
             if (wantTele != onTele && !capturing) {
                 switchLens(wantTele, false);
                 return;
@@ -1374,7 +1377,7 @@ final class CameraController {
                     captureOnHandler(queuedShutter);
                 }
             }
-            checkNearFar(af, lfd);
+            checkNearFar(af, lfd, physNow);
             if (s != session) return;
             android.hardware.camera2.params.Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
             if (faces != null && faces.length > 0) {
@@ -1496,6 +1499,14 @@ final class CameraController {
             action.run();
             return;
         }
+        boolean lostTapLock = lastAfState == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+                || (tapCaf && lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
+        if (lostTapLock && regions != null && activeTapRequest != 0
+                && (activeTapRequest == confirmedTapRequest || tapCaf)
+                && !tapScanning && !userLock && focusDistance < 0 && tapHold < 0) {
+            tapStartedAtMs = SystemClock.elapsedRealtime();
+            beginTapScan();
+        }
         CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
         b.addTarget(previewSurface);
         applyCommon(b, false, false);
@@ -1524,7 +1535,8 @@ final class CameraController {
     }
 
     private boolean tapConfirmedForCapture() {
-        return (activeTapRequest != 0 && activeTapRequest == confirmedTapRequest)
+        return (activeTapRequest != 0 && activeTapRequest == confirmedTapRequest
+                && lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED)
                 || (tapCaf && lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED);
     }
 
@@ -1590,6 +1602,7 @@ final class CameraController {
             }
             if (maxRes) b.set(CaptureRequest.SENSOR_PIXEL_MODE, CameraMetadata.SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION);
             Job j = newJob(withRaw ? "camera_jpeg_mais_dng" : maxRes ? "camera_jpeg_sensor_cheio" : "camera_jpeg");
+            lastShotZoom = mode == Mode.FOTO ? zoom : 0f;
             j.needsRaw = withRaw;
             j.sheet.put("resolucao", res != null ? res.label : "?");
             j.sheet.put("tamanho", res != null ? res.size.toString() : "?");
@@ -1654,8 +1667,7 @@ final class CameraController {
             }
             final float seedX = seed[0], seedY = seed[1];
             if (mode == Mode.FOTO && regions != null && !j.regional.face && !tapScanning
-                    && tapConfirmedForCapture() && (lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
-                    || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED))
+                    && tapConfirmedForCapture())
                 j.detailFocus = seed;
             if (j.regional.targeted) j.portraitFocus = toSensor((360 - j.orientation) % 360, seedX, seedY);
             if (j.regional.allowTone) j.regional.locateSubject = frame -> locateForeground(frame, j.orientation, seedX, seedY);

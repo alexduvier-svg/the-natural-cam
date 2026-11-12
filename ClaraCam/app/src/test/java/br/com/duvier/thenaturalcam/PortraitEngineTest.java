@@ -175,6 +175,34 @@ public class PortraitEngineTest {
     }
 
     @Test
+    public void distanceBokehPreservesForegroundAndBrightBackgroundTones() {
+        int w = 400, h = 240;
+        int[] pixels = new int[w * h];
+        float[] depth = new float[pixels.length];
+        float[] subject = new float[pixels.length];
+        int wall = 0xFFF4E9DB;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x;
+                pixels[i] = x < 200 ? 0xFF303030 | ((x * 7 + y * 3) & 127) : wall;
+                depth[i] = x < 100 ? .85f : x < 200 ? .65f : x < 260 ? .62f : .10f;
+                subject[i] = x >= 100 && x < 200 ? 1f : 0f;
+            }
+        }
+        PortraitEngine.Depth scene = new PortraitEngine.Depth(depth, w, h, pixels, 0);
+        PortraitEngine.Bokeh result = PortraitEngine.bokeh(scene, .65f, 11f, subject, 0f, .05f);
+        int[] output = pixels.clone();
+        PortraitEngine.apply(output, w, h, result);
+        int row = 120 * w;
+        assertEquals(0f, result.coc[row + 50], 0f);
+        assertEquals(0f, result.coc[row + 150], 0f);
+        assertEquals(0f, result.coc[row + 230], 0f);
+        assertTrue(result.coc[row + 360] > 1f);
+        assertEquals(pixels[row + 150], output[row + 150]);
+        assertEquals(wall, output[row + 360]);
+    }
+
+    @Test
     public void faixaNitidaAtrasEFrenteSuave() {
         // colunas: frente (0,8) | sujeito (0,6) | logo atrás (0,57) | fundo (0,2); cena 400×300
         int w = 400, h = 300;

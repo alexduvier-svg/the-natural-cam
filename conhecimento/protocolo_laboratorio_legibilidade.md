@@ -120,6 +120,14 @@ Em 3,5× e EV 0, o Reno usou a física 2 nas três capturas. Os JPEGs foram publ
 
 Na área lisa amostrada do armário, o resíduo espacial Y foi 0,84 no Máx detalhe e 0,93 no primeiro automático, com médias de 67,43 e 67,09. Trata-se de duas capturas, ambas no mesmo recorte nativo de 1170 × 878. A limitação de resolução na captura e a prévia interna de até 3000 pixels também afetam a leitura dos menores caracteres.
 
+Em 6×, a 1.27.12 abriu a tele direta, confirmou o foco ao toque em 484 ms e gravou o JPEG em 11,80 s, com 12 quadros e 5.657.268 bytes. A base nativa foi de 2356 × 1768. O verificador rejeitou a super-resolução naquela rajada e conservou as bordas da referência, com mistura limitada às sombras compatíveis. O frasco ficou legível, com grão visível no armário e nos tons do rótulo. É uma captura individual e não demonstra o desempenho em 7×, 8× ou 10×.
+
+## Foco de perto e desfoque à distância na 1.27.13-codex
+
+O usuário relatou oscilação entre 35 e 40 cm. A câmera lógica passa a aceitar a posição do atuador para decidir proximidade apenas quando o resultado identifica a física principal e a calibração ou o perfil do Reno são compatíveis. A escolha de uma lente alternativa após falha da tele persiste dentro da faixa de zoom da tele. Quando a troca ocorreu por proximidade estimada, a volta automática exige foco assentado e indicação estável de afastamento na principal. O disparo reabre a varredura na área tocada se o HAL informar perda explícita do foco. Os valores do atuador neste Reno não comprovam distância em centímetros.
+
+O controle de desfoque em Foto fica disponível a partir de 3×. Quando ligado, a cópia começa o desfoque depois de uma faixa curta de profundidade atrás do plano focado e preserva o JPEG da captura. Para a cópia à distância, a mistura em luz linear conserva os níveis das áreas uniformes, inclusive nos realces. A regressão de laboratório verifica frente, plano focado, faixa adjacente e cor uniforme do fundo. A revisão de JPEG de 4096 pixels carrega a dimensão original. A validação de 35–40 cm e do desfoque em cenas reais de 3× a 10× requer a câmera disponível e distância aferida.
+
 ## Aplicação da pesquisa de 11/11/2026
 
 - **Latência por etapa.** As fichas registram firmware, tempo até a chegada do primeiro e último quadros e tempo até a publicação do JPEG. O timestamp do sensor fica em campo separado. Essa leitura permite distinguir espera na câmera, processamento e gravação em cada modo. Os percentis exigem séries repetidas com lente, modo e luz identificados.

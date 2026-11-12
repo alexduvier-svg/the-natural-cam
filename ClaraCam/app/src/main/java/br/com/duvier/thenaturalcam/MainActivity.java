@@ -215,7 +215,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         blurIcon.setBackground(Ui.rounded(this, 0x9908090B, dp(26)));
         blurIcon.setVisibility(View.GONE);
         blurIcon.setOnClickListener(v -> {
-            if (mode == CameraController.Mode.FOTO && zoom >= 5.5f) {
+            if (distanceBokehAvailable(zoom)) {
                 boolean enable = longLensAperture() == 0f;
                 blurLevel = enable ? (float)(Math.log(16.0 / 11.0) / Math.log(2)) : 0f;
                 blurOpen = enable;
@@ -605,7 +605,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     android.graphics.Bitmap b = android.graphics.ImageDecoder.decodeBitmap(
                             android.graphics.ImageDecoder.createSource(getContentResolver(), uri), (dec, info, s) -> {
                                 Size sz = info.getSize();
-                                float k = Math.min(1f, 3000f / Math.max(sz.getWidth(), sz.getHeight()));
+                                float k = Math.min(1f, 4096f / Math.max(sz.getWidth(), sz.getHeight()));
                                 dec.setTargetSize(Math.round(sz.getWidth() * k), Math.round(sz.getHeight() * k));
                             });
                     main.post(() -> {
@@ -1163,12 +1163,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (mode == CameraController.Mode.RETRATO && !summary.startsWith("retrato")) {
             makePortrait(uri, aperture, "_RETRATO", "retrato");
             processingPortrait = true;
-        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
-            // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
-            // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
-            // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
-            // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
-            // a abertura vem do dial de desfoque no visor (f/16…f/8).
+        } else if (camera != null && distanceBokehAvailable(camera.lastShotZoom())
+                && !summary.startsWith("óptica") && !summary.equals("edição salva")) {
+            // A cópia desfoca gradualmente atrás do sujeito; o JPEG da captura continua disponível.
             float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
             if (ap > 0) {
                 makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0f);
@@ -1527,7 +1524,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
         return (float) (16.0 * Math.pow(8.0 / 16.0, Math.max(0, Math.min(1, level))));
     }
 
-    /** Abertura da versão de lente longa (6×–8×), ou 0 se o dial estiver desligado. */
+    private boolean distanceBokehAvailable(float focalZoom) {
+        return mode == CameraController.Mode.FOTO && focalZoom >= 3f;
+    }
+
+    /** Abertura da cópia com desfoque à distância, ou 0 se o dial estiver desligado. */
     private float longLensAperture() {
         return blurLevel < 0.02f ? 0f : apertureOf(blurLevel);
     }
@@ -1554,7 +1555,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private boolean blurDialVisible() {
-        return mode == CameraController.Mode.RETRATO || (mode == CameraController.Mode.FOTO && zoom >= 5.5f);
+        return mode == CameraController.Mode.RETRATO || distanceBokehAvailable(zoom);
     }
 
     private void buildApertureRow() {

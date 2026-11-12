@@ -331,9 +331,9 @@ final class PortraitEngine {
         for (int i = 0; i < 256; i++) LIN[i] = (float) Math.pow(i / 255.0, 2.2);
     }
 
-    private static int enc(float lin) {
+    private static int enc(float lin, boolean rollHighlights) {
         // ombro suave nas altas luzes: o fundo desfocado nunca estoura (regra do usuário)
-        if (lin > .6f) lin = .6f + .4f * (1 - (float) Math.exp(-(lin - .6f) / .4f));
+        if (rollHighlights && lin > .6f) lin = .6f + .4f * (1 - (float) Math.exp(-(lin - .6f) / .4f));
         return Math.max(0, Math.min(255, Math.round((float) Math.pow(Math.max(0, lin), 1 / 2.2) * 255)));
     }
 
@@ -415,6 +415,7 @@ final class PortraitEngine {
             if (alpha != null) coc[i] *= 1 - alpha[i];
         }
         final int[] src = dp.guide, out = new int[n];
+        final boolean portraitHighlights = frontScale > 0;
         final int samples = 48;
         final float[] ux = new float[samples], uy = new float[samples];
         for (int s = 0; s < samples; s++) {
@@ -441,7 +442,7 @@ final class PortraitEngine {
                     int cr = (c >> 16) & 255, cg = (c >> 8) & 255, cb = c & 255;
                     // luzes fortes pesam mais: um ponto de luz vira um disco luminoso, como na lente
                     int mx = Math.max(cr, Math.max(cg, cb));
-                    float wt = mx > 215 ? 1 + 3f * (mx - 215) / 40f : 1f;
+                    float wt = portraitHighlights && mx > 215 ? 1 + 3f * (mx - 215) / 40f : 1f;
                     sr += LIN[cr] * wt;
                     sg += LIN[cg] * wt;
                     sb += LIN[cb] * wt;
@@ -450,7 +451,8 @@ final class PortraitEngine {
                 if (ws < 1) {
                     out[idx] = src[idx];
                 } else {
-                    out[idx] = 0xFF000000 | (enc(sr / ws) << 16) | (enc(sg / ws) << 8) | enc(sb / ws);
+                    out[idx] = 0xFF000000 | (enc(sr / ws, portraitHighlights) << 16)
+                            | (enc(sg / ws, portraitHighlights) << 8) | enc(sb / ws, portraitHighlights);
                 }
             }
         });
