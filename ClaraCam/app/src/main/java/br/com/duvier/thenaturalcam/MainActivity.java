@@ -164,6 +164,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
         }
         boolean fresh = pausedAt == 0 || SystemClock.elapsedRealtime() - pausedAt >= NEW_SESSION_MS;
         if (!fresh || pausedAt == 0) return; // na 1ª abertura os campos já estão no padrão
+        if (busy) return; // foto ainda gravando: não muda nada pela metade (volta limpo na próxima)
+        if (resIndex != 0) setResolution(0); // Máxima do Pro (28 MP) também desliga
         manualIso = 0;
         manualExposure = 0;
         focusDistance = -1f;

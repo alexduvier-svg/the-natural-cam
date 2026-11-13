@@ -34,8 +34,8 @@ final class ShadowChroma {
             for (int cx = 0; cx < cw; cx++) {
                 int c = cy * cw + cx;
                 int yc = gy[c];
-                if (yc >= 120) continue;
-                float wgt = yc <= 55 ? 1f : 1f - (yc - 55) / 65f;
+                if (yc >= 100) continue;
+                float wgt = yc <= 50 ? 1f : 1f - (yc - 50) / 50f;
                 wgt = wgt * wgt * (3 - 2 * wgt) * strength;
                 int uc = u[c] & 0xFF, vc = v[c] & 0xFF;
                 // limite de brilho proporcional ao nível (sombra profunda tem menos sinal)
@@ -50,7 +50,7 @@ final class ShadowChroma {
                         int k = yy * cw + xx;
                         if (Math.abs(gy[k] - yc) > lt) continue;
                         int un = u[k] & 0xFF, vn = v[k] & 0xFF;
-                        if (Math.abs(un - uc) + Math.abs(vn - vc) > 40) continue;
+                        if (Math.abs(un - uc) + Math.abs(vn - vc) > 28) continue; // cor bem diferente (tecido escuro x preto) não entra: sem halo
                         su += un;
                         sv += vn;
                         n++;

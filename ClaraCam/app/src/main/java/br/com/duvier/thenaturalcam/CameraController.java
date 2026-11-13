@@ -163,7 +163,7 @@ final class CameraController {
     private volatile float mainFd;
     private volatile long mainFdAt;
 
-    /** A principal mediu há pouco (≤ 10 s) o objeto mais perto que o mínimo da tele (+5 %)? */
+    /** A principal mediu há pouco (≤ 10 s) o objeto a menos de ~36 cm (mínimo da tele 40 cm, com a leitura da principal que mede para menos)? */
     private boolean mainNearNow() {
         if (teleCaps == null || mainFd <= 0) return false;
         // vale por 10 s — ou enquanto a principal continua aberta desde a medida (durante a foto ela
@@ -177,7 +177,10 @@ final class CameraController {
         // mais perto que ~42 cm (+5 %). Com +15 % (46 cm) o frasco a 45 cm saía do recorte da
         // principal, bem mais mole que a tele, que foca ali (prova da entrega 13/11). Se a tele não
         // focar, a troca automática por falha ainda leva para a principal.
-        return mainFd > teleMin / 1.05f;
+        // só o que a principal mede a menos de ~36 cm vai para o recorte: ela lê para MENOS
+        // (34 cm com o frasco a 40+ cm, onde a tele focou nítido — prova 13/11, nitidez 37,7 x 20,6
+        // do recorte). Se a tele não focar, a troca por falha ainda leva para a principal.
+        return mainFd > teleMin * 1.1f;
     }
 
     /** A principal mediu há pouco (≤ 10 s, ou celular parado) o objeto ALÉM de ~55 cm (a tele foca)? */
@@ -388,6 +391,13 @@ final class CameraController {
             regions = null;
             aeRegions = null;
             tapHold = -1f;
+            // a lente segue o zoom atual (voltando em < 1 min no 6× depois de estar na principal
+            // por "objeto perto", a câmera lógica reabria pedindo 6× e o sistema escolhia a lente)
+            if (logicalCaps != null) {
+                boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+                onTele = wantTele;
+                caps = wantTele ? teleCaps : logicalCaps;
+            }
             if (previewSurface != null) previewSurface.release();
             previewSurface = new Surface(texture);
             openCamera();
@@ -1209,8 +1219,10 @@ final class CameraController {
                     if (f.getScore() < 30) continue;
                     if (best == null || area(f.getBounds()) > area(best.getBounds())) best = f;
                 }
-                if (best != null) {
-                    faceRegions = new MeteringRectangle[]{new MeteringRectangle(best.getBounds(), MeteringRectangle.METERING_WEIGHT_MAX - 1)};
+                android.graphics.Rect fb = best != null ? best.getBounds() : null;
+                // rosto saindo da borda vinha com largura negativa e derrubava o app (log 13/11 09:16)
+                if (fb != null && fb.width() > 0 && fb.height() > 0 && fb.left >= 0 && fb.top >= 0) {
+                    faceRegions = new MeteringRectangle[]{new MeteringRectangle(fb, MeteringRectangle.METERING_WEIGHT_MAX - 1)};
                     faceSeenAt = SystemClock.elapsedRealtime();
                 }
             }
@@ -2358,7 +2370,8 @@ final class CameraController {
                     ToneMatch.applyExposure(finalFrame, j.brightenEv);
                     j.sheet.put("clarear_baixa_luz", String.format(java.util.Locale.ROOT, "+%.2f EV (luz linear, pretos firmes, branco intacto)", j.brightenEv));
                 }
-                if (j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f) {
+                boolean zoomSharpened = j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f;
+                if (zoomSharpened) {
                     // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
                     // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
                     stamp(j, "tempo_etapa_sombras_ms", tt);
@@ -2378,7 +2391,7 @@ final class CameraController {
                     finalFrame = QualityCheck.upscale(finalFrame, k);
                     // uma só passada de nitidez por foto: se o recorte ampliado vai receber a dele
                     // logo abaixo, esta não afia (duas passadas somadas davam o efeito aquarela)
-                    if (j.cropUpscale <= 1.5f) BurstFusion.sharpenScaled(finalFrame, k, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
+                    if (j.cropUpscale <= 1.5f && !zoomSharpened) BurstFusion.sharpenScaled(finalFrame, k, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
                 if (j.cropUpscale > 1.5f) {
@@ -2392,8 +2405,8 @@ final class CameraController {
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
-                ShadowChroma.apply(finalFrame);
-                j.sheet.put("limpeza_cor_sombras", "U/V até luma 120, raio 18 px amostrado, bordas preservadas, 3 passadas");
+                if (lastIso >= 400) ShadowChroma.apply(finalFrame); // de dia não há ruído para tirar
+                j.sheet.put("limpeza_cor_sombras", "U/V até luma 100, ISO ≥ 400, raio 18 px amostrado, bordas preservadas, 3 passadas");
                 stamp(j, "tempo_etapa_cor_sombras_ms", tt);
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
