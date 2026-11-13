@@ -667,13 +667,16 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private void showFreeze(float from, float to) {
         try {
             if (texture.getWidth() <= 0) return;
-            android.graphics.Bitmap bm = texture.getBitmap(texture.getWidth() / 2, texture.getHeight() / 2);
+            android.graphics.Bitmap bm = texture.getBitmap(); // resolução da tela (meia resolução pixelava ao ampliar)
             if (bm == null) return;
             freeze.animate().cancel();
             freeze.setImageBitmap(bm);
             freeze.setAlpha(1f);
             freeze.setScaleX(1f);
             freeze.setScaleY(1f);
+            // desfocada, como nas câmeras de fábrica: esconde a ampliação e o deslocamento entre as
+            // lentes (paralaxe), que apareciam como imagem dupla no esmaecimento
+            freeze.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(14), dp(14), android.graphics.Shader.TileMode.CLAMP));
             freeze.setVisibility(View.VISIBLE);
             float s = Math.max(0.5f, Math.min(4f, to / Math.max(0.1f, from)));
             freeze.animate().scaleX(s).scaleY(s).setDuration(220).start();
@@ -695,7 +698,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private void hideFreeze() {
         if (freeze == null || freeze.getVisibility() != View.VISIBLE) return;
         freeze.animate().cancel();
-        freeze.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+        freeze.animate().alpha(0f).setDuration(90).withEndAction(() -> {
             freeze.setVisibility(View.GONE);
             freeze.setImageBitmap(null);
         }).start();

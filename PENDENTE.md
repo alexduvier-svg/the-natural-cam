@@ -1,7 +1,16 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.32.5** (versionCode 82),
-APK: `entrega/APK_1.32.5.apk` (SHA-256 b7fe07e5…f8f6) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.33.4** (versionCode 87),
+APK: `entrega/APK_1.33.4.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+
+## Teste com o dedo 13/11 → 1.33.x
+- Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
+- 1×/2×: principal sem nitidez do ISP por quadro (letras falsas); 1× com passada leve 0,3.
+- Máxima: não desliga ao voltar ao app; 1× e 2× com Máxima saem 6144×4608 (28 MP).
+- EXIF completo em toda lente (AndroidX ExifInterface): LensMake/LensModel (ultra 16 mm, principal 23 mm, tele 80 mm
+  + recorte), focal real e equivalente final, FNumber, zoom digital, ISO/tempo, EV do usuário.
+- Troca de lente: imagem congelada desfocada que se amplia, troca rápida para a lente nova (sem preto/imagem dupla).
+- Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
 
 ## Entrega 13/11 — feito na 1.31.0–1.32.5
 - Item 9: estado limpo a cada volta ao app (trava, lente por falha, medida velha; após 1 min fora: zoom 1×, EV 0, Foto, sem Máxima).

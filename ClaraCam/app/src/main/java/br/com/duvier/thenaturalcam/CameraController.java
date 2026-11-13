@@ -2385,11 +2385,14 @@ final class CameraController {
                     j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,35");
                 }
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
-                if (longSide < 4000 && longSide >= 300) {
+                // Máxima na principal (até o 3,4×): entrega 28 MP (6144 px), igual ao 1×
+                int target = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot
+                        && j.sheet.optDouble("zoom", 1) < 3.4 ? 6144 : 4096;
+                if (longSide < target * 0.976f && longSide >= 300) {
                     // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
                     // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
                     // bicúbica com nitidez na escala certa, só para completar o tamanho.
-                    float k = 4096f / longSide;
+                    float k = (float) target / longSide;
                     stamp(j, "tempo_etapa_nitidez_zoom_ms", tt);
                     busy("Ajustando para 12 MP…", 0.955f);
                     finalFrame = QualityCheck.upscale(finalFrame, k);
@@ -2486,7 +2489,7 @@ final class CameraController {
             String lens = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             t.put("LensModel", String.format(java.util.Locale.ROOT,
                     "%s %.2fmm f/%.1f%s", android.os.Build.MODEL, fl, ap == null ? 0f : ap, lens != null ? " (lente " + lens + ")" : ""));
-            if (zr != null) t.put(androidx.exifinterface.media.ExifInterface.TAG_DIGITAL_ZOOM_RATIO, Math.round(zr * 100) + "/100");
+            if (zr != null) t.put(androidx.exifinterface.media.ExifInterface.TAG_DIGITAL_ZOOM_RATIO, String.format(java.util.Locale.ROOT, "%.2f", zr));
         }
         Integer awb = r.get(CaptureResult.CONTROL_AWB_MODE);
         t.put(androidx.exifinterface.media.ExifInterface.TAG_WHITE_BALANCE,
@@ -2543,11 +2546,12 @@ final class CameraController {
             Float ap = j.result != null ? j.result.get(CaptureResult.LENS_APERTURE) : null;
             if (fl != null && fl > 0) t.put(ExifInterface.TAG_FOCAL_LENGTH, Math.round(fl * 1000) + "/1000");
             if (ap != null && ap > 0) {
-                t.put(ExifInterface.TAG_F_NUMBER, Math.round(ap * 100) + "/100");
+                // FNumber e DigitalZoomRatio: o ExifInterface do AndroidX só aceita decimal ("2.8")
+                t.put(ExifInterface.TAG_F_NUMBER, String.format(java.util.Locale.ROOT, "%.2f", ap));
                 t.put(ExifInterface.TAG_APERTURE_VALUE, Math.round(2 * Math.log(ap) / Math.log(2) * 100) + "/100");
             }
             if (eqFinal > 0) t.put(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, String.valueOf(Math.round(eqFinal)));
-            t.put(ExifInterface.TAG_DIGITAL_ZOOM_RATIO, Math.round(digital * 100) + "/100");
+            t.put(ExifInterface.TAG_DIGITAL_ZOOM_RATIO, String.format(java.util.Locale.ROOT, "%.2f", digital));
             t.put(ExifInterface.TAG_LENS_MAKE, android.os.Build.MANUFACTURER);
             String model = String.format(java.util.Locale.ROOT, "%s %s %d mm%s%s",
                     android.os.Build.MODEL, role, Math.round(eqLens > 0 ? eqLens : (fl != null ? fl : 0)),

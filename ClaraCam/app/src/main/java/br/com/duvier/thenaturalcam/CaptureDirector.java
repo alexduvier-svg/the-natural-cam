@@ -90,6 +90,9 @@ public final class CaptureDirector {
         if (srKind && s.lensCrop >= 1.3f && !s.manual && !s.stackOff) {
             p.srCrop = s.lensCrop;
             p.srScale = Math.min(2.5f, s.lensCrop);
+            // Máxima no recorte da PRINCIPAL (1,3×–3,4×): mais amostras por pixel (2,5×) para a saída
+            // de 28 MP, como no 1× (teste 13/11: o 2× com Máxima saía 12 MP). A tele fica como aprovada.
+            if (s.maxPolicy && !s.tele) p.srScale = 2.5f;
             frames = Math.max(frames, 8); // a super-resolução precisa de amostras de vários quadros
         } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff) {
             p.srScale = 1.5f;
