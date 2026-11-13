@@ -10,6 +10,13 @@ igual com e sem agente**. Hoje as fotos ficam boas enquanto um agente trabalha e
 foco errado quando ele para. Uma versão que só funciona no teste de bancada reprova a entrega.
 
 ## 08h00–08h20 — Prova da base (o Duvier faz; nenhum agente mexe no celular)
+
+**Antes da prova (07h45, o Claude Code faz):** o celular está com a 1.24.1, e o `main` está na
+1.30.3. (1) Rodar `git status` na pasta do PC e **não descartar** mudanças locais; se houver
+alterações não commitadas, listar e perguntar. (2) Puxar a 1.24.1 do aparelho para
+`entrega/APK_1.24.1_celular.apk` (`adb shell pm path` + `adb pull`). (3) Compilar o `main` (1.30.3)
+e instalar por cima com `pm install -r`. A 1.30.3 é a versão Claude que entra na prova.
+
 Mesmas 5 fotos nos dois apps instalados, "The Natural Cam" (main, 1.30.3) e "The Natural Cam
 Codex" (1.27.17-codex), com o celular no suporte, abrindo o app do zero e tocando para focar com
 o dedo:
