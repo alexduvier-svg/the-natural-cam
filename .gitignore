@@ -25,3 +25,6 @@ testes_reno16/
 
 # projeto antigo (já tem o seu próprio git)
 natural-cam-android/
+
+entrega/*.apk
+entrega/partida_fotos/

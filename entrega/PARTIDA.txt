@@ -1,0 +1,6 @@
+APK_PARTIDA.apk
+versao: 1.30.3
+versionCode: 71
+pacote: br.com.duvier.thenaturalcam
+sha256: 0cafc31e51c5c4ce9e59ce3499b1324516e117172d6df2f3b1903f2060336335
+origem: puxado do Reno16 Pro em 13/11 08h; identico ao main compilado

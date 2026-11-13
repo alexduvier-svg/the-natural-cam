@@ -163,7 +163,7 @@ final class CameraController {
     private volatile float mainFd;
     private volatile long mainFdAt;
 
-    /** A principal mediu há pouco (≤ 10 s) o objeto mais perto que o mínimo da tele (+15 %)? */
+    /** A principal mediu há pouco (≤ 10 s) o objeto mais perto que o mínimo da tele (+5 %)? */
     private boolean mainNearNow() {
         if (teleCaps == null || mainFd <= 0) return false;
         // vale por 10 s — ou enquanto a principal continua aberta desde a medida (durante a foto ela
@@ -174,7 +174,10 @@ final class CameraController {
         boolean fresh = age <= 10_000 || (!onTele && mainFdAt >= openedAt) || (age <= 300_000 && gyro.stillSince(mainFdAt));
         if (!fresh) return false;
         float teleMin = teleCaps.minFocus > 0 ? teleCaps.minFocus : 2.5f; // 2,5 dpt = 40 cm
-        return mainFd > teleMin / 1.15f; // mais perto que ~46 cm
+        // mais perto que ~42 cm (+5 %). Com +15 % (46 cm) o frasco a 45 cm saía do recorte da
+        // principal, bem mais mole que a tele, que foca ali (prova da entrega 13/11). Se a tele não
+        // focar, a troca automática por falha ainda leva para a principal.
+        return mainFd > teleMin / 1.05f;
     }
 
     /** A principal mediu há pouco (≤ 10 s, ou celular parado) o objeto ALÉM de ~55 cm (a tele foca)? */
@@ -373,6 +376,18 @@ final class CameraController {
             texture = tex;
             wanted = true;
             reopenTries = 0;
+            // estado limpo a cada abertura: nada de lente escolhida por falha anterior, medida de
+            // distância velha (o giroscópio para no fundo e a medida "valia" por 5 min) ou trava
+            nearMode = false;
+            nearReason = 0;
+            teleFailUsed = false;
+            nearSince = farSince = 0;
+            mainFd = 0f;
+            mainFdAt = 0;
+            userLock = false;
+            regions = null;
+            aeRegions = null;
+            tapHold = -1f;
             if (previewSurface != null) previewSurface.release();
             previewSurface = new Surface(texture);
             openCamera();
@@ -1398,8 +1413,15 @@ final class CameraController {
         }
     }
 
+    /**
+     * Arquivos de laboratório (_DBG_PRE, _DBG_FUSAO, _DBG_REF): só quando pedidos de propósito,
+     * criando o arquivo Android/data/&lt;pacote&gt;/files/laboratorio. Antes saíam em toda foto do
+     * build de teste — iam para a galeria e somavam ~1 s por foto no uso do dia a dia.
+     */
     private boolean isDebuggable() {
-        return (context.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if ((context.getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return false;
+        java.io.File dir = context.getExternalFilesDir(null);
+        return dir != null && new java.io.File(dir, "laboratorio").exists();
     }
 
     /** Sensor de cor da luz ambiente (temperatura de cor), lido junto com a foto. */
@@ -2341,11 +2363,12 @@ final class CameraController {
                     // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
                     stamp(j, "tempo_etapa_sombras_ms", tt);
                     busy("Nitidez do zoom…", 0.95f);
-                    BurstFusion.sharpenScaled(finalFrame, fr.scale, 0.6f, (float) Math.max(1.0, fr.noiseAfter));
-                    j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,6");
+                    // força 0,35 (era 0,6): nitidez de olho humano na captura; reforço só no editor
+                    BurstFusion.sharpenScaled(finalFrame, fr.scale, 0.35f, (float) Math.max(1.0, fr.noiseAfter));
+                    j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,35");
                 }
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
-                if (longSide < 4000 && longSide >= 1000) {
+                if (longSide < 4000 && longSide >= 300) {
                     // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
                     // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
                     // bicúbica com nitidez na escala certa, só para completar o tamanho.
@@ -2353,7 +2376,9 @@ final class CameraController {
                     stamp(j, "tempo_etapa_nitidez_zoom_ms", tt);
                     busy("Ajustando para 12 MP…", 0.955f);
                     finalFrame = QualityCheck.upscale(finalFrame, k);
-                    BurstFusion.sharpenScaled(finalFrame, k, 0.5f, (float) Math.max(1.0, fr.noiseAfter));
+                    // uma só passada de nitidez por foto: se o recorte ampliado vai receber a dele
+                    // logo abaixo, esta não afia (duas passadas somadas davam o efeito aquarela)
+                    if (j.cropUpscale <= 1.5f) BurstFusion.sharpenScaled(finalFrame, k, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
                 if (j.cropUpscale > 1.5f) {
@@ -2361,8 +2386,9 @@ final class CameraController {
                     busy("Nitidez do recorte…", 0.94f);
                     float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
                     // pedido do usuário: um pouco mais de nitidez no recorte ampliado (só acima do ruído; limite anti-halo)
-                    BurstFusion.sharpenScaled(finalFrame, up, 1.15f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 1,15");
+                    // força 0,6 (era 1,15 somada à da ampliação): letras definidas sem contorno duro
+                    BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
+                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 saveYuv(j, finalFrame);

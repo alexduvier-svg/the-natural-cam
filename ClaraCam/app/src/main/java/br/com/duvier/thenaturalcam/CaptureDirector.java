@@ -101,7 +101,10 @@ public final class CaptureDirector {
         // Pedido do usuário: em BAIXA LUZ, Foto e Máxima recebem o MESMO tratamento do Noite (15
         // quadros, tempo por quadro pelo giroscópio, limpeza, nitidez, cor e foto mais clara).
         boolean nightLike = s.kind == Kind.NOITE || (s.kind == Kind.FOTO && light >= 3 && !s.manual && !s.stackOff);
-        if (nightLike && light >= 3) p.srScale = 1f; // Máxima/zoom no escuro: limpeza antes de super-res
+        // Máxima/zoom no escuro: limpeza antes de super-res. Só acima de ISO 3200: na sala de
+        // interior (ISO ~2000, prova de 13/11) o recorte sem super-res saía mole e as letras miúdas
+        // ilegíveis; com super-res (8+ quadros somados) o ruído fica igual e o texto aparece.
+        if (nightLike && light >= 3 && iso > 3200) p.srScale = 1f;
         p.nightLike = nightLike;
         // Noite sem super-resolução: fusão incremental, como o Night Sight (até 15 quadros na mão)
         p.stream = nightLike && p.srScale <= 1f && !s.stackOff;

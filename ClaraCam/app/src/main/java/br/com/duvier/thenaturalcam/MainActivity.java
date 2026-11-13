@@ -113,6 +113,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onResume() {
         super.onResume();
         resumed = true;
+        cleanStart();
         if (orientationListener.canDetectOrientation()) orientationListener.enable();
         camera.ambient.start(); // sensor de cor da luz ambiente (registro na ficha)
         camera.gyro.start();
@@ -123,6 +124,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     @Override
     protected void onPause() {
         resumed = false;
+        pausedAt = SystemClock.elapsedRealtime();
         orientationListener.disable();
         camera.stop();
         camera.ambient.stop();
@@ -141,6 +143,44 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (requestCode != REQ_CAMERA) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) maybeStart();
         else status.setText("Toque aqui para permitir a câmera.");
+    }
+
+    /** Quando o app foi para o fundo (0 = nunca). */
+    private long pausedAt;
+    /** Fora por mais que isto = nova abertura: tudo volta ao padrão. */
+    private static final long NEW_SESSION_MS = 60_000;
+
+    /**
+     * Estado limpo a cada volta ao app (item 9 da entrega: o app se comporta igual com e sem
+     * agente). A trava de foco/exposição sempre solta. Depois de 1 min fora (ou ao abrir), volta
+     * também zoom 1×, EV 0, Foto, automático e sem Máxima — a foto não herda ajuste de uma sessão
+     * anterior (nem de um teste por adb). As decisões automáticas de lente zeram em
+     * CameraController.start().
+     */
+    private void cleanStart() {
+        if (locked) {
+            locked = false;
+            lock.selected(false);
+        }
+        boolean fresh = pausedAt == 0 || SystemClock.elapsedRealtime() - pausedAt >= NEW_SESSION_MS;
+        if (!fresh || pausedAt == 0) return; // na 1ª abertura os campos já estão no padrão
+        manualIso = 0;
+        manualExposure = 0;
+        focusDistance = -1f;
+        awbLocked = false;
+        camera.setManual(0, 0);
+        camera.setFocusDistance(-1f);
+        camera.setAwbLock(false);
+        if (stackPolicy != CameraController.STACK_AUTO) {
+            stackPolicy = CameraController.STACK_AUTO;
+            camera.setStackPolicy(stackPolicy);
+        }
+        if (mode != CameraController.Mode.FOTO && !busy) selectMode(CameraController.Mode.FOTO);
+        if (caps != null) {
+            setEv(0);
+            zoomTo(1f);
+            refreshModes();
+        }
     }
 
     private void maybeStart() {
