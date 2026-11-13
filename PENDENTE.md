@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.33.4** (versionCode 87),
-APK: `entrega/APK_1.33.4.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.34.0** (versionCode 93),
+APK: `entrega/APK_1.34.0.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -9,7 +9,9 @@ APK: `entrega/APK_1.33.4.apk` (instalado no Reno 16 Pro). Partida congelada: `en
 - Máxima: não desliga ao voltar ao app; 1× e 2× com Máxima saem 6144×4608 (28 MP).
 - EXIF completo em toda lente (AndroidX ExifInterface): LensMake/LensModel (ultra 16 mm, principal 23 mm, tele 80 mm
   + recorte), focal real e equivalente final, FNumber, zoom digital, ISO/tempo, EV do usuário.
-- Troca de lente: imagem congelada desfocada que se amplia, troca rápida para a lente nova (sem preto/imagem dupla).
+- Troca de lente: (1.34.0) a imagem atual fica parada e nítida até a lente nova chegar JÁ FOCADA (começa na distância
+  medida pela anterior + varredura ativa); alinha a paralaxe e esmaece com o zoom. Sem desfoque, preto ou quadro transparente.
+  A OPPO é instantânea porque deixa as lentes ligadas; igualar exige abrir a tele pela câmera lógica (para depois).
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
 
 ## Entrega 13/11 — feito na 1.31.0–1.32.5

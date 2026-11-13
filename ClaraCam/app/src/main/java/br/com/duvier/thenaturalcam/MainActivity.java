@@ -656,52 +656,133 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private android.widget.ImageView freeze;
+    private android.graphics.Bitmap freezeBm;
     private long freezeAt;
     private int freezeFrames;
+    private float freezeScale = 1f;
+    private boolean freezeIn, freezeEnding;
 
     /**
-     * Troca de lente fluida (teste 13/11: "engasga"): a câmera fecha uma lente e abre a outra
-     * (~0,5 s). Nesse meio a imagem atual fica congelada e já se amplia até o zoom novo; some com um
-     * esmaecimento quando a lente nova entrega quadros assentados (exposição e foco).
+     * Troca de lente profissional (teste 13/11): a câmera fecha uma lente e abre a outra (~0,5 s).
+     * Subindo o zoom, a imagem atual (nítida, sem desfoque) se amplia até o enquadramento novo;
+     * descendo, ela fica INTEIRA na tela até a lente nova entregar imagem (antes encolhia na hora e
+     * sobrava um quadro transparente em volta). Quando a lente nova chega, a imagem congelada é
+     * alinhada com ela (as lentes ficam em lugares diferentes do celular) e some num esmaecimento
+     * curto — sem imagem dupla, sem tela preta.
      */
     private void showFreeze(float from, float to) {
         try {
             if (texture.getWidth() <= 0) return;
-            android.graphics.Bitmap bm = texture.getBitmap(); // resolução da tela (meia resolução pixelava ao ampliar)
+            android.graphics.Bitmap bm = texture.getBitmap();
             if (bm == null) return;
             freeze.animate().cancel();
+            freeze.setRenderEffect(null);
             freeze.setImageBitmap(bm);
+            freezeBm = bm;
             freeze.setAlpha(1f);
             freeze.setScaleX(1f);
             freeze.setScaleY(1f);
-            // desfocada, como nas câmeras de fábrica: esconde a ampliação e o deslocamento entre as
-            // lentes (paralaxe), que apareciam como imagem dupla no esmaecimento
-            freeze.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(14), dp(14), android.graphics.Shader.TileMode.CLAMP));
+            freeze.setTranslationX(0f);
+            freeze.setTranslationY(0f);
             freeze.setVisibility(View.VISIBLE);
-            float s = Math.max(0.5f, Math.min(4f, to / Math.max(0.1f, from)));
-            freeze.animate().scaleX(s).scaleY(s).setDuration(220).start();
+            freezeScale = Math.max(0.2f, Math.min(5f, to / Math.max(0.1f, from)));
+            freezeIn = freezeScale > 1f;
+            freezeEnding = false;
+            // a imagem fica PARADA e nítida até a lente nova chegar (ampliar antes deixava a tela
+            // mole por meio segundo); o zoom acontece no esmaecimento, já sobre a imagem nova
             freezeAt = SystemClock.elapsedRealtime();
             freezeFrames = 0;
-            main.postDelayed(this::hideFreeze, 1500); // garantia: nunca fica congelada
+            final long mine = freezeAt;
+            main.postDelayed(() -> { if (freezeAt == mine) endFreeze(); }, 2200); // garantia
         } catch (Throwable ignored) {
         }
     }
 
     private void freezeFrame() {
-        if (freeze == null || freeze.getVisibility() != View.VISIBLE) return;
-        // quadros da lente nova: só conta depois que a troca começou de fato (~0,3 s) e espera 4
-        // quadros para a exposição e o foco assentarem
-        if (SystemClock.elapsedRealtime() - freezeAt < 300) return;
-        if (++freezeFrames >= 4) hideFreeze();
+        if (freeze == null || freeze.getVisibility() != View.VISIBLE || freezeEnding) return;
+        // quadros da lente nova: só depois que a troca começou de fato (~0,25 s); 3 quadros para a
+        // exposição assentar
+        if (SystemClock.elapsedRealtime() - freezeAt < 250) return;
+        // segura até o foco da lente nova assentar (a principal aparecia desfocada procurando foco);
+        // no máximo ~45 quadros (~1,5 s; a tele no mínimo de foco dela é lenta)
+        if (++freezeFrames >= 3 && (camera.afSettled() || freezeFrames >= 45)) endFreeze();
     }
 
-    private void hideFreeze() {
-        if (freeze == null || freeze.getVisibility() != View.VISIBLE) return;
+    /** Alinha a imagem congelada (na escala final) com a lente nova e esmaece. */
+    private void endFreeze() {
+        if (freeze == null || freeze.getVisibility() != View.VISIBLE || freezeEnding) return;
+        freezeEnding = true;
+        float tx = 0, ty = 0;
+        try {
+            int[] d = alignFreeze();
+            tx = d[0];
+            ty = d[1];
+        } catch (Throwable ignored) {
+        }
         freeze.animate().cancel();
-        freeze.animate().alpha(0f).setDuration(90).withEndAction(() -> {
-            freeze.setVisibility(View.GONE);
-            freeze.setImageBitmap(null);
-        }).start();
+        freeze.animate().scaleX(freezeScale).scaleY(freezeScale).translationX(tx).translationY(ty)
+                .alpha(0f).setDuration(freezeIn ? 160 : 220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                .withEndAction(() -> {
+                    freeze.setVisibility(View.GONE);
+                    freeze.setImageBitmap(null);
+                    freezeBm = null;
+                }).start();
+    }
+
+    /**
+     * Deslocamento (px da tela) que leva a imagem congelada, na escala final, a coincidir com a
+     * imagem da lente nova: busca por menor diferença de brilho numa grade de 1/8 da tela.
+     */
+    private int[] alignFreeze() {
+        int vw = texture.getWidth(), vh = texture.getHeight();
+        if (freezeBm == null || vw <= 0) return new int[]{0, 0};
+        final int q = 8, w = vw / q, h = vh / q;
+        android.graphics.Bitmap live = texture.getBitmap(w, h);
+        if (live == null) return new int[]{0, 0};
+        int[] lp = new int[w * h];
+        live.getPixels(lp, 0, w, 0, 0, w, h);
+        live.recycle();
+        // imagem congelada como aparece na escala final (pivô no centro), na mesma grade
+        int bw = freezeBm.getWidth(), bh = freezeBm.getHeight();
+        float cx = vw / 2f, cy = vh / 2f, s = freezeScale;
+        float[] fl = new float[w * h], ll = new float[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                float px = cx + ((x * q + q / 2f) - cx) / s, py = cy + ((y * q + q / 2f) - cy) / s;
+                int bx = Math.round(px * bw / vw), by = Math.round(py * bh / vh);
+                fl[y * w + x] = bx >= 0 && by >= 0 && bx < bw && by < bh ? lum(freezeBm.getPixel(bx, by)) : -1;
+                ll[y * w + x] = lum(lp[y * w + x]);
+            }
+        }
+        int best = 0, bestX = 0, bestY = 0, R = 24;
+        double bestCost = Double.MAX_VALUE;
+        for (int dy = -R; dy <= R; dy++) {
+            for (int dx = -R; dx <= R; dx++) {
+                double cost = 0;
+                int n = 0;
+                for (int y = R; y < h - R; y += 2) {
+                    for (int x = R; x < w - R; x += 2) {
+                        float f = fl[(y - dy) * w + (x - dx)];
+                        if (f < 0) continue;
+                        cost += Math.abs(f - ll[y * w + x]);
+                        n++;
+                    }
+                }
+                if (n < 50) continue;
+                cost /= n;
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    bestX = dx;
+                    bestY = dy;
+                }
+            }
+        }
+        return new int[]{bestX * q, bestY * q};
+    }
+
+    private static float lum(int p) {
+        return 0.299f * ((p >> 16) & 255) + 0.587f * ((p >> 8) & 255) + 0.114f * (p & 255);
     }
 
     private void zoomTo(float z) {

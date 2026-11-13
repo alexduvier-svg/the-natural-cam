@@ -154,6 +154,9 @@ final class CameraController {
         regions = null;
         aeRegions = null;
         tapHold = -1f;
+        lastAfState = -1; // o foco da lente nova começa do zero (a troca na tela espera ele assentar)
+        kickAf = true;
+        seedFd = lastFocusDistance; // distância medida pela lente que está saindo
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
         closeAll();
@@ -689,6 +692,50 @@ final class CameraController {
      * região (medido no Reno16), então é preciso CANCELAR e, no quadro seguinte, INICIAR uma
      * varredura. Se ela falhar (pouca luz/pouco contraste), tenta de novo com área maior.
      */
+    private boolean kickAf;
+    private float seedFd = -1f;
+
+    /**
+     * Lente recém-aberta na troca de zoom: o foco contínuo levava ~1 s para achar o objeto (a tele
+     * no mínimo dela, ~40 cm). Uma varredura ativa logo ao abrir foca em ~0,3 s; depois volta ao
+     * contínuo (CANCEL), sem prender o foco.
+     */
+    private void kickFocus() {
+        if (session == null || device == null || regions != null) return;
+        try {
+            // ponto de partida: a lente nova começa perto da distância que a anterior mediu (a tele
+            // partia do infinito e varria até o objeto a 40 cm)
+            if (seedFd > 0 && caps.minFocus > 0 && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_OFF)) {
+                CaptureRequest.Builder s0 = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                s0.addTarget(previewSurface);
+                applyCommon(s0, false, false);
+                s0.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF);
+                s0.set(CaptureRequest.LENS_FOCUS_DISTANCE, Math.min(caps.minFocus, seedFd));
+                session.capture(s0.build(), liveCallback, handler);
+            }
+            CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            b.addTarget(previewSurface);
+            applyCommon(b, false, false);
+            b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
+            session.capture(b.build(), liveCallback, handler);
+            final int gen = generation;
+            handler.postDelayed(() -> {
+                if (gen != generation || session == null || capturing || regions != null) return;
+                try {
+                    CaptureRequest.Builder c = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                    c.addTarget(previewSurface);
+                    applyCommon(c, false, false);
+                    c.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+                    session.capture(c.build(), liveCallback, handler);
+                } catch (Exception e) {
+                    Log.w(TAG, "foco da troca", e);
+                }
+            }, 900);
+        } catch (Exception e) {
+            Log.w(TAG, "foco da troca", e);
+        }
+    }
+
     private void scanTap() {
         if (session == null || device == null) return;
         try {
@@ -968,6 +1015,10 @@ final class CameraController {
                         }
                         session = s;
                         startRepeating();
+                        if (kickAf) {
+                            kickAf = false;
+                            kickFocus();
+                        }
                         Size p = activePreview;
                         Mode m = mode;
                         main.post(() -> listener.onSessionReady(m, p, description));
@@ -1257,6 +1308,13 @@ final class CameraController {
 
     float lastShotZoom() {
         return lastShotZoom;
+    }
+
+    /** O foco automático já assentou (a troca de lente só some da tela depois disso). */
+    boolean afSettled() {
+        int a = lastAfState;
+        return a == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED || a == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                || a == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED || a == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
     }
 
     boolean lastShotWasCrop() {
