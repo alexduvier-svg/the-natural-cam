@@ -510,8 +510,19 @@ public final class MainActivity extends Activity implements CameraController.Lis
     // Ações
     // =====================================================================================
 
+    /** A foto anterior termina o acabamento em segundo plano; o botão já aceita a próxima. */
+    private boolean finishingInBackground;
+
+    @Override
+    public void onReadyForNext() {
+        finishingInBackground = true;
+        busy = false;
+        shutter.invalidate();
+    }
+
     private void shoot() {
         if (busy) return;
+        finishingInBackground = false; // a nova captura volta a mostrar o andamento e travar o botão
         overlay.flash();
         camera.capture();
     }
@@ -744,7 +755,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
         float lo = caps.zoomRange.getLower(), hi = caps.zoomRange.getUpper();
         // Sem 3×: era recorte da câmera principal (menos detalhe e outra cor que o 3,5× da
         // teleobjetiva). 3,5× é a lente tele nativa; a pinça ainda chega a qualquer zoom.
-        float[] choices = {0.6f, 1, 2, 3.5f, 6, 7, 8, 10};
+        // 1×, 3,5×, 7× e 10× (pedido do usuário 13/11): só os pontos em que cada lente entrega
+        // qualidade profissional — 1× principal, 3,5× tele nativa, 7× e 10× da tele. A pinça ainda
+        // chega a qualquer zoom.
+        float[] choices = {1, 3.5f, 7, 10};
         for (float c : choices) {
             float z = c == 0.6f && lo < 1f ? lo : c;
             if (z < lo - 0.04f || z > hi + 0.01f) continue;
@@ -1160,7 +1174,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     @Override
     public void onBusy(String text, float p) {
-        busy = true;
+        // acabamento da foto anterior em segundo plano: o botão continua livre
+        if (!finishingInBackground) busy = true;
         shutter.invalidate();
         status.setText(p >= 0 ? String.format(PT, "%s  %d%%", text, Math.round(p * 100)) : text);
     }
@@ -1582,7 +1597,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
         final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
         final float ap = apIn;
-        busy = true;
+        // cópias de óptica (6×–10×, tele de perto) rodam em segundo plano com o botão livre (teste
+        // 13/11: travavam o botão 20–40 s); o Retrato espera, a cópia é a própria foto
+        if (frontScale >= 1f) busy = true;
         shutter.invalidate();
         thumbBusy.setVisibility(View.VISIBLE);
         status.setText("Criando " + kind + " " + PortraitEngine.label(ap) + "…");

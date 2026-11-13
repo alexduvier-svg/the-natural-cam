@@ -69,6 +69,10 @@ final class CameraController {
         default void onLensSwitching() {
         }
 
+        /** A rajada já foi somada: a próxima foto pode ser feita enquanto esta termina. */
+        default void onReadyForNext() {
+        }
+
         void onSessionReady(Mode mode, Size previewSize, String description);
 
         void onLive(int iso, long exposureNs, String nr);
@@ -170,6 +174,8 @@ final class CameraController {
      *  por falha da tele só uma vez por escolha de zoom (evita o pingue-pongue de lentes no escuro). */
     private int nearReason;
     private boolean teleFailUsed;
+    /** Quando o app decidiu "objeto perto demais para a tele" (a decisão vale até 2 min). */
+    private long nearDecidedAt = -1_000_000L;
     private long nearSince, farSince;
     /** Quando o dispositivo atual abriu (para não trocar de lente durante a primeira procura de foco). */
     private volatile long openedAt;
@@ -267,10 +273,15 @@ final class CameraController {
             // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
             boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
                     || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
-            if (unfocused && !teleFailUsed) {
+            // o "não focado" da tele só vale se a PRINCIPAL também mediu o objeto perto (< ~42 cm):
+            // no 10× (recorte grande da tele) o AF dela dizia "não focado" com a imagem nítida e o app
+            // trocava para a principal à toa (teste 13/11)
+            boolean mainSaysNear = mainFd > 0 && mainFd > 1f / 0.42f;
+            if (unfocused && !teleFailUsed && mainSaysNear) {
                 if (nearSince == 0) nearSince = now;
                 else if (now - nearSince > 2500) {
                     nearMode = true; // tele não consegue focar: tenta a principal (uma vez só)
+                    nearDecidedAt = SystemClock.elapsedRealtime();
                     nearReason = 2;
                     teleFailUsed = true;
                     if (LOGICA_SEMPRE) handler.post(this::startRepeating); // lógica limitada à principal
@@ -418,9 +429,13 @@ final class CameraController {
             reopenTries = 0;
             // estado limpo a cada abertura: nada de lente escolhida por falha anterior, medida de
             // distância velha (o giroscópio para no fundo e a medida "valia" por 5 min) ou trava
-            nearMode = false;
-            nearReason = 0;
-            teleFailUsed = false;
+            // decisão "objeto perto demais para a tele": vale até 2 min (voltar da galeria não pode
+            // reabrir a tele que já falhou — era o "não dava foco" no 6×–10×)
+            if (SystemClock.elapsedRealtime() - nearDecidedAt > 120_000) {
+                nearMode = false;
+                nearReason = 0;
+                teleFailUsed = false;
+            }
             nearSince = farSince = 0;
             mainFd = 0f;
             mainFdAt = 0;
@@ -431,7 +446,7 @@ final class CameraController {
             // a lente segue o zoom atual (voltando em < 1 min no 6× depois de estar na principal
             // por "objeto perto", a câmera lógica reabria pedindo 6× e o sistema escolhia a lente)
             if (logicalCaps != null) {
-                boolean wantTele = !LOGICA_SEMPRE && teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+                boolean wantTele = !LOGICA_SEMPRE && teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
                 onTele = wantTele;
                 caps = wantTele ? teleCaps : logicalCaps;
             }
@@ -507,8 +522,11 @@ final class CameraController {
             if (caps == null || logicalCaps == null) return;
             float before = zoom;
             zoom = clamp(z, logicalCaps.zoomRange.getLower(), logicalCaps.zoomRange.getUpper());
-            // escolher um zoom de novo sempre tenta a tele outra vez (antes ficava presa na principal)
-            if (Math.abs(zoom - before) > 0.01f || zoom < logicalCaps.teleRatio * 0.97f) {
+            // Decisão de lente ESTÁVEL (teste 13/11: 6×→7×→8× ia e voltava entre tele e principal e
+            // a tela "voltava pro 3× e subia"). Se a tele não focou o objeto, fica na principal
+            // enquanto o zoom estiver na faixa da tele; tenta a tele de novo só ao descer para menos
+            // de 3,5× (ou quando a principal medir o objeto longe — volta automática).
+            if (zoom < logicalCaps.teleRatio * 0.97f) {
                 nearMode = false;
                 nearReason = 0;
                 teleFailUsed = false;
@@ -522,6 +540,7 @@ final class CameraController {
             boolean darkUnknown = lastIso >= 6400 && !mainFarNow();
             if (!onTele && zoom >= logicalCaps.teleRatio * 0.97f && (mainNearNow() || darkUnknown)) {
                 nearMode = true;
+                nearDecidedAt = SystemClock.elapsedRealtime();
                 nearReason = 1;
             }
             boolean wantTele = !LOGICA_SEMPRE && teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
@@ -2410,6 +2429,7 @@ final class CameraController {
                         handler.post(() -> {
                             if ((onTele || LOGICA_SEMPRE) && !capturing) {
                                 nearMode = true;
+                                nearDecidedAt = SystemClock.elapsedRealtime();
                                 nearReason = 2;
                                 teleFailUsed = true;
                                 if (LOGICA_SEMPRE) startRepeating();
@@ -2432,6 +2452,13 @@ final class CameraController {
                     }
                 }
                 frames.clear();
+                // Rajada já somada (quadros liberados): a próxima foto pode começar enquanto esta
+                // termina o acabamento (teste 13/11: no 7×→10× o botão ficava cinza e a foto não
+                // saía). Só até 16 MP — a Máxima de 28 MP + uma nova rajada não cabem juntas na memória.
+                if ((long) finalFrame.width * finalFrame.height <= 16_000_000L) {
+                    handler.post(() -> capturing = false);
+                    main.post(listener::onReadyForNext);
+                }
                 j.sheet.put("quadros_recebidos", fr.framesIn);
                 j.sheet.put("quadros_usados", fr.framesUsed);
                 j.sheet.put("quadro_referencia", fr.reference);
