@@ -2047,9 +2047,15 @@ final class CameraController {
                 // principal (1×, 2× e recortes dela): sem a nitidez do ISP em cada quadro — somada à
                 // super-res e ao acabamento ela desenhava "letras" falsas no rótulo (teste 13/11).
                 // A tele (3,5×–8×, aprovada como perfeita) continua igual.
-                if (!j.ispZoom && (teleFallback() || !j.onTeleShot) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
-                    // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
-                    // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
+                // Nitidez do processador por lente (A/B contra a câmera da OPPO, 13/11 tarde):
+                // - principal sem recorte do app (0,6×, 1×) e o 2× pelo zoom do processador: ALTA QUALIDADE,
+                //   como a OPPO (sem ela o rótulo saía mole e lavado; a nitidez extra do app sai)
+                // - recorte ampliado da principal (objeto perto no 3,5×+): desligada (aquarelava letras)
+                // - tele (3,5×–8×, aprovada): rápida, como estava
+                boolean mainNative = !j.onTeleShot && !teleFallback() && (j.ispZoom || j.srCrop <= 1f);
+                if (mainNative && caps.supportsEdge(CameraMetadata.EDGE_MODE_HIGH_QUALITY)) {
+                    b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_HIGH_QUALITY);
+                } else if (!j.onTeleShot && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
                 } else if (caps.supportsEdge(CameraMetadata.EDGE_MODE_FAST)) {
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_FAST);
@@ -2490,7 +2496,7 @@ final class CameraController {
                 }
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
                 // Máxima na principal (até o 3,4×): entrega 28 MP (6144 px), igual ao 1×
-                int target = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot
+                int target = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot && !j.ispZoom
                         && j.sheet.optDouble("zoom", 1) < 3.4 ? 6144 : 4096;
                 if (longSide < target * 0.976f && longSide >= 300) {
                     // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
@@ -2514,11 +2520,10 @@ final class CameraController {
                     BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
-                if (!j.onTeleShot && !j.ispZoom && !zoomSharpened && j.cropUpscale <= 1.5f && longSide >= 4000) {
-                    // principal sem recorte (1×/0,6×): os quadros vêm sem a nitidez do ISP; uma passada
-                    // leve, de olho humano, só acima do ruído (sem desenhar letra que não existe)
-                    BurstFusion.sharpenScaled(finalFrame, 1f, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
-                    j.sheet.put("nitidez_principal", "raio 1 px, força 0,3 (ISP sem nitidez)");
+                if (j.ispZoom && !zoomSharpened && longSide >= 4000) { // 2× pelo processador: uma passada honesta na escala do zoom (só realça bordas que existem)
+                    float zs = (float) Math.max(1.3, j.sheet.optDouble("zoom", 2));
+                    BurstFusion.sharpenScaled(finalFrame, zs, 0.35f, (float) Math.max(1.0, fr.noiseAfter));
+                    j.sheet.put("nitidez_zoom_processador", "escala " + zs + ", força 0,35");
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro

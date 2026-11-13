@@ -103,7 +103,7 @@ public final class CaptureDirector {
             // de 28 MP, como no 1× (teste 13/11: o 2× com Máxima saía 12 MP). A tele fica como aprovada.
             if (s.maxPolicy && !s.tele) p.srScale = 2.5f;
             frames = Math.max(frames, 8); // a super-resolução precisa de amostras de vários quadros
-        } else if (srKind && s.maxPolicy && !s.manual && !s.stackOff) {
+        } else if (srKind && s.maxPolicy && !ispZoom && !s.manual && !s.stackOff) { // 2× pelo processador: Máxima = mais quadros, sem montar 28 MP
             p.srScale = 1.5f;
         }
         // Noite no ESCURO com zoom de recorte: menos ruído vale mais que detalhe extra. A super-

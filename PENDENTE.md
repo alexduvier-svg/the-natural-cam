@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.35.7** (versionCode 107),
-APK: `entrega/APK_1.35.7.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.36.2** (versionCode 110),
+APK: `entrega/APK_1.36.2.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -21,6 +21,10 @@ APK: `entrega/APK_1.35.7.apk` (instalado no Reno 16 Pro). Partida congelada: `en
   2× agora pelo zoom do processador (mais natural, sem letras falsas da super-res); Máxima com 8 quadros e nitidez na
   escala da super-res (estava mole); sem limpeza de cor em 28 MP; "Quadro k/n" no Foto (não "Noite").
   Máxima ainda ~20 s (super-resolução de 28 MP ~14 s).
+- 1.36.x (A/B com a câmera da OPPO na mesma posição, entrega/teste_duvier3/OPPO_ab_*): principal (0,6×, 1×, 2×) com
+  nitidez de ALTA QUALIDADE do processador; 2× + passada honesta 0,35 na escala do zoom (rótulo 50 → 167, perto da
+  OPPO, sem super-res); Máxima no 2× = só mais quadros, 12 MP, 5,6 s (era 18–27 s com aspecto de HDR).
+  1× igual à OPPO; 3,5× igual ao das 8h40 (aprovado). Regra: acima da OPPO SEM a IA dela (nada inventado).
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
 
 ## Entrega 13/11 — feito na 1.31.0–1.32.5
