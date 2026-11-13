@@ -1071,7 +1071,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (!liveInfo) return;
         // só ISO e velocidade (sem dica de "pouca luz")
         lowLight = false;
-        String tip = "";
+        // acima da tele (3,5×) a foto é recorte: o app avisa que é zoom digital (entrega 13/11)
+        float teleX = caps != null && caps.teleRatio > 1.5f ? caps.teleRatio : 3.5f;
+        String tip = zoom > teleX * 1.02f ? "  ·  zoom digital" : "";
         exposureLine.setText("ISO " + iso + "  ·  " + CameraController.shutterLabel(exposureNs) + tip);
         exposureLine.setTextColor(Ui.TEXT);
     }
