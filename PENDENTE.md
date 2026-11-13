@@ -1,9 +1,9 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.32.3** (versionCode 80),
-APK: `entrega/APK_1.32.3.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.32.5** (versionCode 82),
+APK: `entrega/APK_1.32.5.apk` (SHA-256 b7fe07e5…f8f6) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
-## Entrega 13/11 — feito na 1.31.0–1.32.3
+## Entrega 13/11 — feito na 1.31.0–1.32.5
 - Item 9: estado limpo a cada volta ao app (trava, lente por falha, medida velha; após 1 min fora: zoom 1×, EV 0, Foto, sem Máxima).
   3 fotos 3,5× com o app ido e voltado: mesma lente, 1/120 s, foco 45–46 cm (nível 2, toques por adb).
 - Ficha/EXIF gravavam "1.24.1" fixo; agora a versão vem do build.gradle. Arquivos _DBG_ só com files/laboratorio.
@@ -13,6 +13,11 @@ APK: `entrega/APK_1.32.3.apk` (instalado no Reno 16 Pro). Partida congelada: `en
 - Sombras: limpeza só de cor (ShadowChroma): ruído de cor 0,73 → 0,43 no aparelho, brilho e textura iguais, 1,6 s.
 - Visor mostra "zoom digital" acima de 3,5×.
 - Achado: a OPPO congela o app ~10 s depois de ir para o fundo; a cópia _OPTICA_TELE (~45 s) só termina ao voltar ao app.
+- 1.32.5 (revisão): lente certa ao voltar ao app, Máxima do Pro desliga, limpeza de cor só ISO ≥ 400 e até luma 100,
+  uma passada de nitidez também acima de 9×, sem travamento por rosto na borda (MeteringRectangle negativo).
+- LIMITE: com o objeto a ~40 cm a leitura da principal varia 34–47 cm e o 3,5× oscila entre tele (nítida) e recorte.
+- Falta (depois da entrega): render em serviço de primeiro plano (OPPO congela no fundo); item 5 (troca de lente)
+  e item 7/8 (prévia do desfoque) sem teste; foco à distância (ramo codex) não portado.
 
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
