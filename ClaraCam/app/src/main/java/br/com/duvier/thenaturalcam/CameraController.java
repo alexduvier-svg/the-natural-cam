@@ -412,7 +412,7 @@ final class CameraController {
             // distância velha (o giroscópio para no fundo e a medida "valia" por 5 min) ou trava
             // decisão "objeto perto demais para a tele": vale até 2 min (voltar da galeria não pode
             // reabrir a tele que já falhou — era o "não dava foco" no 6×–10×)
-            if (SystemClock.elapsedRealtime() - nearDecidedAt > 120_000) {
+            if (true) { // estado limpo a cada abertura (a decisão "perto" de 2 min mantinha 7×/10× na principal)
                 nearMode = false;
                 nearReason = 0;
                 teleFailUsed = false;
@@ -2435,7 +2435,7 @@ final class CameraController {
                         j.cropUpscale = fr.scale; // e ganha a nitidez na escala da ampliação
                     }
                     qj.put("decisao", "quadro_unico_limpo (fusão reprovada)");
-                    if (j.onTeleShot && q.detailRatio < 0.6) {
+                    if (false && j.onTeleShot && q.detailRatio < 0.6) { // removido 13/11: uma foto ruim (tremida) mandava as seguintes para a principal
                         // tele "travou o foco" mas os quadros vieram sem detalhe: objeto mais perto que o
                         // mínimo dela (40 cm). A próxima foto já sai da principal (sem aviso na tela).
                         qj.put("tele_fora_de_foco", "próxima foto pela principal (objeto perto demais da tele)");
@@ -2540,7 +2540,8 @@ final class CameraController {
                 }
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
                 // Máxima na principal (até o 3,4×): entrega 28 MP (6144 px), igual ao 1×
-                int target = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot && !j.ispZoom
+                // 12 MP sempre; 28 MP só quando a super-resolução da tele (Máxima) já entregou isso
+                int target = 4096; int oldTarget = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot && !j.ispZoom
                         && j.sheet.optDouble("zoom", 1) < 3.4 ? 6144 : 4096;
                 if (longSide < target * 0.976f && longSide >= 300) {
                     // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para

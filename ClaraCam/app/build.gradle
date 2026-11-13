@@ -9,8 +9,8 @@ android {
         applicationId 'br.com.duvier.thenaturalcam'
         minSdk 31
         targetSdk 36
-        versionCode 123
-        versionName '1.38.4'
+        versionCode 124
+        versionName '1.39.0'
         ndk { abiFilters 'arm64-v8a' }
     }
     buildFeatures { buildConfig true }

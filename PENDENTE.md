@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.38.4** (versionCode 123),
-APK: `entrega/APK_1.38.4.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.39.0** (versionCode 124, NÃO TESTADA no aparelho),
+APK: `entrega/APK_1.39.0.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -42,6 +42,9 @@ APK: `entrega/APK_1.38.4.apk` (instalado no Reno 16 Pro). Partida congelada: `en
   Máxima só começa sem cópia rodando (OutOfMemory 15h14/15h20); Máxima 0,6×/1× com 6 quadros (~18 s); fotos sequenciais
   (liberar a próxima antes de gravar deixava a câmera imprevisível — desligado).
 - Avaliação do usuário 15h35: Máxima 1× ainda sem foco; 3,5×, 7× e 10× precisam de mais nitidez nas letras.
+- 1.39.0 (NÃO TESTADA no aparelho): lente da tele decidida só pela distância ao escolher o zoom (removidos o verificador
+  que mandava 7×/10× para a principal depois de uma foto ruim e a decisão "perto" que durava 2 min); Máxima na principal
+  = mais quadros em 12 MP (28 MP ampliados pareciam sem foco); Máxima de 28 MP só na tele.
 - Falta: 7×/10× a 40–45 cm (limite da tele: forçar busca de foco antes da rajada ou usar a principal); 0,6×–2× abaixo
   da OPPO por falta de acesso ao sensor de 50 MP; Máxima 0,6×/1× ~20 s; app congelado pela OPPO no fundo.
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
