@@ -2391,6 +2391,10 @@ final class CameraController {
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
+                // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
+                ShadowChroma.apply(finalFrame);
+                j.sheet.put("limpeza_cor_sombras", "U/V até luma 120, raio 18 px amostrado, bordas preservadas, 3 passadas");
+                stamp(j, "tempo_etapa_cor_sombras_ms", tt);
                 saveYuv(j, finalFrame);
             } catch (Throwable t) {
                 // Diretriz: se a fusão falhar, conservar uma captura original utilizável.
