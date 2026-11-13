@@ -351,6 +351,7 @@ final class CameraController {
 
     private static final class Job {
         String name;
+        boolean ispZoom;
         int gen;
         int orientation;
         boolean needsResult = true;
@@ -1940,6 +1941,8 @@ final class CameraController {
                 j.sheet.put("quadros_pedidos", burstTarget);
                 j.sheet.put("diretriz", plan.reason);
                 j.denoise = plan.denoise;
+                j.ispZoom = plan.ispZoom;
+                if (plan.ispZoom) j.sheet.put("zoom_processador", "principal " + zoom + "× pelo processador da câmera (remosaic do sensor de 50 MP), sem recorte do app");
                 j.brightenEv = plan.brightenEv;
                 if (plan.stream && !j.superRes) j.stream = new BurstFusion.Stream(new BurstFusion(0.30f, true, 1f));
             } else if (mode == Mode.RUA) {
@@ -2044,7 +2047,7 @@ final class CameraController {
                 // principal (1×, 2× e recortes dela): sem a nitidez do ISP em cada quadro — somada à
                 // super-res e ao acabamento ela desenhava "letras" falsas no rótulo (teste 13/11).
                 // A tele (3,5×–8×, aprovada como perfeita) continua igual.
-                if ((teleFallback() || !j.onTeleShot) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
+                if (!j.ispZoom && (teleFallback() || !j.onTeleShot) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
                     // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
@@ -2149,14 +2152,14 @@ final class CameraController {
                 } else {
                     j.streamSkipped++;
                 }
-                busy("Noite: quadro " + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget);
+                busy((mode == Mode.NOITE ? "Noite: quadro " : "Quadro ") + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget); // no Foto não diz "Noite" (confundia: parecia que a Máxima/Noite estava ligada)
                 if (k >= burstTarget) finishBurst(j);
                 return;
             }
             if (burstFrames.size() >= burstTarget) return;
             burstFrames.add(copy(img));
             int k = burstFrames.size();
-            busy("Noite: quadro " + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget);
+            busy((mode == Mode.NOITE ? "Noite: quadro " : "Quadro ") + k + "/" + burstTarget + " — segure firme", 0.3f * k / burstTarget); // no Foto não diz "Noite" (confundia: parecia que a Máxima/Noite estava ligada)
             if (k >= burstTarget) finishBurst(j);
         } catch (OutOfMemoryError oom) {
             burstFrames.clear();
@@ -2473,7 +2476,9 @@ final class CameraController {
                     ToneMatch.applyExposure(finalFrame, j.brightenEv);
                     j.sheet.put("clarear_baixa_luz", String.format(java.util.Locale.ROOT, "+%.2f EV (luz linear, pretos firmes, branco intacto)", j.brightenEv));
                 }
-                boolean zoomSharpened = j.srCrop > 1f && finalFrame == fr.frame && fr.scale > 1f;
+                // super-resolução (zoom OU Máxima 28 MP no 0,6×/1×/2×): uma passada na escala dela. Antes a
+                // Máxima sem recorte só levava a passada de raio 1 px do 1× e saía mole (teste 13/11)
+                boolean zoomSharpened = finalFrame == fr.frame && fr.scale > 1f;
                 if (zoomSharpened) {
                     // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
                     // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
@@ -2509,7 +2514,7 @@ final class CameraController {
                     BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
-                if (!j.onTeleShot && !zoomSharpened && j.cropUpscale <= 1.5f && longSide >= 4000) {
+                if (!j.onTeleShot && !j.ispZoom && !zoomSharpened && j.cropUpscale <= 1.5f && longSide >= 4000) {
                     // principal sem recorte (1×/0,6×): os quadros vêm sem a nitidez do ISP; uma passada
                     // leve, de olho humano, só acima do ruído (sem desenhar letra que não existe)
                     BurstFusion.sharpenScaled(finalFrame, 1f, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
@@ -2517,7 +2522,10 @@ final class CameraController {
                 }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
-                if (lastIso >= 400) ShadowChroma.apply(finalFrame); // de dia não há ruído para tirar
+                // de dia não há ruído para tirar; na Máxima (28 MP) a super-resolução já soma 8 quadros e a
+                // limpeza custava ~5 s (pedido do usuário: Máxima mais rápida)
+                boolean big28 = (long) finalFrame.width * finalFrame.height > 16_000_000L;
+                if (lastIso >= 400 && !big28) ShadowChroma.apply(finalFrame);
                 j.sheet.put("limpeza_cor_sombras", "U/V até luma 100, ISO ≥ 400, raio 18 px amostrado, bordas preservadas, 3 passadas");
                 stamp(j, "tempo_etapa_cor_sombras_ms", tt);
                 saveYuv(j, finalFrame);

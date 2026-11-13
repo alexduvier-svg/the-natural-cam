@@ -26,10 +26,14 @@ final class ShadowChroma {
                 gy[cy * cw + cx] = ((f.y[i] & 0xFF) + (f.y[i + 1] & 0xFF) + (f.y[i + w] & 0xFF) + (f.y[i + w + 1] & 0xFF)) >> 2;
             }
         }
-        for (int k = 0; k < 3; k++) pass(f, gy, 9, 1f);
+        // 28 MP (Máxima): vizinhança amostrada a cada 3 e 2 passadas — o mesmo alcance em pixels da
+        // foto, ~4× menos contas (levava 6 s); 12 MP: a cada 2, 3 passadas (medido 0,73 → 0,43)
+        boolean big = (long) f.width * f.height > 16_000_000L;
+        int passes = big ? 2 : 3, step = big ? 3 : 2;
+        for (int k = 0; k < passes; k++) pass(f, gy, 9, 1f, step);
     }
 
-    private static void pass(YuvFrame f, int[] gy, int r, float strength) {
+    private static void pass(YuvFrame f, int[] gy, int r, float strength, int step) {
         final int cw = f.chromaWidth, ch = f.chromaHeight;
         final byte[] u = f.u.clone(), v = f.v.clone();
         IntStream.range(0, ch).parallel().forEach(cy -> {
@@ -43,10 +47,10 @@ final class ShadowChroma {
                 // limite de brilho proporcional ao nível (sombra profunda tem menos sinal)
                 int lt = Math.max(12, yc / 3);
                 int su = 0, sv = 0, n = 0;
-                for (int j = -r; j <= r; j += 2) {
+                for (int j = -r; j <= r; j += step) {
                     int yy = cy + j;
                     if (yy < 0 || yy >= ch) continue;
-                    for (int i = -r; i <= r; i += 2) {
+                    for (int i = -r; i <= r; i += step) {
                         int xx = cx + i;
                         if (xx < 0 || xx >= cw) continue;
                         int k = yy * cw + xx;

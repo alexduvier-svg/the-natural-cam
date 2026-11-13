@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.34.6** (versionCode 100),
-APK: `entrega/APK_1.34.6.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.35.7** (versionCode 107),
+APK: `entrega/APK_1.35.7.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -16,6 +16,11 @@ APK: `entrega/APK_1.34.6.apk` (instalado no Reno 16 Pro). Partida congelada: `en
   troca ~0,7 s (0,55 s é abrir a câmera). Testado: câmera LÓGICA sempre (1.35.0) dá troca instantânea, mas a ~40 cm o
   sistema alterna tele↔principal no meio do foco e o 3,5× fica desfocado — chave LOGICA_SEMPRE=false.
 - Regra: tocar de novo num objeto já focado mantém o foco (raio 20 % da tela).
+- 1.35.x (teste 13/11 tarde): o Reno NÃO libera o sensor de 50 MP a apps (sem ULTRA_HIGH_RESOLUTION; a chave MediaTek
+  remosaicenable é ignorada) — o 2× da OPPO lê o centro do sensor e o nosso não consegue (foto OPPO_2x em entrega/teste_duvier2).
+  2× agora pelo zoom do processador (mais natural, sem letras falsas da super-res); Máxima com 8 quadros e nitidez na
+  escala da super-res (estava mole); sem limpeza de cor em 28 MP; "Quadro k/n" no Foto (não "Noite").
+  Máxima ainda ~20 s (super-resolução de 28 MP ~14 s).
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
 
 ## Entrega 13/11 — feito na 1.31.0–1.32.5

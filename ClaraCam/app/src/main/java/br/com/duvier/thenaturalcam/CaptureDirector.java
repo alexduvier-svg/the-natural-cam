@@ -16,6 +16,8 @@ import java.util.Locale;
  * força do acabamento (limpeza de ruído e nitidez). Classe pura em Java, testável no PC.
  */
 public final class CaptureDirector {
+    /** 1,3×–2,9× da principal com zoom do processador (remosaic) em vez do recorte do app. */
+    static boolean ISP_ZOOM_PRINCIPAL = true;
 
     public enum Kind { FOTO, RETRATO, RUA, NOITE, LONGA, ASTRO, OUTRO }
 
@@ -43,6 +45,8 @@ public final class CaptureDirector {
         public long maxFrameExposureNs;
         /** Recorte central feito pelo app (1 = não recorta) e escala da super-resolução (1 = sem). */
         public float srCrop = 1f, srScale = 1f;
+        /** Zoom da principal feito pelo processador da câmera (remosaic), sem recorte do app. */
+        public boolean ispZoom;
         /** Fusão incremental (quadro somado ao chegar, memória constante): permite até 15 quadros. */
         public boolean stream;
         /** Tratamento de Noite (baixa luz em Noite, Foto ou Máxima). */
@@ -87,7 +91,12 @@ public final class CaptureDirector {
         if (s.stackOff) frames = 1;
         // ---- zoom por super-resolução ------------------------------------------------------
         boolean srKind = s.kind == Kind.FOTO || s.kind == Kind.RETRATO || s.kind == Kind.NOITE;
-        if (srKind && s.lensCrop >= 1.3f && !s.manual && !s.stackOff) {
+        // 1,3×–2,9× na PRINCIPAL: o zoom é pedido ao PROCESSADOR da câmera, que lê o centro do
+        // sensor de 50 MP (remosaic) — detalhe real, como o 2× da câmera da OPPO. O recorte pelo app
+        // (12 MP binados → ~3 MP reais) inventava letras no rótulo (teste 13/11).
+        boolean ispZoom = ISP_ZOOM_PRINCIPAL && !s.tele && s.lensCrop >= 1.3f && s.lensCrop < 3.0f;
+        p.ispZoom = ispZoom;
+        if (srKind && !ispZoom && s.lensCrop >= 1.3f && !s.manual && !s.stackOff) {
             p.srCrop = s.lensCrop;
             p.srScale = Math.min(2.5f, s.lensCrop);
             // Máxima no recorte da PRINCIPAL (1,3×–3,4×): mais amostras por pixel (2,5×) para a saída
@@ -113,6 +122,8 @@ public final class CaptureDirector {
         p.stream = nightLike && p.srScale <= 1f && !s.stackOff;
         if (p.stream && light >= 2) frames = Math.max(frames, light >= 3 ? 15 : 12);
         p.frames = Math.max(1, Math.min(p.stream ? 15 : 12, frames));
+        // Máxima (28 MP por super-resolução): 8 quadros, como o zoom aprovado — com 12 levava ~29 s
+        if (s.maxPolicy && p.srScale > 1f && p.srCrop <= 1f) p.frames = Math.min(p.frames, 8);
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
             p.srScale = 1f;
             p.srCrop = 1f;
