@@ -1,5 +1,6 @@
 package br.com.duvier.thenaturalcam;
 
+import androidx.exifinterface.media.ExifInterface;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -1942,7 +1943,10 @@ final class CameraController {
                 } else if (caps.supportsNr(CameraMetadata.NOISE_REDUCTION_MODE_FAST)) {
                     b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_FAST);
                 }
-                if (teleFallback() && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
+                // principal (1×, 2× e recortes dela): sem a nitidez do ISP em cada quadro — somada à
+                // super-res e ao acabamento ela desenhava "letras" falsas no rótulo (teste 13/11).
+                // A tele (3,5×–8×, aprovada como perfeita) continua igual.
+                if ((teleFallback() || !onTele) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
                     // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
@@ -2403,6 +2407,12 @@ final class CameraController {
                     BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
+                if (!j.onTeleShot && !zoomSharpened && j.cropUpscale <= 1.5f && longSide >= 4000) {
+                    // principal sem recorte (1×/0,6×): os quadros vêm sem a nitidez do ISP; uma passada
+                    // leve, de olho humano, só acima do ruído (sem desenhar letra que não existe)
+                    BurstFusion.sharpenScaled(finalFrame, 1f, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
+                    j.sheet.put("nitidez_principal", "raio 1 px, força 0,3 (ISP sem nitidez)");
+                }
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
                 if (lastIso >= 400) ShadowChroma.apply(finalFrame); // de dia não há ruído para tirar
@@ -2462,32 +2472,32 @@ final class CameraController {
     private java.util.Map<String, String> exifTags(TotalCaptureResult r) {
         java.util.Map<String, String> t = new java.util.HashMap<>();
         t.put("LensMake", android.os.Build.MANUFACTURER);
-        t.put(android.media.ExifInterface.TAG_EXPOSURE_PROGRAM, isManual() ? "1" : "2");
-        t.put(android.media.ExifInterface.TAG_METERING_MODE, "5");
+        t.put(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_PROGRAM, isManual() ? "1" : "2");
+        t.put(androidx.exifinterface.media.ExifInterface.TAG_METERING_MODE, "5");
         if (r == null) return t;
         Float ap = r.get(CaptureResult.LENS_APERTURE);
-        if (ap != null && ap > 0) t.put(android.media.ExifInterface.TAG_F_NUMBER, String.valueOf(ap));
+        if (ap != null && ap > 0) t.put(androidx.exifinterface.media.ExifInterface.TAG_F_NUMBER, String.valueOf(ap));
         Float fl = r.get(CaptureResult.LENS_FOCAL_LENGTH);
         if (fl != null && fl > 0) {
-            t.put(android.media.ExifInterface.TAG_FOCAL_LENGTH, Math.round(fl * 1000) + "/1000");
+            t.put(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH, Math.round(fl * 1000) + "/1000");
             Float zr = r.get(CaptureResult.CONTROL_ZOOM_RATIO);
             float eq = equivalent35(zr == null ? 1f : zr);
-            if (eq > 0) t.put(android.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, String.valueOf(Math.round(eq)));
+            if (eq > 0) t.put(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, String.valueOf(Math.round(eq)));
             String lens = r.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
             t.put("LensModel", String.format(java.util.Locale.ROOT,
                     "%s %.2fmm f/%.1f%s", android.os.Build.MODEL, fl, ap == null ? 0f : ap, lens != null ? " (lente " + lens + ")" : ""));
-            if (zr != null) t.put(android.media.ExifInterface.TAG_DIGITAL_ZOOM_RATIO, Math.round(zr * 100) + "/100");
+            if (zr != null) t.put(androidx.exifinterface.media.ExifInterface.TAG_DIGITAL_ZOOM_RATIO, Math.round(zr * 100) + "/100");
         }
         Integer awb = r.get(CaptureResult.CONTROL_AWB_MODE);
-        t.put(android.media.ExifInterface.TAG_WHITE_BALANCE,
+        t.put(androidx.exifinterface.media.ExifInterface.TAG_WHITE_BALANCE,
                 awb != null && awb == CameraMetadata.CONTROL_AWB_MODE_AUTO ? "0" : "1");
         Integer evc = r.get(CaptureResult.CONTROL_AE_EXPOSURE_COMPENSATION);
         if (evc != null && caps.evStep != null) {
             double stops = evc * caps.evStep.doubleValue();
-            t.put(android.media.ExifInterface.TAG_EXPOSURE_BIAS_VALUE, Math.round(stops * 100) + "/100");
+            t.put(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_BIAS_VALUE, Math.round(stops * 100) + "/100");
         }
         Integer fs = r.get(CaptureResult.FLASH_STATE);
-        t.put(android.media.ExifInterface.TAG_FLASH, fs != null && fs == CameraMetadata.FLASH_STATE_FIRED ? "1" : "0");
+        t.put(androidx.exifinterface.media.ExifInterface.TAG_FLASH, fs != null && fs == CameraMetadata.FLASH_STATE_FIRED ? "1" : "0");
         return t;
     }
 
@@ -2504,9 +2514,73 @@ final class CameraController {
         }
     }
 
+    /**
+     * EXIF da LENTE que fez a foto (pedido do usuário 13/11: toda lente entrega seus dados).
+     * Nome da lente (ultra-angular, principal, tele), focal real e equivalente 35 mm do
+     * enquadramento FINAL (lente × recorte do app), abertura, zoom digital aplicado pelo app, ISO e
+     * tempo reais e o EV escolhido pelo usuário (não a compensação interna da rajada).
+     */
+    private void lensExif(Job j, java.util.Map<String, String> t, YuvFrame f) {
+        try {
+            CameraCaps lc = logicalCaps != null ? logicalCaps : caps;
+            String phys = j.result != null ? j.result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID) : null;
+            if (phys == null || lc == null || !lc.physLens.containsKey(phys)) phys = j.sheet.optString("lente_fisica_ativa", null);
+            if (phys == null || lc == null || !lc.physLens.containsKey(phys)) phys = j.sheet.optString("camera_id", null);
+            float userZoom = (float) j.sheet.optDouble("zoom", zoom);
+            float eqLens = 0, eqMain = 0;
+            String role = "principal";
+            if (lc != null && lc.mainId != null && lc.physLens.containsKey(lc.mainId)) eqMain = lc.physLens.get(lc.mainId)[0];
+            if (lc != null && phys != null && lc.physLens.containsKey(phys)) {
+                eqLens = lc.physLens.get(phys)[0];
+                if (phys.equals(lc.teleId)) role = "tele";
+                else if (eqMain > 0 && eqLens < eqMain * 0.8f) role = "ultra-angular";
+            }
+            // zoom nativo da lente (1× principal, 0,6× ultra, 3,5× tele) e o recorte que o app fez
+            float nativeZoom = eqMain > 0 && eqLens > 0 ? eqLens / eqMain : 1f;
+            float digital = Math.max(1f, userZoom / nativeZoom);
+            float eqFinal = eqMain > 0 ? eqMain * Math.max(userZoom, nativeZoom) : eqLens * digital;
+            Float fl = j.result != null ? j.result.get(CaptureResult.LENS_FOCAL_LENGTH) : null;
+            Float ap = j.result != null ? j.result.get(CaptureResult.LENS_APERTURE) : null;
+            if (fl != null && fl > 0) t.put(ExifInterface.TAG_FOCAL_LENGTH, Math.round(fl * 1000) + "/1000");
+            if (ap != null && ap > 0) {
+                t.put(ExifInterface.TAG_F_NUMBER, Math.round(ap * 100) + "/100");
+                t.put(ExifInterface.TAG_APERTURE_VALUE, Math.round(2 * Math.log(ap) / Math.log(2) * 100) + "/100");
+            }
+            if (eqFinal > 0) t.put(ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, String.valueOf(Math.round(eqFinal)));
+            t.put(ExifInterface.TAG_DIGITAL_ZOOM_RATIO, Math.round(digital * 100) + "/100");
+            t.put(ExifInterface.TAG_LENS_MAKE, android.os.Build.MANUFACTURER);
+            String model = String.format(java.util.Locale.ROOT, "%s %s %d mm%s%s",
+                    android.os.Build.MODEL, role, Math.round(eqLens > 0 ? eqLens : (fl != null ? fl : 0)),
+                    ap != null && ap > 0 ? String.format(java.util.Locale.ROOT, " f/%.1f", ap) : "",
+                    digital > 1.01f ? String.format(java.util.Locale.ROOT, " (recorte %.2fx)", digital) : "");
+            t.put(ExifInterface.TAG_LENS_MODEL, model);
+            if (ap != null && ap > 0 && fl != null && fl > 0) {
+                String flr = Math.round(fl * 1000) + "/1000", apr = Math.round(ap * 100) + "/100";
+                t.put(ExifInterface.TAG_LENS_SPECIFICATION, flr + "," + flr + "," + apr + "," + apr);
+            }
+            if (f.iso <= 0 && j.result != null) {
+                Integer iso = j.result.get(CaptureResult.SENSOR_SENSITIVITY);
+                if (iso != null) t.put(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, String.valueOf(iso));
+            }
+            if (f.exposureNs <= 0 && j.result != null) {
+                Long et = j.result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                if (et != null) t.put(ExifInterface.TAG_EXPOSURE_TIME, String.valueOf(et / 1e9));
+            }
+            int userEv = j.sheet.optInt("ev", 0);
+            double stops = caps != null && caps.evStep != null ? userEv * caps.evStep.doubleValue() : 0;
+            t.put(ExifInterface.TAG_EXPOSURE_BIAS_VALUE, Math.round(stops * 100) + "/100");
+            t.put(ExifInterface.TAG_EXPOSURE_MODE, isManual() ? "1" : "0");
+            j.sheet.put("exif_lente", model + " · " + Math.round(eqFinal) + " mm equiv.");
+        } catch (Throwable e) {
+            Log.w(TAG, "exif da lente", e);
+        }
+    }
+
     private void saveYuv(Job j, YuvFrame f) throws Exception {
         // JPEG direto do YUV (NV21): sem bitmap ARGB gigante — cabe até a saída de 28 MP
-        Uri uri = saver.saveYuv(j.name, f, j.orientation, j.sheet, exifTags(j.result));
+        java.util.Map<String, String> tags = exifTags(j.result);
+        lensExif(j, tags, f);
+        Uri uri = saver.saveYuv(j.name, f, j.orientation, j.sheet, tags);
         String summary = summary(j.sheet);
         main.post(() -> listener.onSaved(uri, summary));
         idle();
@@ -2541,11 +2615,11 @@ final class CameraController {
             Bitmap b = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, o);
             if (b == null) return;
             int deg = 0;
-            android.media.ExifInterface exif = new android.media.ExifInterface(new java.io.ByteArrayInputStream(jpeg));
-            switch (exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
-                case android.media.ExifInterface.ORIENTATION_ROTATE_90: deg = 90; break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_180: deg = 180; break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_270: deg = 270; break;
+            androidx.exifinterface.media.ExifInterface exif = new androidx.exifinterface.media.ExifInterface(new java.io.ByteArrayInputStream(jpeg));
+            switch (exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION, 1)) {
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90: deg = 90; break;
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180: deg = 180; break;
+                case androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270: deg = 270; break;
                 default: break;
             }
             postPreview(rotate(b, deg));

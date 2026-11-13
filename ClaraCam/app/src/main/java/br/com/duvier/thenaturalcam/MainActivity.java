@@ -153,7 +153,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     /**
      * Estado limpo a cada volta ao app (item 9 da entrega: o app se comporta igual com e sem
      * agente). A trava de foco/exposição sempre solta. Depois de 1 min fora (ou ao abrir), volta
-     * também zoom 1×, EV 0, Foto, automático e sem Máxima — a foto não herda ajuste de uma sessão
+     * também zoom 1×, EV 0, Foto e automático (a Máxima fica, é escolha do usuário) — a foto não herda ajuste de uma sessão
      * anterior (nem de um teste por adb). As decisões automáticas de lente zeram em
      * CameraController.start().
      */
@@ -173,10 +173,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
         camera.setManual(0, 0);
         camera.setFocusDistance(-1f);
         camera.setAwbLock(false);
-        if (stackPolicy != CameraController.STACK_AUTO) {
-            stackPolicy = CameraController.STACK_AUTO;
-            camera.setStackPolicy(stackPolicy);
-        }
+        // a Máxima é escolha do usuário e fica (teste 13/11: ao voltar da galeria ela desligava
+        // sozinha e o 1×/2× saíam "em baixa resolução")
         if (mode != CameraController.Mode.FOTO && !busy) selectMode(CameraController.Mode.FOTO);
         if (caps != null) {
             setEv(0);
@@ -226,6 +224,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
         texture = new TextureView(this);
         overlay = new Overlay(this);
         stage.addView(texture, new FrameLayout.LayoutParams(-1, -1));
+        // imagem congelada durante a troca de lente (sem tela preta nem salto)
+        freeze = new android.widget.ImageView(this);
+        freeze.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+        freeze.setVisibility(View.GONE);
+        stage.addView(freeze, new FrameLayout.LayoutParams(-1, -1));
         stage.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
         // aviso no visor: distância de foco, tele trocada por recorte (some sozinho)
         hintBanner = Ui.text(this, "", 13, Ui.TEXT);
@@ -292,6 +295,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
             @Override
             public void onSurfaceTextureUpdated(SurfaceTexture s) {
+                freezeFrame();
             }
         });
 
@@ -651,8 +655,57 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (overlay != null) overlay.invalidate();
     }
 
+    private android.widget.ImageView freeze;
+    private long freezeAt;
+    private int freezeFrames;
+
+    /**
+     * Troca de lente fluida (teste 13/11: "engasga"): a câmera fecha uma lente e abre a outra
+     * (~0,5 s). Nesse meio a imagem atual fica congelada e já se amplia até o zoom novo; some com um
+     * esmaecimento quando a lente nova entrega quadros assentados (exposição e foco).
+     */
+    private void showFreeze(float from, float to) {
+        try {
+            if (texture.getWidth() <= 0) return;
+            android.graphics.Bitmap bm = texture.getBitmap(texture.getWidth() / 2, texture.getHeight() / 2);
+            if (bm == null) return;
+            freeze.animate().cancel();
+            freeze.setImageBitmap(bm);
+            freeze.setAlpha(1f);
+            freeze.setScaleX(1f);
+            freeze.setScaleY(1f);
+            freeze.setVisibility(View.VISIBLE);
+            float s = Math.max(0.5f, Math.min(4f, to / Math.max(0.1f, from)));
+            freeze.animate().scaleX(s).scaleY(s).setDuration(220).start();
+            freezeAt = SystemClock.elapsedRealtime();
+            freezeFrames = 0;
+            main.postDelayed(this::hideFreeze, 1500); // garantia: nunca fica congelada
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void freezeFrame() {
+        if (freeze == null || freeze.getVisibility() != View.VISIBLE) return;
+        // quadros da lente nova: só conta depois que a troca começou de fato (~0,3 s) e espera 4
+        // quadros para a exposição e o foco assentarem
+        if (SystemClock.elapsedRealtime() - freezeAt < 300) return;
+        if (++freezeFrames >= 4) hideFreeze();
+    }
+
+    private void hideFreeze() {
+        if (freeze == null || freeze.getVisibility() != View.VISIBLE) return;
+        freeze.animate().cancel();
+        freeze.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+            freeze.setVisibility(View.GONE);
+            freeze.setImageBitmap(null);
+        }).start();
+    }
+
     private void zoomTo(float z) {
         if (caps == null) return;
+        float before = zoom;
+        float teleAt = (caps.teleRatio > 1.5f ? caps.teleRatio : 3.5f) * 0.97f;
+        if ((before < teleAt) != (z < teleAt)) showFreeze(before, z); // troca de lente física
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
         camera.setZoom(zoom);
         if (apertureScroll != null) {
@@ -1509,6 +1562,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
         thumbBusy.setVisibility(View.VISIBLE);
         status.setText("Criando " + kind + " " + PortraitEngine.label(ap) + "…");
         portraitWorker.execute(() -> {
+            // cópias de óptica/retrato em prioridade baixa: não atrasam a fusão da próxima foto
+            // (teste 13/11: 6×–8× seguidos demoravam porque as cópias disputavam o processador)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
             try {
                 long t0 = System.currentTimeMillis();
                 android.graphics.Bitmap full = android.graphics.ImageDecoder.decodeBitmap(

@@ -15,11 +15,8 @@ final class ShadowChroma {
 
     static void apply(YuvFrame f) {
         // janela de 19×19 na grade de cor amostrada a cada 2 (mesmo resultado, ~3,6× mais rápido)
-        for (int k = 0; k < 3; k++) pass(f, 9, 1f);
-    }
-
-    private static void pass(YuvFrame f, int r, float strength) {
         final int cw = f.chromaWidth, ch = f.chromaHeight, w = f.width, h = f.height;
+        // brilho na grade da cor: calculado UMA vez (o brilho não muda entre as passadas)
         final int[] gy = new int[cw * ch];
         for (int cy = 0; cy < ch; cy++) {
             int y0 = Math.min(cy * 2, h - 2);
@@ -29,6 +26,11 @@ final class ShadowChroma {
                 gy[cy * cw + cx] = ((f.y[i] & 0xFF) + (f.y[i + 1] & 0xFF) + (f.y[i + w] & 0xFF) + (f.y[i + w + 1] & 0xFF)) >> 2;
             }
         }
+        for (int k = 0; k < 3; k++) pass(f, gy, 9, 1f);
+    }
+
+    private static void pass(YuvFrame f, int[] gy, int r, float strength) {
+        final int cw = f.chromaWidth, ch = f.chromaHeight;
         final byte[] u = f.u.clone(), v = f.v.clone();
         IntStream.range(0, ch).parallel().forEach(cy -> {
             for (int cx = 0; cx < cw; cx++) {
