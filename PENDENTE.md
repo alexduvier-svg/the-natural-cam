@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.37.3** (versionCode 114),
-APK: `entrega/APK_1.37.3.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.37.7** (versionCode 118),
+APK: `entrega/APK_1.37.7.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -32,6 +32,11 @@ APK: `entrega/APK_1.37.3.apk` (instalado no Reno 16 Pro). Partida congelada: `en
 - 1.37.3: 1× sem foco (foco ia ao fundo, 140 cm) — a principal abria na distância NÃO calibrada da tele e um toque
   podia ser ignorado por uma busca que nunca terminava; 3,5× com passada honesta 0,35. Teste do usuário 14h: todas as
   fotos 3,5×–10× pela tele (lente estável); 10× ruim = fora de foco a 42 cm (limite da tele), boas a 44–49 cm.
+- 1.37.4–1.37.7: 7×/10× "1ª boa, depois ruins" tinha 2 causas: (a) a lente trocava para a principal pelo estado do AF
+  da tele depois da rajada — removido, a lente é decidida só pela distância da principal ao escolher o zoom; (b) o toque
+  na tele fazia varredura AUTO que travava a lente errada perto do limite — agora o toque na tele só indica a região ao
+  foco contínuo (acerta). Segundo toque refoca se o último foco bem-sucedido tem mais de 5 s. Teste 15h: 7× duas fotos
+  seguidas pela tele, detalhe 0,93 e 0,94; foco mantido depois da foto.
 - Falta: 7×/10× a 40–45 cm (limite da tele: forçar busca de foco antes da rajada ou usar a principal); 0,6×–2× abaixo
   da OPPO por falta de acesso ao sensor de 50 MP; Máxima 0,6×/1× ~20 s; app congelado pela OPPO no fundo.
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.

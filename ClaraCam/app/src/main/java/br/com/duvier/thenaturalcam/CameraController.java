@@ -268,32 +268,11 @@ final class CameraController {
                 farSince = 0;
             }
         }
-        boolean teleLive = onTele || (LOGICA_SEMPRE && teleNative() && lastPhys != null && lastPhys.equals(logicalCaps.teleId));
-        if (teleLive) {
-            // Só o ESTADO do AF decide: a distância informada pela tele NÃO é calibrada neste
-            // aparelho (o sistema declara UNCALIBRATED) — a regra "lente no limite" trocava para a
-            // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
-            boolean unfocused = af != null && (af == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
-                    || af == CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED);
-            // o "não focado" da tele só vale se a PRINCIPAL também mediu o objeto perto (< ~42 cm):
-            // no 10× (recorte grande da tele) o AF dela dizia "não focado" com a imagem nítida e o app
-            // trocava para a principal à toa (teste 13/11)
-            boolean mainSaysNear = mainFd > 0 && mainFd > 1f / 0.42f;
-            if (unfocused && !teleFailUsed && mainSaysNear) {
-                if (nearSince == 0) nearSince = now;
-                else if (now - nearSince > 2500) {
-                    nearMode = true; // tele não consegue focar: tenta a principal (uma vez só)
-                    nearDecidedAt = SystemClock.elapsedRealtime();
-                    nearReason = 2;
-                    teleFailUsed = true;
-                    if (LOGICA_SEMPRE) handler.post(this::startRepeating); // lógica limitada à principal
-                    else handler.post(() -> switchLens(false));
-                }
-            } else {
-                nearSince = 0;
-            }
-        }
-        // a volta para a tele acontece ao escolher um zoom de novo (setZoom zera nearMode)
+        // Na tele NÃO se troca de lente pelo estado do foco (teste 13/11: depois de cada rajada o AF
+        // da tele passa por "não focado" e o 7×/10× ia para o recorte da principal — 1ª foto boa,
+        // as seguintes ruins). A lente é decidida pela distância medida pela principal ao escolher
+        // o zoom (mainNearNow, < ~36 cm = principal); só uma foto de fato desfocada (verificador,
+        // detalhe < 60 %) leva a próxima para a principal.
     }
 
     /** Zoom pedido ao dispositivo aberto: na tele direta, relativo à própria tele (3,5× → 1×). */
@@ -716,7 +695,10 @@ final class CameraController {
             // um objeto, não um pixel) e foco assentado ou ainda buscando: mantém; era a nova
             // varredura que desfocava e refocava. Outro objeto da cena foca normalmente.
             boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < 0.01f && dx * dx + dy * dy < 0.20f * 0.20f;
-            boolean focusedNow = lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+            // "já focado" = o toque focou com sucesso há menos de 5 s (o estado passivo do AF podia
+            // estar focado no FUNDO e o toque no frasco era ignorado — teste 13/11)
+            boolean focusedNow = SystemClock.elapsedRealtime() - tapLockedAt < 5000;
+            boolean unusedAfFocused = lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
                     || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
             boolean scanAlive = tapScanning && SystemClock.elapsedRealtime() - tapScanAt < 1500;
             if (samePlace && (scanAlive || focusedNow)) {
@@ -733,7 +715,16 @@ final class CameraController {
             aeRegions = tapMetering(nx, ny);
             if (regions == null) return;
             regionsZoom = zoom;
-            scanTap();
+            if (onTele && !caps.focusCalibrated) {
+                // TELE: o toque só indica a região ao foco CONTÍNUO, que acerta; a varredura AUTO
+                // travava a lente no ponto errado perto do limite dela (teste 13/11: prévia nítida,
+                // foto depois do toque desfocada, detalhe 0,6)
+                tapCaf = true;
+                tapLockedAt = SystemClock.elapsedRealtime();
+                startRepeating();
+            } else {
+                scanTap();
+            }
             Rect rr = regions[0].getRect();
             Rect crop = lastCrop;
             Log.w(TAG, "foco toque n=(" + nx + "," + ny + ") zoom=" + zoom + " regiao=" + rr.toShortString()
@@ -828,10 +819,14 @@ final class CameraController {
     }
 
     /** Chamado a cada mudança de estado do AF durante a varredura do toque. */
+    /** Quando o toque focou com sucesso (o segundo toque só é ignorado logo depois disso). */
+    private long tapLockedAt;
+
     private void onTapAf(int st) {
         if (!tapScanning) return;
         if (st == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED) {
             tapScanning = false;
+            tapLockedAt = SystemClock.elapsedRealtime();
         } else if (st == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED) {
             tapScanning = false;
             if (tapRetries < 2 && regions != null) {
@@ -1202,8 +1197,14 @@ final class CameraController {
         boolean useRegions = regions != null && !maxRes;
         boolean manualFocus = focusDistance >= 0f && caps.minFocus > 0f
                 && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_OFF);
-        boolean holdFocus = tapHold >= 0f && caps.minFocus > 0f
+        // lente parada na distância medida só onde a distância é CALIBRADA (principal). Na tele
+        // (não calibrada) o valor, limitado ao mínimo dela, levava a lente a outro ponto e a foto
+        // depois do toque saía desfocada (teste 13/11: 1ª foto boa, as seguintes ruins) — ali o
+        // foco fica preso pelo próprio AF (modo AUTO sem novo gatilho), onde ele focou
+        boolean holdFocus = tapHold >= 0f && caps.minFocus > 0f && caps.focusCalibrated
                 && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_OFF);
+        boolean holdAuto = tapHold >= 0f && !holdFocus
+                && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_AUTO);
         if (manualFocus) {
             b.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF);
             b.set(CaptureRequest.LENS_FOCUS_DISTANCE, Math.min(focusDistance, caps.minFocus));
@@ -1211,6 +1212,9 @@ final class CameraController {
             // foco do toque "agarrado" no ponto de maior nitidez medido: lente parada ali
             b.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF);
             b.set(CaptureRequest.LENS_FOCUS_DISTANCE, Math.min(tapHold, caps.minFocus));
+        } else if (holdAuto) {
+            b.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO);
+            if (useRegions && caps.maxAfRegions > 0) b.set(CaptureRequest.CONTROL_AF_REGIONS, regions);
         } else if (userLock && CameraCaps.contains(caps.afModes, CameraMetadata.CONTROL_AF_MODE_AUTO)) {
             // foco travado: modo AUTO sem novo gatilho mantém a lente onde focou
             b.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO);
