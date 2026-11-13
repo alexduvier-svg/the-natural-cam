@@ -659,6 +659,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private android.graphics.Bitmap freezeBm;
     private long freezeAt;
     private int freezeFrames;
+    private long freezeReadyAt;
     private float freezeScale = 1f;
     private boolean freezeIn, freezeEnding;
 
@@ -702,10 +703,12 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (freeze == null || freeze.getVisibility() != View.VISIBLE || freezeEnding) return;
         // quadros da lente nova: só depois que a troca começou de fato (~0,25 s); 3 quadros para a
         // exposição assentar
-        if (SystemClock.elapsedRealtime() - freezeAt < 250) return;
+        // só conta quadros da lente NOVA, depois que a tela se ajustou a ela (os primeiros vinham
+        // com o enquadramento deslocado e o foco ainda no fundo)
+        if (freezeReadyAt < freezeAt || SystemClock.elapsedRealtime() - freezeReadyAt < 60) return;
         // segura até o foco da lente nova assentar (a principal aparecia desfocada procurando foco);
-        // no máximo ~45 quadros (~1,5 s; a tele no mínimo de foco dela é lenta)
-        if (++freezeFrames >= 3 && (camera.afSettled() || freezeFrames >= 45)) endFreeze();
+        // no máximo 8 quadros (~0,27 s): a lente nova já abre na distância medida pela anterior
+        if (++freezeFrames >= 3 && (camera.afSettled() || freezeFrames >= 8)) endFreeze();
     }
 
     /**
@@ -716,6 +719,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private void endFreeze() {
         if (freeze == null || freeze.getVisibility() != View.VISIBLE || freezeEnding) return;
         freezeEnding = true;
+        android.util.Log.w("TheNaturalCam", "troca de lente: imagem nova em " + (SystemClock.elapsedRealtime() - freezeAt) + " ms (" + freezeFrames + " quadros, foco " + camera.afSettled() + ")");
         freeze.animate().cancel();
         freeze.setVisibility(View.GONE);
         freeze.setImageBitmap(null);
@@ -724,9 +728,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private void zoomTo(float z) {
         if (caps == null) return;
-        float before = zoom;
-        float teleAt = (caps.teleRatio > 1.5f ? caps.teleRatio : 3.5f) * 0.97f;
-        if ((before < teleAt) != (z < teleAt)) showFreeze(before, z); // troca de lente física
+        // troca de lente física: só reabre a câmera no modo antigo (na lógica a troca é por dentro)
+        // a imagem congelada aparece só quando a câmera troca de lente de verdade (onLensSwitching)
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
         camera.setZoom(zoom);
         if (apertureScroll != null) {
@@ -1120,6 +1123,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     @Override
     public void onSessionReady(CameraController.Mode m, Size previewSize, String description) {
+        freezeReadyAt = SystemClock.elapsedRealtime(); // lente nova pronta: a tela já se ajustou a ela
         if (m != mode) {
             mode = m;
             refreshModes();
@@ -1641,6 +1645,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 });
             }
         });
+    }
+
+    @Override
+    public void onLensSwitching() {
+        showFreeze(1f, 1f);
     }
 
     @Override

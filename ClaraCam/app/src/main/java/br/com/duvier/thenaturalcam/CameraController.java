@@ -65,6 +65,10 @@ final class CameraController {
     interface Listener {
         void onOpened(CameraCaps caps);
 
+        /** A câmera vai fechar uma lente física e abrir outra (troca de zoom). */
+        default void onLensSwitching() {
+        }
+
         void onSessionReady(Mode mode, Size previewSize, String description);
 
         void onLive(int iso, long exposureNs, String nr);
@@ -132,6 +136,30 @@ final class CameraController {
     /** Câmera lógica (interface) e tele física aberta direto; onTele = a tele está aberta. */
     private CameraCaps logicalCaps, teleCaps;
     private boolean onTele;
+    /**
+     * Câmera LÓGICA sempre (13/11, pedido do usuário: troca de lente instantânea como a câmera da
+     * OPPO). A tele não é mais aberta direto: a prévia muda de lente por dentro do sistema, sem
+     * fechar a câmera. Na foto de 3,5× para cima pede à lógica o zoom NATIVO da tele (quadros sem
+     * ampliação do ISP) e o app recorta/super-resolve como antes. false = comportamento antigo.
+     */
+    // Testado em 13/11: a ~40 cm a lógica alterna sozinha tele ↔ principal no meio do foco (3,5×
+    // desfocado). Fica DESLIGADO: a tele aberta direto dá a foto aprovada; a troca é um corte seco.
+    static final boolean LOGICA_SEMPRE = false;
+
+    /** Zoom que a câmera lógica atende com a tele inteira (3,5× no Reno16 Pro). */
+    private float teleBase() {
+        return logicalCaps != null ? Math.max(logicalCaps.teleRatio, 3.5f) : 3.5f;
+    }
+
+    /** No zoom da tele e a tele pode focar (objeto não está perto demais). */
+    private boolean teleNative() {
+        return logicalCaps != null && teleCaps != null && !nearMode && zoom >= logicalCaps.teleRatio * 0.97f;
+    }
+
+    /** A troca de zoom reabre a câmera? (a tela mostra a transição só nesse caso) */
+    boolean reopensOnZoom() {
+        return !LOGICA_SEMPRE;
+    }
 
     /**
      * Objeto perto demais para a tele (ela só foca a partir de ~40 cm): no zoom da tele usa a
@@ -149,6 +177,7 @@ final class CameraController {
     /** Troca de lente física: fecha e abre a outra (≈ meio segundo), sem travar a tela. */
     private void switchLens(boolean tele) {
         if (tele == onTele && device != null) return; // troca já feita (pedidos repetidos)
+        main.post(listener::onLensSwitching); // a tela congela a imagem só numa troca de verdade
         onTele = tele;
         caps = tele ? teleCaps : logicalCaps;
         regions = null;
@@ -224,13 +253,15 @@ final class CameraController {
                 if (farSince == 0) farSince = now;
                 else if (now - farSince > 1500) {
                     nearMode = false;
-                    handler.post(() -> switchLens(true));
+                    if (LOGICA_SEMPRE) handler.post(this::startRepeating); // a lógica volta à tele sozinha
+                    else handler.post(() -> switchLens(true));
                 }
             } else {
                 farSince = 0;
             }
         }
-        if (onTele) {
+        boolean teleLive = onTele || (LOGICA_SEMPRE && teleNative() && lastPhys != null && lastPhys.equals(logicalCaps.teleId));
+        if (teleLive) {
             // Só o ESTADO do AF decide: a distância informada pela tele NÃO é calibrada neste
             // aparelho (o sistema declara UNCALIBRATED) — a regra "lente no limite" trocava para a
             // principal com o objeto longe e as fotos de 6×/8× saíam do recorte pequeno da principal.
@@ -242,7 +273,8 @@ final class CameraController {
                     nearMode = true; // tele não consegue focar: tenta a principal (uma vez só)
                     nearReason = 2;
                     teleFailUsed = true;
-                    handler.post(() -> switchLens(false));
+                    if (LOGICA_SEMPRE) handler.post(this::startRepeating); // lógica limitada à principal
+                    else handler.post(() -> switchLens(false));
                 }
             } else {
                 nearSince = 0;
@@ -398,7 +430,7 @@ final class CameraController {
             // a lente segue o zoom atual (voltando em < 1 min no 6× depois de estar na principal
             // por "objeto perto", a câmera lógica reabria pedindo 6× e o sistema escolhia a lente)
             if (logicalCaps != null) {
-                boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
+                boolean wantTele = !LOGICA_SEMPRE && teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f;
                 onTele = wantTele;
                 caps = wantTele ? teleCaps : logicalCaps;
             }
@@ -491,7 +523,7 @@ final class CameraController {
                 nearMode = true;
                 nearReason = 1;
             }
-            boolean wantTele = teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
+            boolean wantTele = !LOGICA_SEMPRE && teleCaps != null && zoom >= logicalCaps.teleRatio * 0.97f && !nearMode;
             if (wantTele != onTele && !capturing) {
                 switchLens(wantTele);
                 return;
@@ -658,8 +690,13 @@ final class CameraController {
             // está travado nele, ou a busca ainda está em andamento, MANTÉM — não refaz a busca
             // (antes o foco "respirava" a cada toque). Outro ponto da cena busca normalmente.
             float dx = nx - tapX, dy = ny - tapY;
-            boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < 0.01f && dx * dx + dy * dy < 0.08f * 0.08f;
-            if (samePlace && (tapScanning || lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED)) {
+            // REGRA (usuário 13/11): objeto já focado não desfoca. Raio de 20 % da tela (o tamanho de
+            // um objeto, não um pixel) e foco assentado ou ainda buscando: mantém; era a nova
+            // varredura que desfocava e refocava. Outro objeto da cena foca normalmente.
+            boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < 0.01f && dx * dx + dy * dy < 0.20f * 0.20f;
+            boolean focusedNow = lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
+                    || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
+            if (samePlace && (tapScanning || focusedNow)) {
                 Log.w(TAG, "foco mantido: toque no mesmo ponto já focado (" + nx + "," + ny + ")");
                 return;
             }
@@ -1865,7 +1902,10 @@ final class CameraController {
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
             j.sheet.put("ganho_pos_raw_previa", lastBoost);
-            j.onTeleShot = onTele;
+            // tele na foto: aberta direto (antigo) ou pela lógica no zoom nativo dela (o sistema está
+            // mesmo na tele agora — se trocou sozinho para a principal, é recorte da principal)
+            final boolean teleShot = onTele || (LOGICA_SEMPRE && teleNative() && !teleFallback());
+            j.onTeleShot = teleShot;
             j.sheet.put("quadros_pedidos", burstTarget);
             // super-resolução só na Máxima: sobre o recorte já ampliado pelo ISP ela custava ~25 s
             // e quase não somava detalhe; o recorte ganha nitidez na escala da ampliação (abaixo)
@@ -1879,8 +1919,8 @@ final class CameraController {
                 sc.iso = lastIso;
                 sc.exposureNs = lastExposure;
                 sc.zoom = zoom;
-                sc.tele = onTele;
-                sc.lensCrop = onTele ? deviceZoom() : Math.max(1f, zoom);
+                sc.tele = teleShot;
+                sc.lensCrop = onTele ? deviceZoom() : teleShot ? Math.max(1f, zoom / teleBase()) : Math.max(1f, zoom);
                 sc.focusCm = lastFocusDistance > 0 ? Math.round(100f / lastFocusDistance) : 100;
                 sc.face = currentFaces() != null;
                 sc.kind = mode == Mode.NOITE ? CaptureDirector.Kind.NOITE : mode == Mode.RETRATO ? CaptureDirector.Kind.RETRATO : CaptureDirector.Kind.FOTO;
@@ -1987,7 +2027,7 @@ final class CameraController {
                 CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 b.addTarget(yuvReader.getSurface());
                 applyCommon(b, true, false);
-                if (j.srCrop > 1f) b.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1f); // sem ampliação do ISP
+                if (j.srCrop > 1f) b.set(CaptureRequest.CONTROL_ZOOM_RATIO, j.onTeleShot && !onTele ? teleBase() : 1f); // sem ampliação do ISP (tele: zoom nativo dela na lógica)
                 if (nightExp > 0) {
                     b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
                     b.set(CaptureRequest.SENSOR_SENSITIVITY, nightIso);
@@ -2004,7 +2044,7 @@ final class CameraController {
                 // principal (1×, 2× e recortes dela): sem a nitidez do ISP em cada quadro — somada à
                 // super-res e ao acabamento ela desenhava "letras" falsas no rótulo (teste 13/11).
                 // A tele (3,5×–8×, aprovada como perfeita) continua igual.
-                if ((teleFallback() || !onTele) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
+                if ((teleFallback() || !j.onTeleShot) && caps.supportsEdge(CameraMetadata.EDGE_MODE_OFF)) {
                     // recorte ampliado da principal: a nitidez do ISP sobre a ampliação é o que
                     // "aquarela" letras e bordas — desliga e deixa só o acabamento suave da fusão
                     b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF);
@@ -2359,11 +2399,12 @@ final class CameraController {
                         // mínimo dela (40 cm). A próxima foto já sai da principal (sem aviso na tela).
                         qj.put("tele_fora_de_foco", "próxima foto pela principal (objeto perto demais da tele)");
                         handler.post(() -> {
-                            if (onTele && !capturing) {
+                            if ((onTele || LOGICA_SEMPRE) && !capturing) {
                                 nearMode = true;
                                 nearReason = 2;
                                 teleFailUsed = true;
-                                switchLens(false);
+                                if (LOGICA_SEMPRE) startRepeating();
+                                else switchLens(false);
                             }
                         });
                     }

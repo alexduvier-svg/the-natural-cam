@@ -1,7 +1,7 @@
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.34.0** (versionCode 93),
-APK: `entrega/APK_1.34.0.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.34.6** (versionCode 100),
+APK: `entrega/APK_1.34.6.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
@@ -12,6 +12,10 @@ APK: `entrega/APK_1.34.0.apk` (instalado no Reno 16 Pro). Partida congelada: `en
 - Troca de lente: (1.34.0) a imagem atual fica parada e nítida até a lente nova chegar JÁ FOCADA (começa na distância
   medida pela anterior + varredura ativa); alinha a paralaxe e esmaece com o zoom. Sem desfoque, preto ou quadro transparente.
   A OPPO é instantânea porque deixa as lentes ligadas; igualar exige abrir a tele pela câmera lógica (para depois).
+- 1.34.6: corte seco (sem fantasma) só quando a câmera troca de lente de verdade; espera a tela se ajustar à lente nova;
+  troca ~0,7 s (0,55 s é abrir a câmera). Testado: câmera LÓGICA sempre (1.35.0) dá troca instantânea, mas a ~40 cm o
+  sistema alterna tele↔principal no meio do foco e o 3,5× fica desfocado — chave LOGICA_SEMPRE=false.
+- Regra: tocar de novo num objeto já focado mantém o foco (raio 20 % da tela).
 - Tempo: super-res do zoom 4,5–8 s continua (é o que dá a qualidade aprovada); cópias de óptica em prioridade baixa.
 
 ## Entrega 13/11 — feito na 1.31.0–1.32.5
