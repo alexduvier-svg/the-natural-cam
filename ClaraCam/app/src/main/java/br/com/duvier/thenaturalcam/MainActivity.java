@@ -1340,6 +1340,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
      * anota a distância da lente. No fim, trava a lente na distância de MAIOR nitidez — o foco
      * para onde ficou nítido, em vez de passar por ali e voltar a embaçar.
      */
+    @SuppressWarnings("unused") // desligado em 13/11 (ver onSingleTapUp); mantido para o laboratório
     private void startFocusTracker(float nx, float ny) {
         if (focusTracker != null) main.removeCallbacks(focusTracker);
         final long t0 = SystemClock.uptimeMillis();
@@ -1790,7 +1791,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     locked = false;
                     lock.selected(false);
                     camera.focusAt(x / getWidth(), y / getHeight());
-                    startFocusTracker(x / getWidth(), y / getHeight());
+                    // O foco do toque é o da CÂMERA: o rastreador que travava a lente no "pico de
+                    // nitidez" medido na prévia errava (frasco a 40 cm travado em 19 cm ou 140 cm —
+                    // "não foca no toque", teste 13/11) e foi desligado. Com o AF AUTO a lente já
+                    // fica parada onde a câmera confirmou o foco, até novo toque.
                     invalidate();
                     return true;
                 }
