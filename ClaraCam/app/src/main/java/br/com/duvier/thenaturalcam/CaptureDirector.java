@@ -123,7 +123,7 @@ public final class CaptureDirector {
         if (p.stream && light >= 2) frames = Math.max(frames, light >= 3 ? 15 : 12);
         p.frames = Math.max(1, Math.min(p.stream ? 15 : 12, frames));
         // Máxima (28 MP por super-resolução): 8 quadros, como o zoom aprovado — com 12 levava ~29 s
-        if (s.maxPolicy && p.srScale > 1f && p.srCrop <= 1f) p.frames = Math.min(p.frames, 8);
+        if (s.maxPolicy && p.srScale > 1f && p.srCrop <= 1f) p.frames = Math.min(p.frames, 6); // 6: ~4 s a menos (13/11 tarde)
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
             p.srScale = 1f;
             p.srCrop = 1f;

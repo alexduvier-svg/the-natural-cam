@@ -510,6 +510,23 @@ public final class MainActivity extends Activity implements CameraController.Lis
     // Ações
     // =====================================================================================
 
+    /** Cópia de óptica esperando a sequência de fotos acabar. */
+    private Runnable pendingCopy;
+
+    /**
+     * A cópia de desfoque (6×–10×, tele de perto) é um extra: começa só depois de 8 s sem fotografar.
+     * Se o usuário fotografar antes, ela é descartada — a foto do momento vem primeiro (teste 13/11:
+     * a cópia levava até 80 s, ocupava a memória e a 2ª foto seguida não saía).
+     */
+    private void deferCopy(Runnable copy) {
+        if (pendingCopy != null) main.removeCallbacks(pendingCopy);
+        pendingCopy = () -> {
+            pendingCopy = null;
+            copy.run();
+        };
+        main.postDelayed(pendingCopy, 8000);
+    }
+
     /** A foto anterior termina o acabamento em segundo plano; o botão já aceita a próxima. */
     private boolean finishingInBackground;
 
@@ -522,6 +539,21 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     private void shoot() {
         if (busy) return;
+        if (pendingCopy != null) { // sequência de fotos: a cópia de desfoque pendente sai
+            main.removeCallbacks(pendingCopy);
+            pendingCopy = null;
+        }
+        // memória: a cópia de desfoque da foto anterior (6×–10×) + uma rajada nova (até 15 quadros
+        // de 12 MP) não cabiam juntas — travou com OutOfMemoryError (teste 13/11 15h14). Com pouca
+        // memória livre, espera a cópia terminar.
+        Runtime rt = Runtime.getRuntime();
+        long free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory());
+        // a Máxima (28 MP) precisa de ~450 MB: só começa sem cópia rodando (OutOfMemory às 15h20)
+        boolean maxOn = stackPolicy == CameraController.STACK_MAX;
+        if (portraitRunning > 0 && (maxOn || free < 330L * 1024 * 1024)) {
+            status.setText("Terminando a foto anterior…");
+            return;
+        }
         finishingInBackground = false; // a nova captura volta a mostrar o andamento e travar o botão
         overlay.flash();
         camera.capture();
@@ -1188,7 +1220,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // de perto no zoom da tele a foto vem da principal (profundidade de campo de grande-
             // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
             // de uma tele de verdade — gradual, sem contorno
-            makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele", 0.15f);
+            deferCopy(() -> makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele", 0.15f));
         } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
             // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
             // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
@@ -1196,7 +1228,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
             // a abertura vem do dial de desfoque no visor (f/16…f/8).
             float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
-            if (ap > 0) makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f);
+            if (ap > 0) deferCopy(() -> makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f));
         }
         lastUri = uri;
         busy = false;
@@ -1526,6 +1558,9 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private LinearLayout apertureRow;
     private View apertureScroll;
     private final java.util.concurrent.ExecutorService portraitWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private static final java.util.concurrent.ForkJoinPool OPT_POOL = new java.util.concurrent.ForkJoinPool(2);
+    /** Cópias de retrato/óptica na fila ou rodando (a próxima foto espera se faltar memória). */
+    private int portraitRunning;
 
     /**
      * Dial de desfoque (como o de EV): 0 = desligado (lente longa) / f/16 (Retrato), 1 = f/8.
@@ -1603,7 +1638,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
         shutter.invalidate();
         thumbBusy.setVisibility(View.VISIBLE);
         status.setText("Criando " + kind + " " + PortraitEngine.label(ap) + "…");
-        portraitWorker.execute(() -> {
+        // cópias de óptica num grupo de 2 núcleos: as contas paralelas do recorte/desfoque usavam
+        // todos os núcleos e atrasavam a fusão da foto seguinte (6×–10× seguidos, teste 13/11)
+        final java.util.concurrent.ForkJoinPool pool = frontScale < 1f ? OPT_POOL : java.util.concurrent.ForkJoinPool.commonPool();
+        portraitRunning++;
+        portraitWorker.execute(() -> { pool.submit(() -> {
             // cópias de óptica/retrato em prioridade baixa: não atrasam a fusão da próxima foto
             // (teste 13/11: 6×–8× seguidos demoravam porque as cópias disputavam o processador)
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
@@ -1661,7 +1700,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     status.setText("Retrato indisponível: " + e.getMessage() + " (foto original salva)");
                 });
             }
-        });
+        }).join(); main.post(() -> portraitRunning--); });
     }
 
     @Override

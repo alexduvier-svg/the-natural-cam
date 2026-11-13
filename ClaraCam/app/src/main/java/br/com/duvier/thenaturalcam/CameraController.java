@@ -837,9 +837,12 @@ final class CameraController {
                 Log.w(TAG, "foco falhou; tentativa " + (tapRetries + 1) + " com área maior");
                 scanTap();
             } else {
-                // Não volta ao foco contínuo (é ele que fica "indo e voltando"): o AF AUTO
-                // mantém a lente onde a última varredura parou até um novo toque.
-                Log.w(TAG, "foco não confirmado após 3 tentativas; mantendo a lente parada");
+                // Três varreduras sem confirmar: a lente ficava parada onde a última parou (teste
+                // 13/11: 1× "não foca", parado em 19 cm). Volta ao foco CONTÍNUO restrito à região
+                // tocada, que continua procurando até acertar.
+                tapCaf = true;
+                startRepeating();
+                Log.w(TAG, "foco não confirmado após 3 tentativas; foco contínuo na região tocada");
             }
         }
     }
@@ -2465,7 +2468,11 @@ final class CameraController {
                 // Rajada já somada (quadros liberados): a próxima foto pode começar enquanto esta
                 // termina o acabamento (teste 13/11: no 7×→10× o botão ficava cinza e a foto não
                 // saía). Só até 16 MP — a Máxima de 28 MP + uma nova rajada não cabem juntas na memória.
-                if ((long) finalFrame.width * finalFrame.height <= 16_000_000L) {
+                // DESLIGADO (teste 13/11 15h30): liberar a próxima foto antes de gravar esta deixava a
+                // câmera imprevisível (toques e troca de zoom ignorados por ~1 min). Fotos são
+                // sequenciais; o que travava o botão era a cópia de desfoque, que agora espera a
+                // sequência acabar (MainActivity.deferCopy).
+                if (false) {
                     handler.post(() -> capturing = false);
                     main.post(listener::onReadyForNext);
                 }
