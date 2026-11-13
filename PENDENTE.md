@@ -1,7 +1,19 @@
-# The Natural Cam — o que falta (atualizado 2026-11-10 ~08h30)
+# The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.30.3** (versionCode 71),
-APK: `The_Natural_Cam_1.30.3_teste.apk` (já instalado no Reno 16 Pro via adb Wi-Fi).
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.32.3** (versionCode 80),
+APK: `entrega/APK_1.32.3.apk` (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+
+## Entrega 13/11 — feito na 1.31.0–1.32.3
+- Item 9: estado limpo a cada volta ao app (trava, lente por falha, medida velha; após 1 min fora: zoom 1×, EV 0, Foto, sem Máxima).
+  3 fotos 3,5× com o app ido e voltado: mesma lente, 1/120 s, foco 45–46 cm (nível 2, toques por adb).
+- Ficha/EXIF gravavam "1.24.1" fixo; agora a versão vem do build.gradle. Arquivos _DBG_ só com files/laboratorio.
+- Tele a partir de ~42 cm (margem 15 % → 5 %).
+- Recorte do zoom: uma só passada de nitidez (sem efeito aquarela); super-res no zoom até ISO 3200; 6× pela principal
+  saía 682×512 — agora sempre 4096×3072.
+- Sombras: limpeza só de cor (ShadowChroma): ruído de cor 0,73 → 0,43 no aparelho, brilho e textura iguais, 1,6 s.
+- Visor mostra "zoom digital" acima de 3,5×.
+- Achado: a OPPO congela o app ~10 s depois de ir para o fundo; a cópia _OPTICA_TELE (~45 s) só termina ao voltar ao app.
+
 Build: `cd ClaraCam && ./gradlew --no-daemon assembleDebug testDebugUnitTest` (Git Bash).
 Instalar via Wi-Fi: adb em `C:/Users/alexd/AppData/Local/Android/Sdk/platform-tools/adb.exe`,
 aparelho `adb-3B664V0165A00000-6UyeKU._adb-tls-connect._tcp`, `export MSYS_NO_PATHCONV=1`;
