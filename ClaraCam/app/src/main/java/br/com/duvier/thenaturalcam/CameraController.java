@@ -191,7 +191,9 @@ final class CameraController {
         tapHold = -1f;
         lastAfState = -1; // o foco da lente nova começa do zero (a troca na tela espera ele assentar)
         kickAf = true;
-        seedFd = lastFocusDistance; // distância medida pela lente que está saindo
+        // ponto de partida só da principal para a tele (a distância da tele não é calibrada: o 1×
+        // abria num foco errado ao voltar da tele — teste 13/11)
+        seedFd = tele ? lastFocusDistance : -1f;
         nearSince = farSince = 0;
         Log.w(TAG, "lente: " + (tele ? "tele direta" : "câmera lógica") + (nearMode ? " (objeto perto)" : ""));
         closeAll();
@@ -716,7 +718,8 @@ final class CameraController {
             boolean samePlace = regions != null && Math.abs(zoom - regionsZoom) < 0.01f && dx * dx + dy * dy < 0.20f * 0.20f;
             boolean focusedNow = lastAfState == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
                     || lastAfState == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED;
-            if (samePlace && (tapScanning || focusedNow)) {
+            boolean scanAlive = tapScanning && SystemClock.elapsedRealtime() - tapScanAt < 1500;
+            if (samePlace && (scanAlive || focusedNow)) {
                 Log.w(TAG, "foco mantido: toque no mesmo ponto já focado (" + nx + "," + ny + ")");
                 return;
             }
@@ -742,6 +745,8 @@ final class CameraController {
     private float tapX, tapY;
     private int tapRetries;
     private boolean tapScanning;
+    /** Quando a busca do toque começou (uma busca que não termina não pode bloquear novos toques). */
+    private long tapScanAt;
     private boolean tapCaf;
 
     /**
@@ -811,6 +816,7 @@ final class CameraController {
                     applyCommon(b, false, false);
                     b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START);
                     tapScanning = true;
+                    tapScanAt = SystemClock.elapsedRealtime();
                     session.capture(b.build(), liveCallback, handler);
                 } catch (Exception e) {
                     Log.w(TAG, "foco", e);
@@ -2547,8 +2553,11 @@ final class CameraController {
                     BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
                     j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
                 }
-                if (j.ispZoom && !zoomSharpened && longSide >= 4000) { // 2× pelo processador: uma passada honesta na escala do zoom (só realça bordas que existem)
-                    float zs = (float) Math.max(1.3, j.sheet.optDouble("zoom", 2));
+                // 2× pelo processador e tele nativa 3,5× (pedido 13/11: "um pouco mais de qualidade"): uma
+                // passada honesta na escala dos quadros — só realça bordas que existem, sem montar detalhe
+                boolean teleNativeShot = j.onTeleShot && j.srCrop <= 1f && !teleFallback();
+                if ((j.ispZoom || teleNativeShot) && !zoomSharpened && longSide >= 4000) {
+                    float zs = j.ispZoom ? (float) Math.max(1.3, j.sheet.optDouble("zoom", 2)) : 1f;
                     BurstFusion.sharpenScaled(finalFrame, zs, 0.35f, (float) Math.max(1.0, fr.noiseAfter));
                     j.sheet.put("nitidez_zoom_processador", "escala " + zs + ", força 0,35");
                 }
