@@ -708,81 +708,18 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (++freezeFrames >= 3 && (camera.afSettled() || freezeFrames >= 45)) endFreeze();
     }
 
-    /** Alinha a imagem congelada (na escala final) com a lente nova e esmaece. */
+    /**
+     * Corte seco para a lente nova, no quadro em que ela chega focada (teste 13/11: o esmaecimento
+     * mostrava as duas imagens juntas — "efeito fantasma" —, porque as lentes veem o objeto de
+     * ângulos diferentes).
+     */
     private void endFreeze() {
         if (freeze == null || freeze.getVisibility() != View.VISIBLE || freezeEnding) return;
         freezeEnding = true;
-        float tx = 0, ty = 0;
-        try {
-            int[] d = alignFreeze();
-            tx = d[0];
-            ty = d[1];
-        } catch (Throwable ignored) {
-        }
         freeze.animate().cancel();
-        freeze.animate().scaleX(freezeScale).scaleY(freezeScale).translationX(tx).translationY(ty)
-                .alpha(0f).setDuration(freezeIn ? 160 : 220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                .withEndAction(() -> {
-                    freeze.setVisibility(View.GONE);
-                    freeze.setImageBitmap(null);
-                    freezeBm = null;
-                }).start();
-    }
-
-    /**
-     * Deslocamento (px da tela) que leva a imagem congelada, na escala final, a coincidir com a
-     * imagem da lente nova: busca por menor diferença de brilho numa grade de 1/8 da tela.
-     */
-    private int[] alignFreeze() {
-        int vw = texture.getWidth(), vh = texture.getHeight();
-        if (freezeBm == null || vw <= 0) return new int[]{0, 0};
-        final int q = 8, w = vw / q, h = vh / q;
-        android.graphics.Bitmap live = texture.getBitmap(w, h);
-        if (live == null) return new int[]{0, 0};
-        int[] lp = new int[w * h];
-        live.getPixels(lp, 0, w, 0, 0, w, h);
-        live.recycle();
-        // imagem congelada como aparece na escala final (pivô no centro), na mesma grade
-        int bw = freezeBm.getWidth(), bh = freezeBm.getHeight();
-        float cx = vw / 2f, cy = vh / 2f, s = freezeScale;
-        float[] fl = new float[w * h], ll = new float[w * h];
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                float px = cx + ((x * q + q / 2f) - cx) / s, py = cy + ((y * q + q / 2f) - cy) / s;
-                int bx = Math.round(px * bw / vw), by = Math.round(py * bh / vh);
-                fl[y * w + x] = bx >= 0 && by >= 0 && bx < bw && by < bh ? lum(freezeBm.getPixel(bx, by)) : -1;
-                ll[y * w + x] = lum(lp[y * w + x]);
-            }
-        }
-        int best = 0, bestX = 0, bestY = 0, R = 24;
-        double bestCost = Double.MAX_VALUE;
-        for (int dy = -R; dy <= R; dy++) {
-            for (int dx = -R; dx <= R; dx++) {
-                double cost = 0;
-                int n = 0;
-                for (int y = R; y < h - R; y += 2) {
-                    for (int x = R; x < w - R; x += 2) {
-                        float f = fl[(y - dy) * w + (x - dx)];
-                        if (f < 0) continue;
-                        cost += Math.abs(f - ll[y * w + x]);
-                        n++;
-                    }
-                }
-                if (n < 50) continue;
-                cost /= n;
-                if (cost < bestCost) {
-                    bestCost = cost;
-                    bestX = dx;
-                    bestY = dy;
-                }
-            }
-        }
-        return new int[]{bestX * q, bestY * q};
-    }
-
-    private static float lum(int p) {
-        return 0.299f * ((p >> 16) & 255) + 0.587f * ((p >> 8) & 255) + 0.114f * (p & 255);
+        freeze.setVisibility(View.GONE);
+        freeze.setImageBitmap(null);
+        freezeBm = null;
     }
 
     private void zoomTo(float z) {
