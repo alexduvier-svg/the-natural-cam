@@ -2534,6 +2534,16 @@ final class CameraController {
                 // Padrão PhotonCamera (1.40.0, pedido do usuário 14/11): UMA etapa de cor e nitidez igual
                 // para todas as lentes, no lugar das passadas separadas por lente. A escala é a ampliação
                 // efetiva da foto (super-resolução, recorte, zoom do processador ou ajuste para 12 MP).
+                // Interior escuro mais escuro que a régua noturna (Find X8 Ultra: mediana 42–64 em ISO 1250;
+                // X Cam: 24). Os medidores de qualidade (MUSIQ) subiram de 26 para ~32 ao clarear até ~+1,2 EV.
+                // Clareia em luz linear (pretos firmes, branco intacto) só o que falta para a mediana ~42.
+                if ((lastIso >= 800 || mode == Mode.NOITE) && j.brightenEv <= 0) {
+                    float ev = IndoorExposure.liftEv(finalFrame);
+                    if (ev > 0.05f) {
+                        ToneMatch.applyExposure(finalFrame, ev);
+                        j.sheet.put("clarear_interior", String.format(java.util.Locale.ROOT, "+%.2f EV (mediana para ~%d, régua noturna)", ev, IndoorExposure.TARGET_MEDIAN));
+                    }
+                }
                 // Grão de brilho em pouca luz (1.41.0, pedido do usuário 14/11): filtro de Wiener por
                 // frequência em blocos 8×8, calibrado pelo ruído medido NESTA foto, depois da curva de tons e
                 // do clarear (que ampliam o ruído das sombras). Em boa luz não roda.

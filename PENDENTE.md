@@ -1,10 +1,22 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.42.0** (versionCode 129, compilada e 84 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.43.0** (versionCode 130, compilada e 87 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
 
+
+
+## 1.43.0 (14/11) — ajuste guiado por medidores de qualidade (pedido: "corrigir a partir das ferramentas")
+- Ferramentas instaladas na nuvem: pyiqa (NIQE, MUSIQ; pesos baixados do GitHub, o huggingface é bloqueado) e
+  piq (BRISQUE). Régua: prints da OPPO X8 Ultra ISO 1250 → MUSIQ 59–60, NIQE 3,5–3,8. Foto escura do X Cam → MUSIQ 25–26.
+- Achados: (1) clarear a foto escura até a mediana da OPPO subiu o MUSIQ de 26 → ~32 (maior ganho medido);
+  (2) a limpeza forte da 1.42 (2,5/0,08) BAIXOU as notas e deixou a pele cerosa → limpeza intermediária 1,8/0,12;
+  (3) com a cadeia completa da 1.43 (clarear +1,2 EV, limpeza, nitidez) a foto fica mais limpa e na mediana 37,
+  mas as notas não sobem (MUSIQ 25,1 → 23,2): os medidores premiam o grão como textura numa imagem que já perdeu
+  detalhe real. Limite: os medidores rodaram em PRINTS reduzidos e recomprimidos — calibrar com JPEG original + ficha.
+- Novo `IndoorExposure`: em interior escuro (ISO ≥ 800 ou Noite, sem clarear já planejado) clareia em luz linear até
+  a mediana ~42, no máximo +1,2 EV, antes da limpeza (que mede o grão já ampliado). NÃO TESTADO no aparelho.
 
 ## RÉGUA NOTURNA (definida pelo usuário 14/11 18h41) — padrão MÍNIMO para fotos noturnas e de interior
 - Referências: OPPO Find X8 Ultra, tele 70 mm f/2,1, ISO 1250, 1/60 s (frasco Naridrin sobre almofada azul e pelúcia,
