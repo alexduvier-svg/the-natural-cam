@@ -2528,51 +2528,31 @@ final class CameraController {
                 }
                 // super-resolução (zoom OU Máxima 28 MP no 0,6×/1×/2×): uma passada na escala dela. Antes a
                 // Máxima sem recorte só levava a passada de raio 1 px do 1× e saía mole (teste 13/11)
-                boolean zoomSharpened = finalFrame == fr.frame && fr.scale > 1f;
-                if (zoomSharpened) {
-                    // zoom por super-resolução: a montagem fica levemente macia; nitidez na escala dela,
-                    // só acima do ruído (letras e frisos definidos, fundo sem grão realçado)
-                    stamp(j, "tempo_etapa_sombras_ms", tt);
-                    busy("Nitidez do zoom…", 0.95f);
-                    // força 0,35 (era 0,6): nitidez de olho humano na captura; reforço só no editor
-                    BurstFusion.sharpenScaled(finalFrame, fr.scale, 0.35f, (float) Math.max(1.0, fr.noiseAfter));
-                    j.sheet.put("nitidez_zoom", "escala " + fr.scale + ", força 0,35");
-                }
+                // Padrão PhotonCamera (1.40.0, pedido do usuário 14/11): UMA etapa de cor e nitidez igual
+                // para todas as lentes, no lugar das passadas separadas por lente. A escala é a ampliação
+                // efetiva da foto (super-resolução, recorte, zoom do processador ou ajuste para 12 MP).
+                boolean superResFrame = finalFrame == fr.frame && fr.scale > 1f;
+                float lookScale = superResFrame ? fr.scale : 1f;
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
-                // Máxima na principal (até o 3,4×): entrega 28 MP (6144 px), igual ao 1×
-                // 12 MP sempre; 28 MP só quando a super-resolução da tele (Máxima) já entregou isso
-                int target = 4096; int oldTarget = "maximo".equals(j.sheet.optString("empilhamento")) && !j.onTeleShot && !j.ispZoom
-                        && j.sheet.optDouble("zoom", 1) < 3.4 ? 6144 : 4096;
+                int target = 4096;
                 if (longSide < target * 0.976f && longSide >= 300) {
-                    // tamanho mínimo de entrega 4096×3072 (12 MP): o usuário precisa de arquivo para
-                    // editar/imprimir. O detalhe real vem da super-resolução; esta ampliação final é
-                    // bicúbica com nitidez na escala certa, só para completar o tamanho.
+                    // tamanho mínimo de entrega 4096×3072 (12 MP): o detalhe real vem da super-resolução;
+                    // esta ampliação final é bicúbica, só para completar o tamanho
                     float k = (float) target / longSide;
-                    stamp(j, "tempo_etapa_nitidez_zoom_ms", tt);
-                    busy("Ajustando para 12 MP…", 0.955f);
+                    stamp(j, "tempo_etapa_sombras_ms", tt);
+                    busy("Ajustando para 12 MP…", 0.945f);
                     finalFrame = QualityCheck.upscale(finalFrame, k);
-                    // uma só passada de nitidez por foto: se o recorte ampliado vai receber a dele
-                    // logo abaixo, esta não afia (duas passadas somadas davam o efeito aquarela)
-                    if (j.cropUpscale <= 1.5f && !zoomSharpened) BurstFusion.sharpenScaled(finalFrame, k, 0.3f, (float) Math.max(1.0, fr.noiseAfter));
+                    lookScale *= k;
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
-                if (j.cropUpscale > 1.5f) {
-                    // recorte ampliado da principal: nitidez na escala da ampliação
-                    busy("Nitidez do recorte…", 0.94f);
-                    float up = j.cropUpscale * (finalFrame == fr.frame ? fr.scale : 1f); // super-res amplia mais 1,5×
-                    // pedido do usuário: um pouco mais de nitidez no recorte ampliado (só acima do ruído; limite anti-halo)
-                    // força 0,6 (era 1,15 somada à da ampliação): letras definidas sem contorno duro
-                    BurstFusion.sharpenScaled(finalFrame, up, 0.6f, (float) fr.noiseAfter);
-                    j.sheet.put("nitidez_recorte", "raio " + Math.max(1, Math.round(up * 0.55f)) + " px, força 0,6");
-                }
-                // 2× pelo processador e tele nativa 3,5× (pedido 13/11: "um pouco mais de qualidade"): uma
-                // passada honesta na escala dos quadros — só realça bordas que existem, sem montar detalhe
-                boolean teleNativeShot = j.onTeleShot && j.srCrop <= 1f && !teleFallback();
-                if ((j.ispZoom || teleNativeShot) && !zoomSharpened && longSide >= 4000) {
-                    float zs = j.ispZoom ? (float) Math.max(1.3, j.sheet.optDouble("zoom", 2)) : 1f;
-                    BurstFusion.sharpenScaled(finalFrame, zs, 0.35f, (float) Math.max(1.0, fr.noiseAfter));
-                    j.sheet.put("nitidez_zoom_processador", "escala " + zs + ", força 0,35");
-                }
+                if (j.cropUpscale > 1.5f) lookScale = Math.max(lookScale, j.cropUpscale * (superResFrame ? fr.scale : 1f));
+                if (j.ispZoom) lookScale = Math.max(lookScale, (float) Math.max(1.3, j.sheet.optDouble("zoom", 2)));
+                busy("Cor e nitidez…", 0.95f);
+                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, fr.noiseAfter));
+                j.sheet.put("padrao_cor_nitidez", String.format(java.util.Locale.ROOT,
+                        "PhotonLook (técnica do PhotonCamera, código próprio) · escala %.2f · captura σ %.2f força %.2f · detalhe %.2f",
+                        lookScale, PhotonLook.CAPTURE_SIGMA * Math.max(1f, lookScale), PhotonLook.CAPTURE_STRENGTH,
+                        PhotonLook.DETAIL_STRENGTH * (lookScale > 1.5f ? PhotonLook.UPSCALE_DETAIL : 1f)));
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
                 // de dia não há ruído para tirar; na Máxima (28 MP) a super-resolução já soma 8 quadros e a

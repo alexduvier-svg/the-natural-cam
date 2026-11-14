@@ -1,7 +1,24 @@
-# The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
+# The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.39.1** (versionCode 125, NÃO TESTADA no aparelho),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.40.0** (versionCode 126, NÃO COMPILADA e NÃO TESTADA no aparelho),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
+
+
+## 1.40.0 (14/11) — padrão de cor e nitidez do PhotonCamera em todas as lentes
+- Pedido do usuário: trazer a qualidade de cor e nitidez do PhotonCamera e aplicar em todas as lentes, principalmente
+  3,5×–10×, substituindo o processamento anterior (escolha dele: "substituir tudo"; técnica reescrita com código
+  próprio, sem copiar o código GPL do Photon).
+- Nova etapa única `PhotonLook` no acabamento (CameraController), no lugar das 4 passadas de nitidez por lente
+  (zoom 0,35 · ampliação 0,3 · recorte 0,6 · processador/tele 0,35):
+  cor só no croma (vermelho 15 % mais contido, altas luzes rolam para o branco a partir de 92 %, saturação neutra 1,0)
+  + nitidez de captura σ 1,05 × escala, força 0,4 + detalhe 5×5 força 0,20 limitado pelo contraste local
+  (×0,4 em imagem ampliada) + portão de ruído 2,5σ + trava anti-halo na faixa 3×3 com folga de 2 níveis.
+- A nitidez interna da fusão (0,30, 3×3) continua, porque o verificador de qualidade compara a fusão com ela.
+- Fora do padrão por enquanto: RAW+, longa exposição e modos do sistema (têm acabamento próprio).
+- Prova: só nível 1 (9 testes no PC em `PhotonLookTest`: cinza neutro intacto, vermelho contido sem mudar matiz,
+  grão no nível da passada antiga, borda sem halo, textura mais definida, 28 MP cabe em 512 MB, 12 MP ~1,2 s no PC).
+  Não compilado com o Android (servidores do Google bloqueados no ambiente da nuvem). NÃO TESTADO no aparelho.
+- Atenção: os 3,5×, 6×, 7× e 8× aprovados como "perfeitos" em 13/11 mudaram — conferir em foto real contra a 1.39.1.
 
 ## Teste com o dedo 13/11 → 1.33.x
 - Aprovado pelo usuário como perfeito: 3,5×, 6×, 7×, 8× (régua de qualidade para todas as lentes).
