@@ -10,9 +10,10 @@ import java.util.stream.IntStream;
  *
  * <p>Cor (só no croma; o brilho de cada pixel fica intacto):
  * <ul>
- *   <li>Vermelho contido: o canal vermelho se aproxima 15 % da média dos três canais (no Photon,
- *       {@code SATURATIONRED = 0,7} na mistura com {@code (r + média) / 2}). Cinza neutro não muda;
- *       só pixels avermelhados perdem um pouco de exagero.</li>
+ *   <li>Vermelho contido: quando o vermelho passa da média dos três canais, ele se aproxima 15 %
+ *       dela (no Photon, {@code SATURATIONRED = 0,7} na mistura com {@code (r + média) / 2}). Só desce,
+ *       nunca sobe: céu, ciano e verde ficam intactos; cinza neutro não muda. Aqui roda em YUV com
+ *       gama (o Photon roda em RGB linear), então a força real é um pouco diferente.</li>
  *   <li>Altas luzes rolam para o branco de forma suave a partir de 92 % do canal mais forte
  *       (início 0,92, força 0,6, curva ^3, como no Photon). Mantém o matiz: só reduz o croma.</li>
  *   <li>Saturação do Photon no padrão (1,0): curva neutra, não satura nem dessatura.</li>
@@ -22,7 +23,8 @@ import java.util.stream.IntStream;
  * <ol>
  *   <li>Nitidez de captura: máscara de desfoque gaussiano σ = 1,05 px na escala da imagem
  *       (multiplicado pela ampliação, porque nossa ampliação é bicúbica e o desfoque mora nessa
- *       escala), força 0,4.</li>
+ *       escala), força 0,4 no total. Em pixel nativo, a passada 3×3 que a fusão já fez conta como
+ *       0,3 dessa força.</li>
  *   <li>Nitidez de detalhe 5×5, força 0,20 (padrão do Photon), limitada pelo contraste local
  *       (peso entre 0,25 e 1,0, como o "Sharp Min/Max"): borda forte recebe pouco, textura fina
  *       recebe mais. Em imagem ampliada a força cai para 40 % (como o {@code upscaleSharpenScale}).</li>
@@ -40,15 +42,37 @@ final class PhotonLook {
     static final float CAPTURE_SIGMA = 1.05f, CAPTURE_STRENGTH = 0.4f;
     static final float DETAIL_STRENGTH = 0.20f, DETAIL_MIN = 0.25f, DETAIL_MAX = 1.0f, DETAIL_SIGMA = 0.8f;
     static final float UPSCALE_DETAIL = 0.4f;
+    /** A partir desta escala a imagem conta como ampliada (Máxima 1,5× incluída). */
+    static final float UPSCALED = 1.45f;
     static final int OVERSHOOT = 2;
     /** Portão de ruído em múltiplos do σ medido (diretriz da casa: realça só acima de ~2,5σ). */
     static final float GATE_K = 2.5f;
     private static final int BAND = 64;
 
+    /** Força 3×3 que a fusão já aplicou na grade nativa (BurstFusion, mantida pelo verificador). */
+    static final float FUSION_PRESHARPEN = 0.30f;
+
     /** Cor e nitidez do padrão. {@code scale}: ampliação efetiva da imagem (1 = pixel nativo). */
     static void apply(YuvFrame f, float scale, float noise) {
+        apply(f, scale, noise, false);
+    }
+
+    /**
+     * {@code fusionSharpened}: a fusão já afiou na grade nativa. Em pixel nativo (sem ampliação), essa
+     * passada conta como parte da nitidez de captura e só se completa a diferença até a força do Photon
+     * (sem isso o grão do 1× subia ~33 %, contra ~12 % da 1.39).
+     */
+    static void apply(YuvFrame f, float scale, float noise, boolean fusionSharpened) {
         color(f);
-        sharpen(f, scale, noise);
+        float s = Math.max(1f, scale);
+        float capture = CAPTURE_STRENGTH;
+        if (fusionSharpened && s < UPSCALED) capture = Math.max(0f, CAPTURE_STRENGTH - FUSION_PRESHARPEN);
+        sharpen(f, s, noise, capture);
+    }
+
+    /** σ real da nitidez de captura (o que foi aplicado, para a ficha). */
+    static float captureSigma(float scale) {
+        return CAPTURE_SIGMA * Math.max(1f, scale);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -79,7 +103,7 @@ final class PhotonLook {
         float b = yy + 1.772f * u;
         // vermelho contido: aproxima o canal vermelho da média (neutro não muda)
         float mean = (r + g + b) / 3f;
-        r += (mean - r) * RED_TAME;
+        if (r > mean) r += (mean - r) * RED_TAME; // só desce o vermelho que passa da média
         float nu = -0.168736f * r - 0.331264f * g + 0.5f * b;
         float nv = 0.5f * r - 0.418688f * g - 0.081312f * b;
         // altas luzes: rolam para o branco reduzindo só o croma (matiz preservado)
@@ -98,6 +122,10 @@ final class PhotonLook {
     // ---------------------------------------------------------------------------------------
 
     static void sharpen(YuvFrame f, float scale, float noise) {
+        sharpen(f, scale, noise, CAPTURE_STRENGTH);
+    }
+
+    static void sharpen(YuvFrame f, float scale, float noise, float captureStrength) {
         final int w = f.width, h = f.height, n = w * h;
         final float s = Math.max(1f, scale);
         final float nn = Math.max(1f, noise) * GATE_K;
@@ -106,25 +134,22 @@ final class PhotonLook {
         // float e um temporário que é solto antes da 2ª etapa
         final byte[] src = f.y.clone();
 
-        // 1) nitidez de captura: gaussiano aproximado por duas caixas com a mesma variância
-        float sigma = CAPTURE_SIGMA * s;
-        int r = Math.max(1, Math.round((float) Math.sqrt(1.5 * sigma * sigma + 0.25) - 0.5f));
+        // 1) nitidez de captura: gaussiano separável de verdade, σ na escala da imagem
         final float[] blur = new float[n];
         for (int i = 0; i < n; i++) blur[i] = src[i] & 0xFF;
         float[] tmp = new float[n];
-        boxInPlace(blur, tmp, w, h, r);
-        boxInPlace(blur, tmp, w, h, r);
+        gaussInPlace(blur, tmp, w, h, CAPTURE_SIGMA * s);
         tmp = null;
         IntStream.range(0, n).parallel().forEach(i -> {
             float y0 = src[i] & 0xFF;
             float d = y0 - blur[i];
             float gate = d * d / (d * d + n2);
-            f.y[i] = (byte) clamp(Math.round(y0 + CAPTURE_STRENGTH * d * gate), 0, 255);
+            f.y[i] = (byte) clamp(Math.round(y0 + captureStrength * d * gate), 0, 255);
         });
         final byte[] cap = f.y.clone();
 
         // 2) nitidez de detalhe 5×5 limitada pelo contraste local, 3) sem halo
-        final float detail = DETAIL_STRENGTH * (s > 1.5f ? UPSCALE_DETAIL : 1f);
+        final float detail = DETAIL_STRENGTH * (s >= UPSCALED ? UPSCALE_DETAIL : 1f);
         final float[] k = new float[25];
         float ks = 0;
         for (int j = -2; j <= 2; j++)
@@ -178,36 +203,35 @@ final class PhotonLook {
         });
     }
 
-    /** Média em caixa separável (somas corridas) sobre {@code a}, usando {@code tmp} de apoio. */
-    static void boxInPlace(float[] a, float[] tmp, int w, int h, int r) {
+    /** Desfoque gaussiano separável sobre {@code a} (raio 3σ, bordas espelhadas), com {@code tmp} de apoio. */
+    static void gaussInPlace(float[] a, float[] tmp, int w, int h, float sigma) {
+        final int r = Math.max(1, (int) Math.ceil(3 * sigma));
+        final float[] k = new float[2 * r + 1];
+        float sum = 0;
+        for (int i = -r; i <= r; i++) { k[i + r] = (float) Math.exp(-i * i / (2.0 * sigma * sigma)); sum += k[i + r]; }
+        for (int i = 0; i < k.length; i++) k[i] /= sum;
         IntStream.range(0, h).parallel().forEach(y -> {
             int row = y * w;
-            double s = 0;
-            int cnt = 0;
-            for (int x = 0; x <= Math.min(r, w - 1); x++) { s += a[row + x]; cnt++; }
             for (int x = 0; x < w; x++) {
-                tmp[row + x] = (float) (s / cnt);
-                int add = x + r + 1, rem = x - r;
-                if (add < w) { s += a[row + add]; cnt++; }
-                if (rem >= 0) { s -= a[row + rem]; cnt--; }
+                float acc = 0;
+                for (int i = -r; i <= r; i++) acc += a[row + mirror(x + i, w)] * k[i + r];
+                tmp[row + x] = acc;
             }
         });
-        IntStream.range(0, w).parallel().forEach(x -> {
-            double s = 0;
-            int cnt = 0;
-            for (int y = 0; y <= Math.min(r, h - 1); y++) { s += tmp[y * w + x]; cnt++; }
-            for (int y = 0; y < h; y++) {
-                a[y * w + x] = (float) (s / cnt);
-                int add = y + r + 1, rem = y - r;
-                if (add < h) { s += tmp[add * w + x]; cnt++; }
-                if (rem >= 0) { s -= tmp[rem * w + x]; cnt--; }
-            }
+        IntStream.range(0, (h + BAND - 1) / BAND).parallel().forEach(bd -> {
+            int y0 = bd * BAND, y1 = Math.min(h, y0 + BAND);
+            for (int y = y0; y < y1; y++)
+                for (int x = 0; x < w; x++) {
+                    float acc = 0;
+                    for (int i = -r; i <= r; i++) acc += tmp[mirror(y + i, h) * w + x] * k[i + r];
+                    a[y * w + x] = acc;
+                }
         });
     }
 
     private static int mirror(int p, int size) {
-        if (p < 0) return -p;
-        if (p >= size) return 2 * size - 2 - p;
+        if (size <= 1) return 0;
+        while (p < 0 || p >= size) p = p < 0 ? -p : 2 * size - 2 - p;
         return p;
     }
 

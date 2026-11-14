@@ -13,9 +13,13 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
   cor só no croma (vermelho 15 % mais contido, altas luzes rolam para o branco a partir de 92 %, saturação neutra 1,0)
   + nitidez de captura σ 1,05 × escala, força 0,4 + detalhe 5×5 força 0,20 limitado pelo contraste local
   (×0,4 em imagem ampliada) + portão de ruído 2,5σ + trava anti-halo na faixa 3×3 com folga de 2 níveis.
-- A nitidez interna da fusão (0,30, 3×3) continua, porque o verificador de qualidade compara a fusão com ela.
+- A nitidez interna da fusão (0,30, 3×3) continua, porque o verificador de qualidade compara a fusão com ela; em pixel
+  nativo ela conta como 0,3 da força de captura (PhotonLook completa só 0,1). Revisão 14/11: sem isso o grão do 1×
+  subia +33 %; agora +20 % numa cena sintética (1.39: +12 %) — conferir o 1× em foto real.
+- Vermelho contido só desce o vermelho acima da média (céu/ciano intactos); gaussiano de verdade na captura
+  (antes a Máxima 1,5× caía no mesmo raio do 1×); Máxima 1,5× conta como ampliada.
 - Fora do padrão por enquanto: RAW+, longa exposição e modos do sistema (têm acabamento próprio).
-- Prova: só nível 1 (9 testes no PC em `PhotonLookTest`: cinza neutro intacto, vermelho contido sem mudar matiz,
+- Prova: só nível 1 (10 testes no PC em `PhotonLookTest`: cinza neutro intacto, vermelho contido sem mudar matiz,
   grão no nível da passada antiga, borda sem halo, textura mais definida, 28 MP cabe em 512 MB, 12 MP ~1,2 s no PC).
   Não compilado com o Android (servidores do Google bloqueados no ambiente da nuvem). NÃO TESTADO no aparelho.
 - Atenção: os 3,5×, 6×, 7× e 8× aprovados como "perfeitos" em 13/11 mudaram — conferir em foto real contra a 1.39.1.

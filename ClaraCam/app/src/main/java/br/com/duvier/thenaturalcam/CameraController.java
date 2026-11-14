@@ -2419,12 +2419,14 @@ final class CameraController {
                     qj.put("reserva_fusao_simples", round2(q2.detailRatio) + " / " + round2(q2.edgeCorrelation));
                     if (!q2.passed) plain = null;
                 }
+                boolean singleFrame = false; // a fusão (mesmo de 1 quadro) passa pelo acabamento com nitidez 0,30
                 if (plain != null) {
                     finalFrame = QualityCheck.upscale(plain.frame, fr.scale);
                     j.cropUpscale = fr.scale; // nitidez na escala da ampliação
                     qj.put("decisao", "fusao_sem_super_resolucao (super-resolução reprovada)");
                 } else if (!q.passed && fr.framesIn > 1) {
                     finalFrame = QualityCheck.copy(refFrame);
+                    singleFrame = true; // quadro único: não passou pela nitidez da fusão
                     float[] model = BurstFusion.noiseModel(finalFrame);
                     // limpeza proporcional ao ruído do quadro (ISO alto pede mais)
                     BurstFusion.lumaDenoise(finalFrame, model, (float) Math.min(0.85, 0.3 + fr.noiseBefore / 20.0));
@@ -2526,8 +2528,6 @@ final class CameraController {
                     ToneMatch.applyExposure(finalFrame, j.brightenEv);
                     j.sheet.put("clarear_baixa_luz", String.format(java.util.Locale.ROOT, "+%.2f EV (luz linear, pretos firmes, branco intacto)", j.brightenEv));
                 }
-                // super-resolução (zoom OU Máxima 28 MP no 0,6×/1×/2×): uma passada na escala dela. Antes a
-                // Máxima sem recorte só levava a passada de raio 1 px do 1× e saía mole (teste 13/11)
                 // Padrão PhotonCamera (1.40.0, pedido do usuário 14/11): UMA etapa de cor e nitidez igual
                 // para todas as lentes, no lugar das passadas separadas por lente. A escala é a ampliação
                 // efetiva da foto (super-resolução, recorte, zoom do processador ou ajuste para 12 MP).
@@ -2545,14 +2545,18 @@ final class CameraController {
                     lookScale *= k;
                     j.sheet.put("ampliacao_final", String.format(java.util.Locale.ROOT, "%.2fx para %dx%d", k, finalFrame.width, finalFrame.height));
                 }
-                if (j.cropUpscale > 1.5f) lookScale = Math.max(lookScale, j.cropUpscale * (superResFrame ? fr.scale : 1f));
+                if (j.cropUpscale >= PhotonLook.UPSCALED) lookScale = Math.max(lookScale, j.cropUpscale * (superResFrame ? fr.scale : 1f));
                 if (j.ispZoom) lookScale = Math.max(lookScale, (float) Math.max(1.3, j.sheet.optDouble("zoom", 2)));
+                stamp(j, "tempo_etapa_antes_cor_nitidez_ms", tt);
                 busy("Cor e nitidez…", 0.95f);
-                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, fr.noiseAfter));
+                // a fusão já afiou 0,30 na grade nativa; conta como parte da captura (menos no quadro único de reserva)
+                boolean fusionSharpened = !singleFrame;
+                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, fr.noiseAfter), fusionSharpened);
+                stamp(j, "tempo_etapa_cor_nitidez_ms", tt);
                 j.sheet.put("padrao_cor_nitidez", String.format(java.util.Locale.ROOT,
                         "PhotonLook (técnica do PhotonCamera, código próprio) · escala %.2f · captura σ %.2f força %.2f · detalhe %.2f",
-                        lookScale, PhotonLook.CAPTURE_SIGMA * Math.max(1f, lookScale), PhotonLook.CAPTURE_STRENGTH,
-                        PhotonLook.DETAIL_STRENGTH * (lookScale > 1.5f ? PhotonLook.UPSCALE_DETAIL : 1f)));
+                        lookScale, PhotonLook.captureSigma(lookScale), PhotonLook.CAPTURE_STRENGTH,
+                        PhotonLook.DETAIL_STRENGTH * (Math.max(1f, lookScale) >= PhotonLook.UPSCALED ? PhotonLook.UPSCALE_DETAIL : 1f)));
                 stamp(j, "tempo_etapa_ampliacao_final_ms", tt);
                 // ruído de cor nas sombras (~3× o das áreas claras): limpa só a cor, só no escuro
                 // de dia não há ruído para tirar; na Máxima (28 MP) a super-resolução já soma 8 quadros e a

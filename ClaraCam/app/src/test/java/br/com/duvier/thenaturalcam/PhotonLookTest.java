@@ -137,4 +137,33 @@ public class PhotonLookTest {
         PhotonLook.apply(f, 1f, 2f);
         assertEquals("tamanho preservado", 6144 * 4608, f.y.length);
     }
+
+    /** Cópia da nitidez 3×3 da fusão (BurstFusion.sharpenLuma, força 0,30) para medir o conjunto. */
+    private static void fusionSharpen(YuvFrame f, float amount, float threshold) {
+        int w = f.width, h = f.height;
+        byte[] src = f.y.clone();
+        for (int y = 1; y < h - 1; y++)
+            for (int x = 1; x < w - 1; x++) {
+                int i = y * w + x, c = src[i] & 0xFF, sum = 0;
+                for (int j = -1; j <= 1; j++) for (int k = -1; k <= 1; k++) sum += src[i + j * w + k] & 0xFF;
+                float d = c - sum / 9f, ad = Math.abs(d);
+                if (ad < threshold) d *= ad / threshold;
+                f.y[i] = (byte) Math.max(0, Math.min(255, Math.round(c + amount * d)));
+            }
+    }
+
+    @Test
+    public void foto1xComFusaoNaoRealcaGraoAlemDaVersaoAnterior() {
+        // revisão 14/11: fusão 0,30 + PhotonLook levava o grão de 3,02 a 4,01 (+33 %); na 1.39 era +12 %
+        int w = 400, h = 300;
+        YuvFrame f = flat(w, h, 120, 128, 128);
+        Random r = new Random(7);
+        for (int i = 0; i < f.y.length; i++) f.y[i] = (byte) Math.max(0, Math.min(255, Math.round(120 + r.nextGaussian() * 3)));
+        double before = std(f.y);
+        fusionSharpen(f, 0.30f, Math.max(2f, 3f * 3f));
+        PhotonLook.apply(f, 1f, 3f, true);
+        double after = std(f.y);
+        System.out.println("grão 1× com fusão: " + before + " -> " + after);
+        assertTrue("grão σ " + before + " -> " + after, after < before * 1.2);
+    }
 }
