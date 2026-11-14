@@ -18,6 +18,15 @@ android {
         release {
             minifyEnabled false
         }
+        // "X Cam" (pedido do usuário 14/11): a mesma câmera instalada AO LADO do The Natural Cam,
+        // com outro identificador, para comparar foto a foto sem desinstalar a versão aprovada.
+        // Nome do app em src/xcam/res. Compilar: ./gradlew assembleXcam
+        xcam {
+            initWith debug
+            applicationIdSuffix '.xcam'
+            versionNameSuffix '-xcam'
+            matchingFallbacks = ['debug']
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

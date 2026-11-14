@@ -1,6 +1,6 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.40.0** (versionCode 126, NÃO COMPILADA e NÃO TESTADA no aparelho),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.40.0** (versionCode 126, compilada e 71 testes no PC ok, NÃO TESTADA no aparelho),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
@@ -21,7 +21,10 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
 - Fora do padrão por enquanto: RAW+, longa exposição e modos do sistema (têm acabamento próprio).
 - Prova: só nível 1 (10 testes no PC em `PhotonLookTest`: cinza neutro intacto, vermelho contido sem mudar matiz,
   grão no nível da passada antiga, borda sem halo, textura mais definida, 28 MP cabe em 512 MB, 12 MP ~1,2 s no PC).
-  Não compilado com o Android (servidores do Google bloqueados no ambiente da nuvem). NÃO TESTADO no aparelho.
+  Compilada na nuvem (assembleDebug + testDebugUnitTest: 71 testes, 0 falhas). NÃO TESTADO no aparelho.
+- "X Cam" (pedido do usuário): tipo de compilação `xcam` = mesma câmera com identificador
+  `br.com.duvier.thenaturalcam.xcam`, instala AO LADO do The Natural Cam (assinatura de debug da nuvem, diferente
+  da do PC). Entregue como `XCam_1.40.0.apk`. Compilar: `./gradlew assembleXcam`.
 - Atenção: os 3,5×, 6×, 7× e 8× aprovados como "perfeitos" em 13/11 mudaram — conferir em foto real contra a 1.39.1.
 
 ## Teste com o dedo 13/11 → 1.33.x
