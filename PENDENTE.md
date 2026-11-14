@@ -21,6 +21,8 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
 ## RÉGUA NOTURNA (definida pelo usuário 14/11 18h41) — padrão MÍNIMO para fotos noturnas e de interior
 - Referências: OPPO Find X8 Ultra, tele 70 mm f/2,1, ISO 1250, 1/60 s (frasco Naridrin sobre almofada azul e pelúcia,
   ev −1,3) e 1/40 s (pés na sala, ev −1,0), JPEG 12 MP. Prints recebidos em 1659×2212.
+- 3ª referência (20h06, mesma cena do frasco, mais clara): mediana 86, p5 11, p95 146, grão ≈ 0 em todas as faixas,
+  detalhe maior (pelúcia e trama nítidas). Faixa aceitável de brilho em interior: mediana ~42–86 conforme a cena.
 - Medido nos prints: grão de brilho praticamente zero em todas as faixas (resíduo diagonal ≈ 0 da sombra ao meio-tom);
   brilho mediano 42–64 (Y 0–255), sombras profundas mantidas (p5 ≈ 6); rótulo inteiro legível (letras de ~1 mm),
   pelos, rugas da pele, fibras da pelúcia e trama do tecido nítidos; cor natural, sem dominante.
