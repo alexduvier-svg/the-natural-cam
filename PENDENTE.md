@@ -1,6 +1,6 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.41.0** (versionCode 127, compilada e 81 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.41.1** (versionCode 128, compilada e 84 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
@@ -18,10 +18,15 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
 - A nitidez (PhotonLook) agora usa o grão que SOBROU na foto final como portão; antes usava o ruído da fusão,
   medido antes do clarear, e realçava o grão nas fotos escuras.
 - Do Câmera X 0.1.15: super-resolução pulada quando os quadros não têm deslocamento de subpixel (celular firme) —
-  mais rápido; a ficha registra "super_resolucao: pulada". Consequência: Máxima apoiada sai em 12 MP, não 28 MP.
+  mais rápido (1.41.1: só no zoom com recorte; a Máxima mantém 28 MP).
 - Do Câmera X, NÃO trazido ainda: pesos de movimento contra fantasmas, cor preservada na fusão, ajustes por lente
   (5×–10×) — dependem das aprovações do Câmera X e mexem na fusão aprovada.
-- Prova: nível 1 (81 testes; cena sintética σ 8: sombra lisa erro 8,0 → 3,0, tecido 8,0 → 3,5 com listras
+- 1.41.1 (revisão independente): (1) GRAVE corrigido — de dia folhagem/grama fina disparava a limpeza; agora só roda
+  em pouca luz (ISO ≥ 800, clarear ou Noite); (2) σ do medidor sem o viés de arredondamento (2/3/6 → 2,0/3,0/5,9);
+  (3) piso do σ = ruído medido entre quadros na fusão (o resíduo 2×2 vê pouco ruído correlacionado; suave: −30 %);
+  (4) nitidez volta ao ruído da fusão quando a limpeza não roda (de dia igual à 1.40); (5) super-resolução pulada SÓ
+  no zoom com recorte — a Máxima continua com super-resolução e 28 MP (resolução aprovada); ficha só diz "pulada" no zoom.
+- Prova: nível 1 (84 testes; cena sintética σ 8: sombra lisa erro 8,0 → 3,0, tecido 8,0 → 3,5 com listras
   preservadas, borda e letras firmes, foto limpa intacta; 12 MP de ruído puro ~1,8 s no PC). Na foto do pé enviada
   pelo usuário (JPEG reduzido): σ 6,7 → 3,8, pele sem plástico. NÃO TESTADO no aparelho.
 

@@ -2377,14 +2377,14 @@ final class CameraController {
                         j.sheet.put("zoom_noite", "recorte " + j.srCrop + "× depois da soma de " + fr.framesUsed + " quadros (sem super-resolução: escuro)");
                     }
                 } else {
-                    fr = new BurstFusion(0.30f, true, scale).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
+                    fr = new BurstFusion(0.30f, true, scale, j.srCrop > 1f).fuse(frames, (label, p) -> busy(label, 0.3f + 0.6f * p));
                 }
                 if (j.srCrop > 1f && fr.scale <= 1f) {
                     // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
                     j.cropUpscale = j.srCrop;
                 }
-                if (scale > 1.01f && fr.scale <= 1f && fr.framesUsed >= 4) {
-                    j.sheet.put("super_resolucao", "pulada: quadros sem deslocamento de subpixel (celular firme) — a grade maior não ganharia detalhe");
+                if (j.stream == null && j.srCrop > 1f && scale > 1.01f && fr.scale <= 1f && fr.framesUsed >= 4) {
+                    j.sheet.put("super_resolucao", "pulada no zoom: quadros sem deslocamento de subpixel (celular firme) — recorte ampliado no mesmo tamanho");
                 }
                 if (fr.scale > 1f) {
                     j.sheet.put("super_resolucao", "1,5× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
@@ -2538,10 +2538,12 @@ final class CameraController {
                 // frequência em blocos 8×8, calibrado pelo ruído medido NESTA foto, depois da curva de tons e
                 // do clarear (que ampliam o ruído das sombras). Em boa luz não roda.
                 busy("Limpando grão…", 0.94f);
-                NightDenoise.Report nd = NightDenoise.apply(finalFrame);
+                // só em pouca luz (ISO alto, clarear ou Noite): de dia folhagem fina parece "ruído" ao medidor
+                boolean lowLight = lastIso >= 800 || j.brightenEv > 0 || mode == Mode.NOITE;
+                NightDenoise.Report nd = NightDenoise.apply(finalFrame, lowLight, (float) fr.noiseAfter);
                 j.sheet.put("limpeza_grao_frequencia", nd.applied
                         ? String.format(java.util.Locale.ROOT, "Wiener 8×8 em 2 etapas · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
-                        : String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore));
+                        : lowLight ? String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore) : "boa luz: não roda");
                 stamp(j, "tempo_etapa_limpeza_grao_ms", tt);
                 boolean superResFrame = finalFrame == fr.frame && fr.scale > 1f;
                 float lookScale = superResFrame ? fr.scale : 1f;
@@ -2565,7 +2567,7 @@ final class CameraController {
                 boolean fusionSharpened = !singleFrame;
                 // portão de ruído da nitidez pelo grão que SOBROU na foto final (antes: o ruído da fusão, medido
                 // antes do clarear — nas fotos escuras a nitidez realçava o grão)
-                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, Math.max(fr.noiseAfter, nd.sigmaAfter)), fusionSharpened);
+                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, nd.applied ? Math.max(fr.noiseAfter, nd.sigmaAfter) : fr.noiseAfter), fusionSharpened);
                 stamp(j, "tempo_etapa_cor_nitidez_ms", tt);
                 j.sheet.put("padrao_cor_nitidez", String.format(java.util.Locale.ROOT,
                         "PhotonLook (técnica do PhotonCamera, código próprio) · escala %.2f · captura σ %.2f força %.2f · detalhe %.2f",

@@ -135,4 +135,68 @@ public class NightDenoiseTest {
             NightDenoise.denoise(f, NightDenoise.noiseModel(f));
         }
     }
+
+    /** Folhagem 2D (folhas de 2–6 px, tons 30–200), sem ruído: o medidor a lê como "ruído". */
+    private static YuvFrame foliage(int w, int h, long seed) {
+        YuvFrame f = new YuvFrame(w, h);
+        java.util.Arrays.fill(f.u, (byte) 128);
+        java.util.Arrays.fill(f.v, (byte) 128);
+        Random r = new Random(seed);
+        for (int i = 0; i < f.y.length; i++) f.y[i] = (byte) 90;
+        for (int k = 0; k < w * h / 6; k++) {
+            int cx = r.nextInt(w), cy = r.nextInt(h), a = 1 + r.nextInt(3), b = 1 + r.nextInt(2), v = 30 + r.nextInt(171);
+            for (int y = Math.max(0, cy - b); y < Math.min(h, cy + b + 1); y++)
+                for (int x = Math.max(0, cx - a); x < Math.min(w, cx + a + 1); x++) f.y[y * w + x] = (byte) v;
+        }
+        return f;
+    }
+
+    @Test
+    public void folhagemDeDiaNaoMuda() {
+        // revisão 14/11: de dia a folhagem fina disparava a limpeza (−15 % de contraste local)
+        YuvFrame f = foliage(512, 384, 8);
+        float typ = NightDenoise.typicalSigma(f, NightDenoise.noiseModel(f));
+        byte[] before = f.y.clone();
+        NightDenoise.Report rep = NightDenoise.apply(f, false, 0.8f);
+        System.out.println("folhagem de dia: σ aparente " + typ + " · aplicou " + rep.applied);
+        assertTrue("boa luz não roda", !rep.applied);
+        for (int i = 0; i < before.length; i++) assertEquals("pixel " + i, before[i], f.y[i]);
+    }
+
+    @Test
+    public void medidorSemViesDeArredondamento() {
+        // revisão 14/11: o σ saía ~0,65 nível baixo (truncamento do resíduo)
+        for (double real : new double[]{2, 3, 6}) {
+            YuvFrame f = noisy(new int[256 * 256], 256, 256, real, 9);
+            for (int i = 0; i < f.y.length; i++) f.y[i] = (byte) Math.max(0, Math.min(255, (f.y[i] & 0xFF) + 100));
+            YuvFrame g = noisy(new int[256 * 256], 256, 256, 0, 0);
+            Random r = new Random(10);
+            for (int i = 0; i < g.y.length; i++) g.y[i] = (byte) Math.max(0, Math.min(255, Math.round(100 + r.nextGaussian() * real)));
+            float s = NightDenoise.typicalSigma(g, NightDenoise.noiseModel(g));
+            System.out.println("σ real " + real + " → medido " + s);
+            assertTrue("σ " + real + " medido " + s, Math.abs(s - real) < 0.35 * real);
+        }
+    }
+
+    @Test
+    public void ruidoCorrelacionadoUsaOPisoDaFusao() {
+        // o resíduo 2×2 quase não vê ruído suave; o piso medido entre quadros garante a limpeza
+        int w = 256, h = 192;
+        YuvFrame f = noisy(new int[w * h], w, h, 0, 0);
+        Random r = new Random(11);
+        float[] n = new float[w * h];
+        for (int i = 0; i < n.length; i++) n[i] = (float) r.nextGaussian() * 9f;
+        for (int y = 1; y < h - 1; y++) for (int x = 1; x < w - 1; x++) {
+            int i = y * w + x;
+            float s = (n[i] * 4 + n[i - 1] + n[i + 1] + n[i - w] + n[i + w]) / 8f;
+            f.y[i] = (byte) Math.max(0, Math.min(255, Math.round(60 + s)));
+        }
+        double before = 0; for (byte b : f.y) before += Math.abs((b & 0xFF) - 60);
+        NightDenoise.Report rep = NightDenoise.apply(f, true, 5f);
+        double after = 0; for (byte b : f.y) after += Math.abs((b & 0xFF) - 60);
+        System.out.println("ruído correlacionado: desvio médio " + before / f.y.length + " → " + after / f.y.length);
+        assertTrue("aplicou", rep.applied);
+        // ruído suave concentra energia nas frequências baixas, onde o Wiener de σ único é mais cauteloso
+        assertTrue("limpou o ruído suave", after < before * 0.75);
+    }
 }

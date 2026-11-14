@@ -54,6 +54,7 @@ public final class BurstFusion {
     private final float sharpenAmount;
     private final boolean finish;
     private final float scale;
+    private final boolean skipFlatSuperRes;
 
     public BurstFusion() {
         this(0.30f, true, 1f);
@@ -66,9 +67,19 @@ public final class BurstFusion {
 
     /** scale > 1 liga a super-resolução de vários quadros (ex.: 1,5 → 6144×4608 a partir de 4096×3072). */
     public BurstFusion(float sharpenAmount, boolean finish, float scale) {
+        this(sharpenAmount, finish, scale, false);
+    }
+
+    /**
+     * {@code skipFlatSuperRes}: pula a super-resolução quando os quadros não têm deslocamento de subpixel.
+     * Só para o recorte do zoom (a saída sai do mesmo tamanho, ampliada depois); a Máxima continua
+     * sempre com super-resolução, para não mudar a resolução aprovada sem pedido.
+     */
+    public BurstFusion(float sharpenAmount, boolean finish, float scale, boolean skipFlatSuperRes) {
         this.sharpenAmount = sharpenAmount;
         this.finish = finish;
         this.scale = scale;
+        this.skipFlatSuperRes = skipFlatSuperRes;
     }
 
     // =====================================================================================
@@ -87,7 +98,8 @@ public final class BurstFusion {
     static int srCut = 123;
 
     static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
-                                 int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale) {
+                                 int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale,
+                                 boolean skipFlat) {
         final int w = guide.width, h = guide.height, n = frames.size();
         final int W = Math.round(w * scale) & ~1, H = Math.round(h * scale) & ~1;
         final float sx = (float) w / W, sy = (float) h / H;
@@ -117,7 +129,7 @@ public final class BurstFusion {
 
         // Sem deslocamentos de subpixel entre os quadros (celular apoiado), a grade 1,5× não ganha
         // detalhe: seria só uma ampliação cara. Devolve a fusão nativa (ideia do Câmera X 0.1.15).
-        if (!subpixelVariety(fx, fy, ref)) return guide;
+        if (skipFlat && !subpixelVariety(fx, fy, ref)) return guide;
 
         // pesos: distância (gaussiana, σ ≈ 0,35 px do sensor) e robustez (mais tolerante que a fusão)
         final float[] gauss = new float[256];
@@ -398,7 +410,7 @@ public final class BurstFusion {
         if (scale > 1.01f && n >= 4) {
             p.step("Super-resolução " + scale + "×", 0.64f);
             long ts = System.currentTimeMillis();
-            fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
+            fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale, skipFlatSuperRes);
             // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
             // só nas fotos gigantes: libera ~230 MB antes do acabamento em 28 MP; nas menores os quadros
             // ficam para a reserva poder refazer a fusão sem super-resolução

@@ -21,8 +21,8 @@ import java.util.stream.IntStream;
  *   <li>Duas escalas: primeiro a imagem reduzida à metade (granulado grosso, manchas de 3–8 px),
  *       depois a escala cheia (grão fino), como as curvas grosso/fino do darktable.</li>
  *   <li>A média do bloco (frequência zero) não muda: brilho e contraste ficam iguais.</li>
- *   <li>Só roda quando o ruído medido passa de {@link #MIN_SIGMA}: em boa luz a foto não muda e não
- *       custa tempo.</li>
+ *   <li>Só roda em pouca luz (indicada pela câmera) e com ruído medido acima de {@link #MIN_SIGMA}:
+ *       em boa luz a foto não muda e não custa tempo.</li>
  * </ul>
  */
 final class NightDenoise {
@@ -111,17 +111,33 @@ final class NightDenoise {
             acc += hist[k];
             if (acc >= target) {
                 float frac = hist[k] > 0 ? (target - prev) / (float) hist[k] : 0f;
-                return Math.max(0.3f, (k - 0.5f + frac) / 0.385f);
+                // o resíduo é inteiro e dividido por 2 com truncamento: a faixa k cobre ~[k − 0,25, k + 0,75)
+                return Math.max(0.3f, (k - 0.25f + frac) / 0.385f);
             }
         }
         return 0.3f;
     }
 
-    /** Aplica a limpeza quando há ruído para tirar. */
+    /** Aplica a limpeza quando há ruído para tirar (cena já sabida de pouca luz). */
     static Report apply(YuvFrame f) {
+        return apply(f, true, 0f);
+    }
+
+    /**
+     * {@code lowLight}: a câmera indica pouca luz (ISO alto, clarear ou Noite). De dia não roda: folhagem
+     * e grama finas enganam o medidor espacial (revisão 14/11: −15 % de contraste local em folhas).
+     * {@code floorSigma}: ruído medido ENTRE os quadros na fusão; vira o piso do σ de cada faixa, porque o
+     * resíduo 2×2 enxerga pouco do ruído correlacionado do YUV do celular.
+     */
+    static Report apply(YuvFrame f, boolean lowLight, float floorSigma) {
         Report rep = new Report();
         long t0 = System.currentTimeMillis();
+        if (!lowLight) {
+            rep.millis = System.currentTimeMillis() - t0;
+            return rep;
+        }
         float[] sigma = noiseModel(f);
+        for (int b = 0; b < BINS; b++) sigma[b] = Math.max(sigma[b], floorSigma);
         rep.sigmaBefore = typicalSigma(f, sigma);
         float max = 0;
         for (float s : sigma) max = Math.max(max, s);

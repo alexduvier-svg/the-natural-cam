@@ -109,10 +109,8 @@ public class QualityCheckTest {
         QualityCheck.Report q = QualityCheck.compare(r.referenceFrame, r.frame, 3);
         System.out.println("2,5×: " + r.frame.width + "x" + r.frame.height + " detalhe " + q.detailRatio + " forma " + q.edgeCorrelation);
         assertTrue(q.reason, q.passed);
-        // 1.41.0: quadros idênticos (sem fração de pixel, celular firme) pulam a super-resolução
-        assertTrue("sem subpixel a super-resolução é pulada", r.scale == 1f);
-        YuvFrame big = QualityCheck.upscale(r.referenceFrame, r.scale);
-        assertTrue("reserva no tamanho da fusão", big.width == r.frame.width && big.height == r.frame.height);
+        YuvFrame big = QualityCheck.upscale(r.referenceFrame, 2.5f);
+        assertTrue("reserva ampliada no tamanho da fusão", big.width == r.frame.width && big.height == r.frame.height);
     }
 
     /** Mesma cena com ruído forte (σ ≈ 9, como a tele em ISO 3000). */
