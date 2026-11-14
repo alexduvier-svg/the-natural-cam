@@ -202,6 +202,12 @@ final class NightDenoise {
      * dessa estimativa como o "sinal" do Wiener sobre a foto original — separa melhor textura de grão.
      */
     static void denoise(YuvFrame f, float[] sigma) {
+        // 1.46.0 (usuário 14/11: "as capturas levam um tempo absurdo"): acima de 16 MP (Máxima 28 MP) uma
+        // etapa só — a 2ª dobrava o tempo; a fusão de vários quadros já limpou boa parte do ruído
+        if ((long) f.width * f.height > 16_000_000L) {
+            pass(f.y, null, f.width, f.height, sigma);
+            return;
+        }
         byte[] pilot = f.y.clone();
         pass(pilot, null, f.width, f.height, sigma);
         pass(f.y, pilot, f.width, f.height, sigma);

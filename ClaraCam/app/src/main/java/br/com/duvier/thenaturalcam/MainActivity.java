@@ -113,6 +113,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onResume() {
         super.onResume();
         resumed = true;
+        // volta de outro app (galeria): nenhuma imagem antiga congelada sobre a prévia
+        if (freeze != null && freeze.getVisibility() == View.VISIBLE) {
+            freezeEnding = false;
+            endFreeze();
+        }
         cleanStart();
         if (orientationListener.canDetectOrientation()) orientationListener.enable();
         camera.ambient.start(); // sensor de cor da luz ambiente (registro na ficha)
@@ -642,7 +647,12 @@ public final class MainActivity extends Activity implements CameraController.Lis
             editLast();
         });
         TextView gal = Ui.action(this, "Galeria");
-        gal.setOnClickListener(v -> viewLast());
+        gal.setOnClickListener(v -> {
+            // 1.46.0 (usuário 14/11): ao voltar da galeria a tela da foto antiga continuava aberta,
+            // "carregando", por cima da câmera. Fecha antes de abrir a galeria.
+            d.dismiss();
+            viewLast();
+        });
         bar.addView(close, new LinearLayout.LayoutParams(0, dp(56), 1));
         bar.addView(ed, new LinearLayout.LayoutParams(0, dp(56), 1));
         bar.addView(gal, new LinearLayout.LayoutParams(0, dp(56), 1));
@@ -1759,6 +1769,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
     // =====================================================================================
     // Visor: foco, régua de EV ao lado do ponto, trava, pinça, grade
     // =====================================================================================
+
+    @Override
+    public void onFocusTargetCleared() {
+        if (overlay == null) return;
+        overlay.x = overlay.y = -1f;
+        overlay.invalidate();
+    }
 
     private final class Overlay extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);

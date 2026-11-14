@@ -1,6 +1,6 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.45.0** (versionCode 132, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.46.0** (versionCode 133, compilada e 95 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
@@ -9,6 +9,20 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
 
 
 
+
+
+## 1.46.0 (14/11 21h) — correções do teste no aparelho (entrega em até 2 h)
+Teste do usuário com a 1.45 (20h42–20h49), 6 problemas:
+1/4. Cor inventada: fronha azul-escura (a 1.43 das 20h05 tinha a cor real) → tom noturno DESLIGADO (`NIGHT_TONE=false`).
+2. Rótulo amarelo ilegível na tele à noite (contorno duplo) → quadros extras da 1.45 revertidos (Noite 12 na faixa
+   "pouca", Máxima 6, Noite com zoom como antes).
+3. Foco preso no rótulo ao apontar para o pé → do Câmera X 0.1.15: giro > 7° com cadeado aberto solta o foco do
+   toque e volta ao contínuo (`SceneRotation` + `GyroMeter.reframedSince`); a marca de foco some da tela.
+5. Processamento lento → menos quadros (item 2), tom noturno fora (~1 s), limpeza de grão em 1 etapa acima de 16 MP.
+6. Voltando da galeria, a tela da foto antiga continuava por cima → a tela da foto fecha ao abrir a galeria; imagem
+   congelada de troca de lente é limpa ao voltar ao app.
+Mantido: limpeza de grão (NightDenoise), clarear interior escuro (IndoorExposure), nitidez mais forte só em imagem
+ampliada (textura). NÃO TESTADO no aparelho.
 
 ## Tabela de qualidade — formato pedido pelo usuário (14/11 20h21)
 Ao fim de cada trabalho de qualidade: tabela com OPPO × X Cam antes × X Cam novo e, depois dela, a explicação de cada

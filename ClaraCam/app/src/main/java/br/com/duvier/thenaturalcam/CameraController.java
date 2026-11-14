@@ -77,6 +77,10 @@ final class CameraController {
 
         void onLive(int iso, long exposureNs, String nr);
 
+        /** O ponto de foco tocado foi solto porque o usuário reenquadrou (apagar a marca da tela). */
+        default void onFocusTargetCleared() {
+        }
+
         void onBusy(String text, float progress);
 
         void onSaved(Uri uri, String summary);
@@ -324,6 +328,10 @@ final class CameraController {
     // pré-captura (medição antes da foto)
     private static final int PRE_IDLE = 0, PRE_WAIT_START = 1, PRE_WAIT_DONE = 2, PRE_WAIT_LOCK = 3;
     private int preState = PRE_IDLE;
+    /** Tom noturno (1.44–1.45) reprovado em foto real em 14/11: muda a cor. Fica no código desligado. */
+    static final boolean NIGHT_TONE = false;
+    /** Pose do giroscópio no toque: girar > 7° (outro objeto) solta o foco do toque. */
+    private SceneRotation.Pose tapPose;
     private long preStartedAt;
     private Runnable preAction;
 
@@ -708,6 +716,7 @@ final class CameraController {
             userLock = false;
             tapX = nx;
             tapY = ny;
+            tapPose = gyro.scenePose();
             tapRetries = 0;
             tapCaf = false;
             tapHold = -1f;
@@ -1328,6 +1337,7 @@ final class CameraController {
             if (physNow != null) lastPhys = physNow;
             if (af != null && af != lastAfState) onTapAf(af);
             if (af != null) lastAfState = af;
+            releaseReframedTarget();
             // avisos de distância removidos a pedido do usuário (não ajudavam); ficam só na ficha
             // na câmera lógica, o sistema pode trocar sozinho para a tele: a distância dela é falsa
             // (não calibrada) e era lida como se fosse da principal ("longe" → voltava para a tele)
@@ -1431,6 +1441,36 @@ final class CameraController {
     private static boolean afDone(int st) {
         return st == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED
                 || st == CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED;
+    }
+
+    /**
+     * Foco do toque solto ao reenquadrar (1.46.0, usuário 14/11: focou no rótulo, apontou para o pé e o
+     * foco ficou preso no rótulo). Ideia do Câmera X 0.1.15: giro > 7° com o cadeado aberto = outro
+     * objeto; volta ao foco contínuo. Cadeado fechado e foco manual continuam valendo.
+     */
+    private void releaseReframedTarget() {
+        if (capturing || preState != PRE_IDLE || userLock || focusDistance >= 0f || regions == null
+                || tapPose == null || !gyro.reframedSince(tapPose)) return;
+        Log.w(TAG, "foco do toque solto: reenquadrou (> 7°)");
+        regions = null;
+        aeRegions = null;
+        tapPose = null;
+        tapHold = -1f;
+        tapCaf = false;
+        tapScanning = false;
+        lastAfState = -1;
+        startRepeating();
+        try {
+            if (session != null && device != null) {
+                CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                b.addTarget(previewSurface);
+                applyCommon(b, false, false);
+                b.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+                session.capture(b.build(), liveCallback, handler);
+            }
+        } catch (Exception ignored) {
+        }
+        main.post(listener::onFocusTargetCleared);
     }
 
     /** Depois da foto, libera o foco contínuo que foi travado para a captura. */
@@ -2555,7 +2595,9 @@ final class CameraController {
                         ? String.format(java.util.Locale.ROOT, "Wiener 8×8 em 2 etapas · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
                         : lowLight ? String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore) : "boa luz: não roda");
                 stamp(j, "tempo_etapa_limpeza_grao_ms", tt);
-                if (lowLight) {
+                // 1.46.0: tom noturno DESLIGADO — o usuário reprovou (fronha virou azul-escura, "não inventar
+                // cores"); a cor volta a ser a da 1.43 aprovada na foto do frasco das 20h05.
+                if (NIGHT_TONE && lowLight) {
                     // tom noturno da régua (Find X8 Ultra): pretos firmes, cor densa, volume; só escurece se passou da régua
                     NightTone.Report nt = NightTone.apply(finalFrame);
                     j.sheet.put("tom_noturno", String.format(java.util.Locale.ROOT,
