@@ -44,7 +44,8 @@ Peça meu OK antes de:
 - adicionar, trocar ou remover um modelo `.tflite` (pesa no APK e tem licença própria);
 - fazer push no `main` ou qualquer push forçado.
 
-Não precisam de OK: compilar, rodar testes, criar testes e cenas sintéticas no PC, refatorar,
+Não precisam de OK: commit (e push na branch de trabalho, nunca no `main`) ao fim de CADA tarefa (pedido do usuário,
+14/11), compilar, rodar testes, criar testes e cenas sintéticas no PC, refatorar,
 subir o `versionCode`, atualizar o `PENDENTE.md`, instalar por cima com `pm install -r`
 (mantém os dados) e ler `adb logcat -s TNC`.
 
