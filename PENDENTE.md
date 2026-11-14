@@ -1,11 +1,21 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.43.0** (versionCode 130, compilada e 87 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.44.0** (versionCode 131, compilada e 92 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
 
 
+
+
+## 1.44.0 (14/11 20h) — tom noturno pela régua (mesma cena OPPO × X Cam)
+- Par do usuário: frasco às 20h06 no Find X8 Ultra e às 20h05 no X Cam 1.43 (Reno16 Pro, NATURAL_20261114_200523_800).
+  Medido (prints): grão ≈ 0 nos dois (limpeza OK); X Cam claro e lavado — mediana 103 × 85, preto p5 22 × 10,
+  fronha azul brilho 104 × 58 e saturação 81 × 106, detalhe 22 × 42.
+- Novo `NightTone` (só em pouca luz, depois da limpeza de grão): escurece só acima da mediana 86 (até ~80, máx.
+  −0,8 EV, luz linear); claridade 0,35 em σ ≈ 1,5 % do lado menor; pé abaixo de 60 (expoente 1,35); croma
+  acompanha o brilho ×1,2. Na foto do X Cam: mediana 103 → 79, p5 22 → 10, fronha 104 → 79 de brilho, detalhe 22 → 24.
+- Ainda abaixo da OPPO: detalhe (24 × 42) e saturação da fronha (92 × 106). NÃO TESTADO no aparelho.
 
 ## 1.43.0 (14/11) — ajuste guiado por medidores de qualidade (pedido: "corrigir a partir das ferramentas")
 - Ferramentas instaladas na nuvem: pyiqa (NIQE, MUSIQ; pesos baixados do GitHub, o huggingface é bloqueado) e

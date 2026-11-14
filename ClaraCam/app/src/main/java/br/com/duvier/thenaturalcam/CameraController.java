@@ -2555,6 +2555,14 @@ final class CameraController {
                         ? String.format(java.util.Locale.ROOT, "Wiener 8×8 em 2 etapas · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
                         : lowLight ? String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore) : "boa luz: não roda");
                 stamp(j, "tempo_etapa_limpeza_grao_ms", tt);
+                if (lowLight) {
+                    // tom noturno da régua (Find X8 Ultra): pretos firmes, cor densa, volume; só escurece se passou da régua
+                    NightTone.Report nt = NightTone.apply(finalFrame);
+                    j.sheet.put("tom_noturno", String.format(java.util.Locale.ROOT,
+                            "%+.2f EV · mediana %d → %d · preto p5 %d → %d · claridade %.2f · cor ×%.2f",
+                            nt.ev, nt.medianBefore, nt.medianAfter, nt.p5Before, nt.p5After, NightTone.CLARITY, NightTone.SATURATION));
+                    stamp(j, "tempo_etapa_tom_noturno_ms", tt);
+                }
                 boolean superResFrame = finalFrame == fr.frame && fr.scale > 1f;
                 float lookScale = superResFrame ? fr.scale : 1f;
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
