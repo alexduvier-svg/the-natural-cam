@@ -9,6 +9,16 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
 
 
 
+
+## Tabela de qualidade — formato pedido pelo usuário (14/11 20h21)
+Ao fim de cada trabalho de qualidade: tabela com OPPO × X Cam antes × X Cam novo e, depois dela, a explicação de cada
+item e as ferramentas usadas. Itens: brilho (mediana), preto (p5), realce (p99), grão (σ do resíduo diagonal 2×2,
+30º percentil, meios-tons), textura (|alta frequência σ 1,5 px| numa região de pele/tecido), nitidez (p95 do
+laplaciano), contraste local (|Y − desfoque σ 20 px|), cor (R/G e B/G numa região), croma médio, MUSIQ (0–100, maior
+melhor) e NIQE (menor melhor). Ferramentas: Python (NumPy, SciPy, Pillow), pyiqa (MUSIQ, NIQE), piq (BRISQUE),
+código do app compilado (cadeia real de acabamento aplicada nos prints). Script: lab2/Chain.java + medidor em Python.
+Na tela do celular a 1ª coluna de tabelas largas some: rótulos curtos, no máx. 4 colunas.
+
 ## 1.45.0 (14/11 20h) — textura da OPPO, cor do X Cam
 - Usuário (20h16–20h17): "tom de pele e cor estão mais reais no X Cam do que na OPPO"; "o X8 tem mais definição,
   textura, mas o excesso de contraste deixa a pele avermelhada e a fronha azul escura". Régua: textura/definição da
