@@ -41,7 +41,13 @@ final class PhotonLook {
     static final float DESAT_START = 0.92f, DESAT_AMOUNT = 0.6f, DESAT_DENSITY = 3f;
     static final float CAPTURE_SIGMA = 1.05f, CAPTURE_STRENGTH = 0.4f;
     static final float DETAIL_STRENGTH = 0.20f, DETAIL_MIN = 0.25f, DETAIL_MAX = 1.0f, DETAIL_SIGMA = 0.8f;
-    static final float UPSCALE_DETAIL = 0.4f;
+    /** Detalhe fino em imagem ampliada: 0,8 da força nativa (textura da pele no 7×, régua X8U 14/11). Era 0,4 (Photon). */
+    static final float UPSCALE_DETAIL = 0.8f;
+    /**
+     * Captura em imagem ampliada (zoom 5×–10×, Máxima): 0,6, a força do recorte aprovado em 13/11, era 0,6; 0,8 após o teste do 7× Máxima (14/11 20h17: textura da pele 11 → 18, cor intacta). Com 0,4
+     * o 7× Máxima saía macio contra a régua (detalhe 11 × 28 da OPPO 6×, 14/11 20h14). Só no brilho.
+     */
+    static final float CAPTURE_STRENGTH_UPSCALED = 0.8f;
     /** A partir desta escala a imagem conta como ampliada (Máxima 1,5× incluída). */
     static final float UPSCALED = 1.45f;
     static final int OVERSHOOT = 2;
@@ -65,7 +71,7 @@ final class PhotonLook {
     static void apply(YuvFrame f, float scale, float noise, boolean fusionSharpened) {
         color(f);
         float s = Math.max(1f, scale);
-        float capture = CAPTURE_STRENGTH;
+        float capture = s >= UPSCALED ? CAPTURE_STRENGTH_UPSCALED : CAPTURE_STRENGTH;
         if (fusionSharpened && s < UPSCALED) capture = Math.max(0f, CAPTURE_STRENGTH - FUSION_PRESHARPEN);
         sharpen(f, s, noise, capture);
     }

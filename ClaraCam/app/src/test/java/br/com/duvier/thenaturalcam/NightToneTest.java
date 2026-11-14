@@ -42,13 +42,17 @@ public class NightToneTest {
     }
 
     @Test
-    public void corFicaMaisDensaSemMudarMatiz() {
-        YuvFrame f = ramp(60, 80, 160, 110); // azul da fronha
-        NightTone.apply(f);
-        int u = (f.u[f.u.length / 2] & 0xFF) - 128, v = (f.v[f.v.length / 2] & 0xFF) - 128;
-        assertTrue("croma subiu: " + Math.hypot(u, v), Math.hypot(u, v) > Math.hypot(32, -18));
-        double hue0 = Math.atan2(-18, 32), hue1 = Math.atan2(v, u);
-        assertTrue("matiz igual", Math.abs(hue1 - hue0) < 0.05);
+    public void corDaPeleETecidoPreservada() {
+        // 1.45.0: saturação 1,0 — o croma só acompanha o brilho (mesma saturação e mesmo matiz)
+        YuvFrame f = ramp(150, 170, 140, 145); // pele clara, acima da régua (escurece)
+        NightTone.Report r = NightTone.apply(f);
+        int i = f.y.length / 2 + 150, ci = f.u.length / 2 + 75;
+        double satBefore = Math.hypot(12, 17) / 160.0;
+        double satAfter = Math.hypot((f.u[ci] & 0xFF) - 128, (f.v[ci] & 0xFF) - 128) / Math.max(1, f.y[i] & 0xFF);
+        assertTrue("escureceu " + r.ev, r.ev < 0);
+        assertTrue("saturação relativa " + satBefore + " → " + satAfter, Math.abs(satAfter - satBefore) < 0.03);
+        double hue0 = Math.atan2(17, 12), hue1 = Math.atan2((f.v[ci] & 0xFF) - 128, (f.u[ci] & 0xFF) - 128);
+        assertTrue("matiz igual", Math.abs(hue1 - hue0) < 0.08);
     }
 
     @Test

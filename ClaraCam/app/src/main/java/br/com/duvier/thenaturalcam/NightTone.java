@@ -23,16 +23,22 @@ import java.util.stream.IntStream;
  *   <li>Cor: o croma acompanha o novo brilho e ganha 20 % (cor densa como na OPPO; a 1,3 a pele saturava).</li>
  * </ol>
  * Só roda em pouca luz (a mesma decisão da limpeza de grão). Código próprio.
+ *
+ * <p>1.45.0 (usuário, 14/11 20h16): "tom de pele e cor estão mais reais no X Cam do que na OPPO; não ter
+ * todo esse contraste para não mudar a cor da pele ou dos tecidos". Mantido o que é ganho da régua
+ * (pretos firmes, sem véu, sem grão); tirado o que mexe na cor: saturação 1,0 (o croma só acompanha o
+ * brilho, mesma saturação), claridade 0,35 → 0,15, pé 1,35 → 1,15, escurecer no máximo −0,5 EV.
  */
 final class NightTone {
     private NightTone() {}
 
     static final int TOP_MEDIAN = 86, TARGET_MEDIAN = 80;
-    static final float MIN_EV = -0.8f;
-    static final float CLARITY = 0.35f, CLARITY_SIGMA_FRACTION = 24f / 1659f;
+    static final float MIN_EV = -0.5f;
+    static final float CLARITY = 0.15f, CLARITY_SIGMA_FRACTION = 24f / 1659f;
     static final int TOE_LEVEL = 60;
-    static final float TOE_POWER = 1.35f;
-    static final float SATURATION = 1.2f;
+    static final float TOE_POWER = 1.15f;
+    /** 1,0: a cor da pele e dos tecidos do X Cam é mais real que a da OPPO (usuário, 14/11 20h16). */
+    static final float SATURATION = 1.0f;
 
     static final class Report {
         float ev;
@@ -74,7 +80,7 @@ final class NightTone {
             f.y[i] = (byte) Math.max(0, Math.min(255, Math.round(v)));
         });
 
-        // 4) cor acompanha o brilho novo e fica 20 % mais densa
+        // 4) cor acompanha o brilho novo (mesma saturação: cor da pele e dos tecidos preservada)
         final int cw = f.chromaWidth, ch = f.chromaHeight;
         IntStream.range(0, ch).parallel().forEach(cy -> {
             for (int cx = 0; cx < cw; cx++) {

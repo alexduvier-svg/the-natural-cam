@@ -1,12 +1,28 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.44.0** (versionCode 131, compilada e 92 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.45.0** (versionCode 132, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
 
 
 
+
+
+## 1.45.0 (14/11 20h) — textura da OPPO, cor do X Cam
+- Usuário (20h16–20h17): "tom de pele e cor estão mais reais no X Cam do que na OPPO"; "o X8 tem mais definição,
+  textura, mas o excesso de contraste deixa a pele avermelhada e a fronha azul escura". Régua: textura/definição da
+  OPPO, cor e tom de pele do X Cam.
+- Par 7× Máxima X Cam (NATURAL_20261114_201330_957) × OPPO 6× (IMG20261114201226): sem grão nos dois; X Cam detalhe
+  11 × 28; pele R/G 1,15 (X Cam) × 1,19 (OPPO, avermelhada); fronha B/G 1,15 × 1,23 (OPPO azul escuro).
+- NightTone suavizado: saturação 1,2 → 1,0 (croma só acompanha o brilho), claridade 0,35 → 0,15, pé 1,35 → 1,15,
+  escurecer no máx. −0,5 EV. PhotonLook em imagem ampliada (zoom/Máxima): captura 0,4 → 0,8, detalhe ×0,4 → ×0,8.
+- Na foto do 7×: textura 11 → 18, pele R/G 1,15 → 1,14 (cor mantida). Frasco: definição 22 → 30, fronha B/G mantida.
+  NÃO TESTADO no aparelho.
+- Usuário 20h18: o padrão vale para todas as lentes à noite; Máxima e Noite devem tirar mais informação do merge.
+  CaptureDirector em pouca luz (ISO > 400): Noite com fusão incremental 15 quadros (era 12 na faixa "pouca");
+  Noite com zoom por super-resolução 12 quadros; Máxima 1,5× 10 quadros (de dia continua 6). Limpeza, tom noturno
+  e nitidez já valem para qualquer lente em pouca luz.
 
 ## 1.44.0 (14/11 20h) — tom noturno pela régua (mesma cena OPPO × X Cam)
 - Par do usuário: frasco às 20h06 no Find X8 Ultra e às 20h05 no X Cam 1.43 (Reno16 Pro, NATURAL_20261114_200523_800).
@@ -33,6 +49,7 @@ APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Part
   ev −1,3) e 1/40 s (pés na sala, ev −1,0), JPEG 12 MP. Prints recebidos em 1659×2212.
 - 3ª referência (20h06, mesma cena do frasco, mais clara): mediana 86, p5 11, p95 146, grão ≈ 0 em todas as faixas,
   detalhe maior (pelúcia e trama nítidas). Faixa aceitável de brilho em interior: mediana ~42–86 conforme a cena.
+- 4ª referência (20h12, OPPO 6×, pé de perto, interior): ver medidas na seção da versão que usar este par.
 - Medido nos prints: grão de brilho praticamente zero em todas as faixas (resíduo diagonal ≈ 0 da sombra ao meio-tom);
   brilho mediano 42–64 (Y 0–255), sombras profundas mantidas (p5 ≈ 6); rótulo inteiro legível (letras de ~1 mm),
   pelos, rugas da pele, fibras da pelúcia e trama do tecido nítidos; cor natural, sem dominante.

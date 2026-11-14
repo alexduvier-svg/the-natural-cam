@@ -120,10 +120,15 @@ public final class CaptureDirector {
         p.nightLike = nightLike;
         // Noite sem super-resolução: fusão incremental, como o Night Sight (até 15 quadros na mão)
         p.stream = nightLike && p.srScale <= 1f && !s.stackOff;
-        if (p.stream && light >= 2) frames = Math.max(frames, light >= 3 ? 15 : 12);
+        // 1.45.0 (usuário 14/11 20h18: "Máxima deve gerar mais informação pelo merge, e o Noite também"):
+        // em pouca luz o Noite soma 15 quadros também na faixa "pouca" (era 12)
+        if (p.stream && light >= 2) frames = Math.max(frames, 15);
         p.frames = Math.max(1, Math.min(p.stream ? 15 : 12, frames));
-        // Máxima (28 MP por super-resolução): 8 quadros, como o zoom aprovado — com 12 levava ~29 s
-        if (s.maxPolicy && p.srScale > 1f && p.srCrop <= 1f) p.frames = Math.min(p.frames, 6); // 6: ~4 s a menos (13/11 tarde)
+        // Noite com zoom por super-resolução (sem fusão incremental): 12 quadros em pouca luz
+        if (s.kind == Kind.NOITE && !p.stream && light >= 2 && !s.stackOff) p.frames = Math.max(p.frames, 12);
+        // Máxima (28 MP por super-resolução): de dia 6 quadros (~4 s a menos, 13/11 tarde); à noite 10 —
+        // mais amostras por pixel no merge (menos ruído e mais detalhe real), custa alguns segundos
+        if (s.maxPolicy && p.srScale > 1f && p.srCrop <= 1f) p.frames = Math.min(p.frames, light >= 2 ? 10 : 6);
         if (p.srScale > 1f && p.frames < 4) { // regra: super-resolução só com amostras suficientes
             p.srScale = 1f;
             p.srCrop = 1f;
