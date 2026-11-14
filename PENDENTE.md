@@ -1,9 +1,24 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.41.1** (versionCode 128, compilada e 84 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.42.0** (versionCode 129, compilada e 84 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
+
+
+## RÉGUA NOTURNA (definida pelo usuário 14/11 18h41) — padrão MÍNIMO para fotos noturnas e de interior
+- Referências: OPPO Find X8 Ultra, tele 70 mm f/2,1, ISO 1250, 1/60 s (frasco Naridrin sobre almofada azul e pelúcia,
+  ev −1,3) e 1/40 s (pés na sala, ev −1,0), JPEG 12 MP. Prints recebidos em 1659×2212.
+- Medido nos prints: grão de brilho praticamente zero em todas as faixas (resíduo diagonal ≈ 0 da sombra ao meio-tom);
+  brilho mediano 42–64 (Y 0–255), sombras profundas mantidas (p5 ≈ 6); rótulo inteiro legível (letras de ~1 mm),
+  pelos, rugas da pele, fibras da pelúcia e trama do tecido nítidos; cor natural, sem dominante.
+- X Cam (foto escura do pé, 18h15, print): grão 14,3 na pele (faixa 40–80) e 7,8 nos meios-tons; mediana 24 (mais
+  escura que a OPPO). Depois da limpeza 1.42.0: 2,6 na pele, sem plástico — mas o detalhe que já chegou afogado no
+  ruído não volta: para a régua falta também CAPTURA (conferir na ficha: quadros usados, ISO, tempo, clarear).
+
+## 1.42.0 (14/11) — limpeza calibrada na régua noturna
+- NightDenoise: força 2,5 e ganho mínimo 0,08 (antes 1,3 / 0,18). Testado 1,3/2,5/4/6: 4 e 6 deixam a pele de plástico.
+  Cena sintética σ 8: sombra lisa erro 8,0 → 1,1; tecido 8,0 → 2,5 com listras preservadas. NÃO TESTADO no aparelho.
 
 ## 1.41.0 (14/11) — limpeza profissional do grão em pouca luz + ideias do Câmera X
 - Pedido do usuário: X Cam 1.40.0 funciona; em fotos escuras falta correção profissional de ruído. Pesquisa (GitHub,

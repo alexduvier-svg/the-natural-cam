@@ -31,10 +31,14 @@ final class NightDenoise {
     static final int BINS = 16;
     /** Abaixo deste σ (níveis de 0–255) a foto é considerada limpa e a etapa não roda. */
     static final float MIN_SIGMA = 1.6f;
-    /** Ganho mínimo de cada frequência (preserva textura e um grão fino natural). */
-    static final float FLOOR = 0.18f;
-    /** Multiplicador da variância do ruído no filtro (1 = Wiener clássico). */
-    static final float STRENGTH = 1.3f;
+    /**
+     * Ganho mínimo de cada frequência (preserva textura e um grão fino natural). Régua noturna do
+     * usuário (14/11, Find X8 Ultra ISO 1250 em interior): pele sem grão visível e pelos nítidos. Na foto
+     * escura do X Cam, 0,08 × 2,5 levou o grão da pele de 14,3 para 2,6 sem plástico; 0,05 × 4 já alisava.
+     */
+    static final float FLOOR = 0.08f;
+    /** Multiplicador da variância do ruído no filtro (1 = Wiener clássico; calibrado na régua noturna). */
+    static final float STRENGTH = 2.5f;
     private static final int B = 8, STEP = 4, STRIPE = 32;
     private static final float[][] DCT = new float[B][B];
 
