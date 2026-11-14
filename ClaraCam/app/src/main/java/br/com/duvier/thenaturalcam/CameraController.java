@@ -2383,6 +2383,9 @@ final class CameraController {
                     // poucos quadros nítidos: sem super-resolução, amplia com nitidez na escala certa
                     j.cropUpscale = j.srCrop;
                 }
+                if (scale > 1.01f && fr.scale <= 1f && fr.framesUsed >= 4) {
+                    j.sheet.put("super_resolucao", "pulada: quadros sem deslocamento de subpixel (celular firme) — a grade maior não ganharia detalhe");
+                }
                 if (fr.scale > 1f) {
                     j.sheet.put("super_resolucao", "1,5× · " + fr.frame.width + "×" + fr.frame.height + " (resolução computacional, não leitura nativa do sensor)");
                     j.sheet.put("tempo_super_resolucao_ms", fr.superResMs);
@@ -2531,6 +2534,15 @@ final class CameraController {
                 // Padrão PhotonCamera (1.40.0, pedido do usuário 14/11): UMA etapa de cor e nitidez igual
                 // para todas as lentes, no lugar das passadas separadas por lente. A escala é a ampliação
                 // efetiva da foto (super-resolução, recorte, zoom do processador ou ajuste para 12 MP).
+                // Grão de brilho em pouca luz (1.41.0, pedido do usuário 14/11): filtro de Wiener por
+                // frequência em blocos 8×8, calibrado pelo ruído medido NESTA foto, depois da curva de tons e
+                // do clarear (que ampliam o ruído das sombras). Em boa luz não roda.
+                busy("Limpando grão…", 0.94f);
+                NightDenoise.Report nd = NightDenoise.apply(finalFrame);
+                j.sheet.put("limpeza_grao_frequencia", nd.applied
+                        ? String.format(java.util.Locale.ROOT, "Wiener 8×8 em 2 etapas · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
+                        : String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore));
+                stamp(j, "tempo_etapa_limpeza_grao_ms", tt);
                 boolean superResFrame = finalFrame == fr.frame && fr.scale > 1f;
                 float lookScale = superResFrame ? fr.scale : 1f;
                 int longSide = Math.max(finalFrame.width, finalFrame.height);
@@ -2551,7 +2563,9 @@ final class CameraController {
                 busy("Cor e nitidez…", 0.95f);
                 // a fusão já afiou 0,30 na grade nativa; conta como parte da captura (menos no quadro único de reserva)
                 boolean fusionSharpened = !singleFrame;
-                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, fr.noiseAfter), fusionSharpened);
+                // portão de ruído da nitidez pelo grão que SOBROU na foto final (antes: o ruído da fusão, medido
+                // antes do clarear — nas fotos escuras a nitidez realçava o grão)
+                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, Math.max(fr.noiseAfter, nd.sigmaAfter)), fusionSharpened);
                 stamp(j, "tempo_etapa_cor_nitidez_ms", tt);
                 j.sheet.put("padrao_cor_nitidez", String.format(java.util.Locale.ROOT,
                         "PhotonLook (técnica do PhotonCamera, código próprio) · escala %.2f · captura σ %.2f força %.2f · detalhe %.2f",

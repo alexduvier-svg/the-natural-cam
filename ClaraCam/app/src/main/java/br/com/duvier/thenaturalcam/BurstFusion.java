@@ -115,6 +115,10 @@ public final class BurstFusion {
             });
         }
 
+        // Sem deslocamentos de subpixel entre os quadros (celular apoiado), a grade 1,5× não ganha
+        // detalhe: seria só uma ampliação cara. Devolve a fusão nativa (ideia do Câmera X 0.1.15).
+        if (!subpixelVariety(fx, fy, ref)) return guide;
+
         // pesos: distância (gaussiana, σ ≈ 0,35 px do sensor) e robustez (mais tolerante que a fusão)
         final float[] gauss = new float[256];
         for (int k = 0; k < 256; k++) {
@@ -423,6 +427,22 @@ public final class BurstFusion {
         res.finishMs = res.millis - (tMerge - t0);
         p.step("Pronto", 1f);
         return res;
+    }
+
+    /** Há quadros com fração de pixel suficiente (≥ 20 % dos blocos em x ou em y) para a super-resolução. */
+    static boolean subpixelVariety(float[][] fx, float[][] fy, int ref) {
+        int vx = 0, vy = 0, total = 0;
+        for (int f = 0; f < fx.length; f++) {
+            if (f == ref || fx[f] == null || fy[f] == null) continue; // a referência não se desloca
+            for (int t = 0; t < fx[f].length; t++) {
+                float ax = Math.abs(fx[f][t] - Math.round(fx[f][t]));
+                float ay = Math.abs(fy[f][t] - Math.round(fy[f][t]));
+                if (ax > 0.14f) vx++;
+                if (ay > 0.14f) vy++;
+                total++;
+            }
+        }
+        return total > 0 && Math.max(vx, vy) * 5 >= total;
     }
 
     /** Acabamento proporcional ao ruído restante (o mesmo para a fusão completa e a incremental). */

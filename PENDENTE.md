@@ -1,8 +1,29 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.40.0** (versionCode 126, compilada e 71 testes no PC ok, NÃO TESTADA no aparelho),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.41.0** (versionCode 127, compilada e 81 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
+
+
+## 1.41.0 (14/11) — limpeza profissional do grão em pouca luz + ideias do Câmera X
+- Pedido do usuário: X Cam 1.40.0 funciona; em fotos escuras falta correção profissional de ruído. Pesquisa (GitHub,
+  Reddit, artigos): o método de referência é o do HDR+ do Google (Hasinoff 2016: filtro de Wiener por frequência
+  em blocos, calibrado pelo modelo de ruído), também usado no hdr-plus/Burst Photo; MotionCam e darktable separam
+  granulado grosso e fino.
+- Nova etapa `NightDenoise` (código próprio) no acabamento, depois da curva de tons e do clarear e antes da nitidez:
+  ruído medido NA FOTO por faixa de brilho (resíduo diagonal 2×2 do Câmera X, 30º percentil para não confundir
+  folhagem com ruído) → escala reduzida à metade (granulado grosso, só a correção volta ampliada) → escala cheia
+  com Wiener 8×8 passo 4 em duas etapas (como o BM3D), média do bloco intacta, ganho mínimo 0,18 (grão fino natural,
+  sem plástico). Só roda com σ ≥ 1,6; em boa luz a foto não muda.
+- A nitidez (PhotonLook) agora usa o grão que SOBROU na foto final como portão; antes usava o ruído da fusão,
+  medido antes do clarear, e realçava o grão nas fotos escuras.
+- Do Câmera X 0.1.15: super-resolução pulada quando os quadros não têm deslocamento de subpixel (celular firme) —
+  mais rápido; a ficha registra "super_resolucao: pulada". Consequência: Máxima apoiada sai em 12 MP, não 28 MP.
+- Do Câmera X, NÃO trazido ainda: pesos de movimento contra fantasmas, cor preservada na fusão, ajustes por lente
+  (5×–10×) — dependem das aprovações do Câmera X e mexem na fusão aprovada.
+- Prova: nível 1 (81 testes; cena sintética σ 8: sombra lisa erro 8,0 → 3,0, tecido 8,0 → 3,5 com listras
+  preservadas, borda e letras firmes, foto limpa intacta; 12 MP de ruído puro ~1,8 s no PC). Na foto do pé enviada
+  pelo usuário (JPEG reduzido): σ 6,7 → 3,8, pele sem plástico. NÃO TESTADO no aparelho.
 
 ## 1.40.0 (14/11) — padrão de cor e nitidez do PhotonCamera em todas as lentes
 - Pedido do usuário: trazer a qualidade de cor e nitidez do PhotonCamera e aplicar em todas as lentes, principalmente
