@@ -24,8 +24,10 @@ import java.util.Locale;
 /** Grava fotos em DCIM/CameraX e a ficha técnica em Documents/CameraX. */
 final class MediaSaver {
 
-    static final String PHOTO_DIR = "DCIM/CameraX";
-    static final String SHEET_DIR = "Documents/CameraX";
+    // X Cam continua gravando nas pastas de antes (o Câmera X oficial grava em CameraX)
+    static final boolean XCAM = "xcam".equals(BuildConfig.BUILD_TYPE);
+    static final String PHOTO_DIR = XCAM ? "DCIM/TheNaturalCam" : "DCIM/CameraX";
+    static final String SHEET_DIR = XCAM ? "Documents/TheNaturalCam" : "Documents/CameraX";
 
     private final Context context;
 

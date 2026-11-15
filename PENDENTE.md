@@ -1,3 +1,13 @@
+## X Cam 2.0.0 (15/11, 00h) — X Cam passa a ser o código do Câmera X 0.1.16-teste.1
+- Pedido do usuário: o X Cam 1.4x (PhotonLook) estragava o texto do rótulo; o Câmera X sai perfeito. Esta branch
+  (`claude/xcam-camerax-0.1.16`) parte da `camera-x` e só acrescenta:
+  - tipo de build `xcam`: id `br.com.duvier.thenaturalcam.xcam`, versionCode 136, nome "X Cam" (instala por cima do
+    X Cam, mesma assinatura); grava em DCIM/TheNaturalCam e Documents/TheNaturalCam como o X Cam de antes;
+  - galeria: a tela da foto fecha antes de abrir a galeria, e a prévia congelada é limpa ao voltar.
+- O processamento de imagem é o do Câmera X, sem mudança. A cor do PhotonLook NÃO foi reaplicada.
+- Compilar: `cd ClaraCam && bash ./gradlew --no-daemon assembleXcam testDebugUnitTest` (97 testes passando).
+- NÃO TESTADO no aparelho.
+
 # The Natural Cam — o que falta (atualizado 2026-11-13 ~09h35, entrega das 12h)
 
 Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.39.1** (versionCode 125, NÃO TESTADA no aparelho),

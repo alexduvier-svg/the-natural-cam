@@ -18,6 +18,8 @@ android {
         release {
             minifyEnabled false
         }
+        // X Cam: o código do Câmera X instalado como o app "X Cam" (mesmo id e dados do X Cam já instalado)
+        xcam { initWith debug; matchingFallbacks = ['debug'] }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -39,4 +41,16 @@ dependencies {
     // GPU para a redução de ruído por rede (NAFNet); sem GPU cai para a CPU
     implementation 'com.google.ai.edge.litert:litert-gpu:1.4.1'
     testImplementation 'junit:junit:4.13.2'
+}
+
+// X Cam sobre o Câmera X 0.1.16: mantém o id do X Cam (instala por cima, mantém os dados)
+// e sobe o versionCode acima do último X Cam (135).
+androidComponents {
+    onVariants(selector().withBuildType('xcam')) { variant ->
+        variant.applicationId.set('br.com.duvier.thenaturalcam.xcam')
+        variant.outputs.each { o ->
+            o.versionCode.set(136)
+            o.versionName.set('2.0.0-xcam (Câmera X 0.1.16)')
+        }
+    }
 }

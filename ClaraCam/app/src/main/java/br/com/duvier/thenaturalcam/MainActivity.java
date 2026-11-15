@@ -129,6 +129,11 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onResume() {
         super.onResume();
         resumed = true;
+        // volta de outro app (galeria): nenhuma imagem antiga congelada sobre a prévia
+        if (freeze != null && freeze.getVisibility() == View.VISIBLE) {
+            freezeEnding = false;
+            endFreeze();
+        }
         cleanStart();
         if (orientationListener.canDetectOrientation()) orientationListener.enable();
         camera.ambient.start(); // sensor de cor da luz ambiente (registro na ficha)
@@ -615,7 +620,12 @@ public final class MainActivity extends Activity implements CameraController.Lis
             editLast();
         });
         TextView gal = Ui.action(this, "Galeria");
-        gal.setOnClickListener(v -> viewLast());
+        gal.setOnClickListener(v -> {
+            // X Cam (usuário 14/11): ao voltar da galeria a tela da foto antiga continuava "carregando"
+            // por cima da câmera. Fecha antes de abrir a galeria.
+            d.dismiss();
+            viewLast();
+        });
         bar.addView(close, new LinearLayout.LayoutParams(0, dp(56), 1));
         bar.addView(ed, new LinearLayout.LayoutParams(0, dp(56), 1));
         bar.addView(gal, new LinearLayout.LayoutParams(0, dp(56), 1));
