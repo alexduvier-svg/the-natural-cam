@@ -1,6 +1,6 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.46.0** (versionCode 133, compilada e 95 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.47.0** (versionCode 133, compilada e 95 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
@@ -614,3 +614,11 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   principal" funcionou). Regra nova: escuro sem medida de LONGE → 3,5× fica na principal
   (nearReason 1: volta à tele sozinha se a principal medir > ~55 cm). mainFarNow().
   NÃO testado no aparelho (usuário usando o app); APK na pasta do PC.
+
+## Feito na 1.47.0 (X Cam, 14/11 noite)
+- Texto miúdo do rótulo à noite: a limpeza Wiener 8×8 (NightDenoise) foi trocada pela limpeza do Câmera X 0.1.15
+  (`StrokeSafeDenoise`, cópia do caminho de limpeza do `CaptureTuning`): só alisa áreas lisas, não toca traços,
+  pele nem tons acima de 140. Teste no PC (letras de 1–2 px, contraste 15, ruído σ 4): preserva 93 % do contraste
+  (Wiener antigo: 87 %). O fundo fica com um pouco mais de grão que na 1.46 (σ 3,5 contra 0,9): é o preço do texto.
+- NÃO TESTADO no aparelho: falta a foto do frasco à noite comparada com o Câmera X.
+

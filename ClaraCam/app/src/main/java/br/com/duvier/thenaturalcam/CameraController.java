@@ -2590,10 +2590,23 @@ final class CameraController {
                 busy("Limpando grão…", 0.94f);
                 // só em pouca luz (ISO alto, clarear ou Noite): de dia folhagem fina parece "ruído" ao medidor
                 boolean lowLight = lastIso >= 800 || j.brightenEv > 0 || mode == Mode.NOITE;
-                NightDenoise.Report nd = NightDenoise.apply(finalFrame, lowLight, (float) fr.noiseAfter);
-                j.sheet.put("limpeza_grao_frequencia", nd.applied
-                        ? String.format(java.util.Locale.ROOT, "Wiener 8×8 em 2 etapas · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
-                        : lowLight ? String.format(java.util.Locale.ROOT, "não precisou (σ %.2f)", nd.sigmaBefore) : "boa luz: não roda");
+                // 1.47.0: a limpeza Wiener 8×8 (NightDenoise) apagava as letras miúdas do rótulo em foto
+                // noturna ruidosa (usuário 14/11 21h31: "o X Cam destrói o texto; o Câmera X sai perfeito").
+                // Agora: a limpeza do Câmera X, que só alisa áreas lisas e preserva traços.
+                NightDenoise.Report nd = new NightDenoise.Report();
+                if (lowLight) {
+                    float[] sig = NightDenoise.noiseModel(finalFrame);
+                    for (int b = 0; b < sig.length; b++) sig[b] = Math.max(sig[b], (float) fr.noiseAfter);
+                    nd.sigmaBefore = NightDenoise.typicalSigma(finalFrame, sig);
+                    long t0 = System.currentTimeMillis();
+                    StrokeSafeDenoise.apply(finalFrame, sig);
+                    nd.applied = true;
+                    nd.sigmaAfter = NightDenoise.typicalSigma(finalFrame, NightDenoise.noiseModel(finalFrame));
+                    nd.millis = System.currentTimeMillis() - t0;
+                }
+                j.sheet.put("limpeza_grao", nd.applied
+                        ? String.format(java.util.Locale.ROOT, "preserva traços (Câmera X) · σ %.2f → %.2f · %d ms", nd.sigmaBefore, nd.sigmaAfter, nd.millis)
+                        : "boa luz: não roda");
                 stamp(j, "tempo_etapa_limpeza_grao_ms", tt);
                 // 1.46.0: tom noturno DESLIGADO — o usuário reprovou (fronha virou azul-escura, "não inventar
                 // cores"); a cor volta a ser a da 1.43 aprovada na foto do frasco das 20h05.
