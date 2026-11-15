@@ -1,5 +1,7 @@
 package br.com.duvier.thenaturalcam;
 
+import java.util.stream.IntStream;
+
 /**
  * Verificador de qualidade antes de a foto virar resultado final (pedido do usuário: "um
  * verificador de qualidade antes da imagem ser finalizada").
@@ -21,6 +23,7 @@ public final class QualityCheck {
         public double edgeCorrelation = 1;
         /** Pixels de borda usados na medida. */
         public int edgePixels;
+        boolean localDetailMeasured;
         public boolean passed = true;
         public String reason = "ok";
     }
@@ -42,6 +45,10 @@ public final class QualityCheck {
 
     /** noiseFused = ruído que sobrou na fusão (já na grade da referência). */
     public static Report compare(YuvFrame ref, YuvFrame fused, double noise, double noiseFused) {
+        return compare(ref, fused, noise, noiseFused, null);
+    }
+
+    static Report compare(YuvFrame ref, YuvFrame fused, double noise, double noiseFused, FocusArea focusArea) {
         if (fused.width > ref.width * 1.05f) {
             // super-resolução: reduz a fusão para a grade da referência (média de área) e compara
             // na MESMA escala — antes a 2,5× a comparação era injusta e reprovava fusões boas
@@ -62,6 +69,12 @@ public final class QualityCheck {
         float sx = fused.width / (float) w, sy = fused.height / (float) h;
         // só o miolo (80 %): as bordas da foto têm vinheta e cantos menos nítidos em qualquer lente
         int x0 = w / 10, x1 = w - w / 10, y0 = h / 10, y1 = h - h / 10;
+        if (focusArea != null) {
+            x0 = focusArea.left(w);
+            x1 = focusArea.right(w);
+            y0 = focusArea.left(h, focusArea.y);
+            y1 = focusArea.right(h, focusArea.y);
+        }
         double edgeThr = Math.max(10, 5 * noise);
         double lapRef = 0, lapFus = 0, gxy = 0, gxx = 0, gyy = 0;
         int count = 0;
@@ -91,10 +104,13 @@ public final class QualityCheck {
             }
         }
         r.edgePixels = count;
-        if (count < MIN_EDGES) {
+        int minEdges = focusArea == null ? MIN_EDGES : Math.max(32, Math.min(300, (x1 - x0) * (y1 - y0) / (step * step * 40)));
+        if (count < minEdges && focusArea != null) return compare(ref, fused, noise, noiseFused);
+        if (count < minEdges) {
             r.reason = "cena sem bordas suficientes para medir";
             return r;
         }
+        r.localDetailMeasured = focusArea != null;
         // O laplaciano da referência inclui o RUÍDO dela (|lap| médio do ruído branco ≈ 3,6σ): sem
         // descontar, a fusão — que limpa o ruído — parecia "perder detalhe" e era reprovada (visto
         // no aparelho: 0,67 a 3,5× → salvava um quadro único, ruidoso). Desconta o ruído dos dois lados.
@@ -111,6 +127,93 @@ public final class QualityCheck {
             r.reason = "bordas duplicadas ou fantasma (movimento entre quadros)";
         }
         return r;
+    }
+
+    static void protectFineDetail(Report report) {
+        if (report.passed && report.localDetailMeasured && report.detailRatio < 0.82) {
+            report.passed = false;
+            report.reason = "fusão suavizou traços finos no ponto tocado";
+        }
+    }
+
+    /** Na grade nativa, usa a referência onde a fusão perdeu estrutura ou mudou o contorno. */
+    static boolean repairSevenTimes(YuvFrame ref, YuvFrame fused, float[] noiseModel) {
+        int w = ref.width, h = ref.height;
+        if (ref == fused || w != fused.width || h != fused.height || w < 32 || h < 32) return false;
+        final int tile = 32, half = tile / 2;
+        int cols = (w + tile - 1) / tile, rows = (h + tile - 1) / tile;
+        float[] weights = new float[cols * rows];
+        IntStream.range(0, rows).parallel().forEach(ty -> {
+            for (int tx = 0; tx < cols; tx++) {
+                int cx = tx * tile + half, cy = ty * tile + half;
+                double refEnergy = 0, match = 0;
+                int changed = 0, samples = 0, edges = 0;
+                for (int y = Math.max(1, cy - tile); y < Math.min(h - 2, cy + tile); y += 3) {
+                    for (int x = Math.max(1, cx - tile); x < Math.min(w - 2, cx + tile); x += 3) {
+                        int i = y * w + x;
+                        int r = average2(ref.y, w, i), f = average2(fused.y, w, i);
+                        float sigma = noiseModel[r >> 4];
+                        if (Math.abs(r - f) > Math.max(8f, 3f * sigma)) changed++;
+                        samples++;
+                        int rx = average2(ref.y, w, i + 1) - average2(ref.y, w, i - 1);
+                        int ry = average2(ref.y, w, i + w) - average2(ref.y, w, i - w);
+                        int energy = rx * rx + ry * ry;
+                        float threshold = Math.max(5f, 2.4f * sigma);
+                        if (energy < threshold * threshold) continue;
+                        int fx = average2(fused.y, w, i + 1) - average2(fused.y, w, i - 1);
+                        int fy = average2(fused.y, w, i + w) - average2(fused.y, w, i - w);
+                        match += rx * fx + ry * fy;
+                        refEnergy += energy;
+                        edges++;
+                    }
+                }
+                float motion = clamp01((changed / (float) samples - 0.045f) / 0.12f);
+                float detailLoss = edges < 8 ? 0 : clamp01((0.87f - (float) (match / refEnergy)) / 0.22f);
+                weights[ty * cols + tx] = Math.max(motion, detailLoss);
+            }
+        });
+        boolean needsRepair = false;
+        for (float weight : weights) {
+            if (weight > 0f) {
+                needsRepair = true;
+                break;
+            }
+        }
+        if (!needsRepair) return true;
+        blendReference(ref.y, fused.y, w, h, tile, weights, cols, rows);
+        blendReference(ref.u, fused.u, ref.chromaWidth, ref.chromaHeight, half, weights, cols, rows);
+        blendReference(ref.v, fused.v, ref.chromaWidth, ref.chromaHeight, half, weights, cols, rows);
+        return true;
+    }
+
+    private static int average2(byte[] data, int stride, int i) {
+        return ((data[i] & 255) + (data[i + 1] & 255) + (data[i + stride] & 255)
+                + (data[i + stride + 1] & 255) + 2) >> 2;
+    }
+
+    private static void blendReference(byte[] ref, byte[] fused, int w, int h, int tile,
+                                       float[] weights, int cols, int rows) {
+        final float step = 1f / tile;
+        IntStream.range(0, h).parallel().forEach(y -> {
+            float gy = Math.max(0f, Math.min(rows - 1, (y + 0.5f) * step - 0.5f));
+            int ty = (int) gy, upper = ty * cols, lower = Math.min(rows - 1, ty + 1) * cols;
+            float dy = gy - ty;
+            for (int x = 0; x < w; x++) {
+                float gx = Math.max(0f, Math.min(cols - 1, (x + 0.5f) * step - 0.5f));
+                int tx = (int) gx, next = Math.min(cols - 1, tx + 1);
+                float dx = gx - tx;
+                float a = weights[upper + tx] * (1f - dx) + weights[upper + next] * dx;
+                float b = weights[lower + tx] * (1f - dx) + weights[lower + next] * dx;
+                float weight = a * (1f - dy) + b * dy;
+                if (weight <= 0f) continue;
+                int i = y * w + x, value = fused[i] & 255;
+                fused[i] = (byte) Math.round(value + weight * ((ref[i] & 255) - value));
+            }
+        });
+    }
+
+    private static float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
     }
 
     /** Redução por média de área (só o brilho, que é o que se compara). */
@@ -147,7 +250,7 @@ public final class QualityCheck {
 
     private static void resample(byte[] s, int w, int h, byte[] d, int W, int H) {
         float sx = w / (float) W, sy = h / (float) H;
-        java.util.stream.IntStream.range(0, H).parallel().forEach(Y -> {
+        IntStream.range(0, H).parallel().forEach(Y -> {
             float yr = (Y + .5f) * sy - .5f;
             int y0 = (int) Math.floor(yr);
             float ty = yr - y0;

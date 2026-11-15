@@ -90,6 +90,60 @@ final class ToneMatch {
         return maxDiff < 3 ? null : sm;
     }
 
+    /** Limita o ganho de realces sem comprimir sombras, cortar brancos ou inverter tons. */
+    static void protectHighlights(int[] lut) {
+        for (int v = 160; v < lut.length; v++) {
+            int cap = v + Math.min(12, (255 - v) / 4);
+            lut[v] = Math.max(lut[v - 1], Math.min(lut[v], cap));
+        }
+    }
+
+    /** Mantém a sombra da curva original e limita o ganho positivo da média-luz em diante. */
+    static void limitDaylightLift(int[] lut) {
+        for (int y = 1; y < 256; y++) {
+            float ramp = Math.max(0f, Math.min(1f, (y - 80f) / 100f));
+            int original = lut[y];
+            int limited = original - Math.round(Math.max(0, original - y) * 0.75f * ramp);
+            lut[y] = Math.max(lut[y - 1], limited);
+        }
+    }
+
+    /** Ganho moderado em cenas escuras, calibrado entre sombras profundas e reflexos. */
+    static int[] teleSevenCurve(int[] histogram, boolean preserveContrast) {
+        long total = 0;
+        for (int count : histogram) total += count;
+        int mid = 0;
+        long cumulative = 0;
+        for (; mid < 255; mid++) {
+            cumulative += histogram[mid];
+            if (cumulative * 10 >= total * 6) break;
+        }
+        float need = total == 0 ? 0f : Math.max(0f, Math.min(1f, (124f - mid) / 46f));
+        int[] lut = new int[256];
+        for (int y = 0; y < lut.length; y++) {
+            float toe = Math.max(0f, Math.min(1f, (y - 30f) / 60f));
+            float shoulder = Math.max(0f, Math.min(1f, (214f - y) / 82f));
+            float delta = (preserveContrast ? 11f : 18f) * need * toe * toe * (3 - 2 * toe) * shoulder * shoulder * (3 - 2 * shoulder);
+            if (preserveContrast) {
+                float lower = Math.max(0f, Math.min(1f, (y - 22f) / 25f));
+                float upper = Math.max(0f, Math.min(1f, (108f - y) / 53f));
+                delta -= 10f * lower * upper;
+            }
+            lut[y] = y + Math.round(delta);
+        }
+        return lut;
+    }
+
+    /** Mantém a referência de exposição, com menor abertura das sombras no acabamento de Foto. */
+    static void limitTeleSevenMatch(int[] lut) {
+        for (int y = 1; y < lut.length; y++) {
+            float amount = y <= 64 ? .30f : y >= 150 ? .50f : .30f + .20f * (y - 64) / 86f;
+            int delta = lut[y] - y;
+            int limited = delta > 0 ? y + Math.round(delta * amount) : lut[y];
+            lut[y] = Math.max(lut[y - 1], limited);
+        }
+    }
+
     /** Aplica a curva só no brilho (Y); a cor (U, V) fica como está. */
     static void apply(YuvFrame f, int[] lut) {
         byte[] y = f.y;
@@ -100,10 +154,14 @@ final class ToneMatch {
      * Exposição em luz linear (como o Lightroom) no brilho, com pé e ombro (ForegroundLight.lift), e
      * a cor (U, V) escalada na mesma proporção do brilho — clarear não desbota a foto.
      */
-    static void applyExposure(YuvFrame f, float ev) {
+    static void applyExposure(YuvFrame f, float ev, boolean scaleChroma) {
         float gain = (float) Math.pow(2, ev);
         int[] lut = new int[256];
         for (int v = 0; v < 256; v++) lut[v] = ForegroundLight.encode(ForegroundLight.lift(ForegroundLight.lin(v), gain));
+        if (!scaleChroma) {
+            apply(f, lut);
+            return;
+        }
         int w = f.width, cw = f.chromaWidth, ch = f.chromaHeight;
         for (int cy = 0; cy < ch; cy++) {
             for (int cx = 0; cx < cw; cx++) {

@@ -14,6 +14,14 @@ final class ShadowChroma {
     }
 
     static void apply(YuvFrame f) {
+        apply(f, 1f, false);
+    }
+
+    static void apply(YuvFrame f, float strength) {
+        apply(f, strength, true);
+    }
+
+    private static void apply(YuvFrame f, float strength, boolean tuned) {
         // janela de 19×19 na grade de cor amostrada a cada 2 (mesmo resultado, ~3,6× mais rápido)
         final int cw = f.chromaWidth, ch = f.chromaHeight, w = f.width, h = f.height;
         // brilho na grade da cor: calculado UMA vez (o brilho não muda entre as passadas)
@@ -29,8 +37,10 @@ final class ShadowChroma {
         // 28 MP (Máxima): vizinhança amostrada a cada 3 e 2 passadas — o mesmo alcance em pixels da
         // foto, ~4× menos contas (levava 6 s); 12 MP: a cada 2, 3 passadas (medido 0,73 → 0,43)
         boolean big = (long) f.width * f.height > 16_000_000L;
-        int passes = big ? 2 : 3, step = big ? 3 : 2;
-        for (int k = 0; k < passes; k++) pass(f, gy, 9, 1f, step);
+        int passes = tuned ? (strength >= 0.75f && !big ? 2 : 1) : (big ? 2 : 3);
+        int radius = tuned ? 4 : 9;
+        int step = tuned || !big ? 2 : 3;
+        for (int k = 0; k < passes; k++) pass(f, gy, radius, strength, step);
     }
 
     private static void pass(YuvFrame f, int[] gy, int r, float strength, int step) {

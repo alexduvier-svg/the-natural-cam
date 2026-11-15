@@ -18,6 +18,7 @@ final class GyroMeter implements SensorEventListener {
     private volatile long at;
     /** Último instante (elapsedRealtime) em que o celular foi MOVIDO de verdade (giro > 0,25 rad/s). */
     private volatile long movedAt;
+    private final SceneRotation sceneRotation = new SceneRotation();
 
     GyroMeter(Context c) {
         sm = (SensorManager) c.getSystemService(Context.SENSOR_SERVICE);
@@ -30,6 +31,7 @@ final class GyroMeter implements SensorEventListener {
 
     void stop() {
         if (gyro != null) sm.unregisterListener(this);
+        sceneRotation.pause();
     }
 
     /** Tremor em rad/s (RMS recente), ou −1 se não houver medida recente. */
@@ -40,6 +42,7 @@ final class GyroMeter implements SensorEventListener {
     @Override
     public void onSensorChanged(SensorEvent e) {
         float x = e.values[0], y = e.values[1], z = e.values[2];
+        sceneRotation.add(e.timestamp, x, y, z);
         float sq = x * x + y * y + z * z;
         meanSq = meanSq < 0 ? sq : meanSq + (sq - meanSq) * 0.08f; // ~0,5 s a 50 Hz
         at = System.currentTimeMillis();
@@ -49,6 +52,14 @@ final class GyroMeter implements SensorEventListener {
     /** O celular ficou parado (sem reenquadrar) desde o instante t (elapsedRealtime)? */
     boolean stillSince(long t) {
         return gyro != null && movedAt < t;
+    }
+
+    SceneRotation.Pose scenePose() {
+        return sceneRotation.pose();
+    }
+
+    boolean reframedSince(SceneRotation.Pose targetPose) {
+        return sceneRotation.reframedSince(targetPose);
     }
 
     @Override

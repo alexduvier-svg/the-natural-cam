@@ -11,6 +11,43 @@ import org.junit.Test;
  */
 public class PortraitEngineTest {
 
+    @Test
+    public void desfoqueDaCapturaPermiteDesligarEmFotoERetrato() {
+        assertEquals(0f, CaptureBlur.aperture(0f, false, 7f), 0f);
+        assertEquals(0f, CaptureBlur.aperture(0f, true, 7f), 0f);
+        assertEquals(13f, CaptureBlur.aperture(1f, false, 7f), 0f);
+        assertEquals(8f, CaptureBlur.aperture(1f, false, 8f), 0f);
+        assertEquals(8f, CaptureBlur.aperture(1f, true, 7f), 0f);
+        assertTrue(CaptureBlur.aperture(.2f, true, 7f) > CaptureBlur.aperture(.8f, true, 7f));
+    }
+
+    @Test
+    public void desfoqueSegueOrientacaoDaFotoEOPlanoTocado() {
+        int w = 13, h = 17;
+        int white = 0xFFFFFFFF, black = 0xFF000000;
+        int[] bg = new int[w * h];
+        float[] coc = new float[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                bg[y * w + x] = white;
+                coc[y * w + x] = x > w / 2 ? 5f : 0f;
+            }
+        }
+        PortraitEngine.Bokeh layers = new PortraitEngine.Bokeh(bg, coc, w, h, .7f, 8f);
+        for (int rotation : new int[]{0, 90, 180, 270}) {
+            boolean swapped = rotation == 90 || rotation == 270;
+            int sw = swapped ? h : w, sh = swapped ? w : h;
+            int[] pixels = new int[sw * sh];
+            java.util.Arrays.fill(pixels, black);
+            PortraitEngine.apply(pixels, sw, sh, layers, rotation);
+            for (float x : new float[]{.15f, .85f}) {
+                FocusArea sensor = FocusArea.at(x, .35f).rotated((360 - rotation) % 360);
+                int pixel = Math.round(sensor.y * (sh - 1)) * sw + Math.round(sensor.x * (sw - 1));
+                assertEquals(x > .5f ? white : black, pixels[pixel]);
+            }
+        }
+    }
+
     /** Sujeito (disco perto) no centro; fundo com um DEGRAU de profundidade no meio (mesa → parede). */
     private static PortraitEngine.Depth scene(int w, int h) {
         int[] guide = new int[w * h];

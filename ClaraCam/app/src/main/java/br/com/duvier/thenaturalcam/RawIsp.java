@@ -55,6 +55,7 @@ public final class RawIsp {
         public double noiseS = 2e-5, noiseO = 1e-6;
         /** Recorte central (zoom digital sobre a lente física em uso): 1 = quadro inteiro. */
         public float crop = 1f;
+        CaptureTuning tuning;
     }
 
     public static final class Result {
@@ -110,9 +111,14 @@ public final class RawIsp {
         p.step("Acabamento", 0.85f);
         // acabamento leve: a média dos quadros já tirou o grosso do ruído — preserva a textura
         float[] model = BurstFusion.noiseModel(out);
-        BurstFusion.lumaDenoise(out, model, res.framesIn > 1 ? 0.18f : 0.3f);
-        BurstFusion.chromaFilter(out, model[8]);
-        BurstFusion.sharpenLuma(out, 0.18f, Math.max(2f, model[8] * 3f));
+        if (m.tuning == null) {
+            BurstFusion.lumaDenoise(out, model, res.framesIn > 1 ? 0.18f : 0.3f);
+            BurstFusion.chromaFilter(out, model[8]);
+            BurstFusion.sharpenLuma(out, 0.18f, Math.max(2f, model[8] * 3f));
+        } else {
+            m.tuning.reduceNoise(out, model);
+            m.tuning.enhanceDetail(out, model, 1f);
+        }
         res.frame = out;
         res.finishMs = System.currentTimeMillis() - t2;
         res.millis = System.currentTimeMillis() - t0;
@@ -182,6 +188,7 @@ public final class RawIsp {
 
     static float[] merge(List<Frame> frames, Meta m, Result res, int cx0, int cy0, int cw, int ch) {
         final int n = frames.size();
+        final float mergeWeight = m.tuning == null ? 1f : m.tuning.mergeWeight();
         final int w2 = cw / 2, h2 = ch / 2;
         final float[][] lh = new float[n][];
         final double[] sharp = new double[n];
@@ -210,7 +217,7 @@ public final class RawIsp {
         int maxShift = 0;
         final int tilesX = (w2 + TILE - 1) / TILE, tilesY = (h2 + TILE - 1) / TILE;
         for (int i = 0; i < n; i++) {
-            if (i == ref) continue;
+            if (i == ref || mergeWeight == 0f) continue;
             final float[] li = lh[i];
             // deslocamento global em 1/8 da resolução do sensor (±48 px de meia resolução)
             float[] li4 = down4(li, w2, h2);
@@ -286,7 +293,7 @@ public final class RawIsp {
                     double sig = range * Math.sqrt(2 * 4 * (m.noiseS * xs + m.noiseO)) / 3;
                     double z = dm / Math.max(1e-3, sig);
                     // até 2,5σ = mesmo conteúdo (peso cheio); acima de 5σ = movimento (recusa)
-                    float wgt = (float) (z <= 2.5 ? 1 : z >= 5 ? 0 : 1 - (z - 2.5) / 2.5);
+                    float wgt = mergeWeight * (float) (z <= 2.5 ? 1 : z >= 5 ? 0 : 1 - (z - 2.5) / 2.5);
                     if (wgt <= 0) continue;
                     int t = ty * tilesX + Math.min(tilesX - 1, x / TILE);
                     int sx = 2 * (x + tdx[t]), sy = 2 * (y + tdy[t]); // deslocamento par: mesma cor

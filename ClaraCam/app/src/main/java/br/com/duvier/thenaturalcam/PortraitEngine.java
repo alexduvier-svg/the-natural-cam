@@ -267,6 +267,7 @@ final class PortraitEngine {
         final float focus, aperture;
         /** Recorte do sujeito na guia (0..1) ou null. */
         float[] alpha;
+        int[] edgeGuide;
 
         Bokeh(int[] img, float[] coc, int w, int h, float focus, float aperture) {
             this.img = img;
@@ -338,6 +339,11 @@ final class PortraitEngine {
      * desfoque deve começar alguns centímetros atrás do objeto"; vale para objetos vazados, pixel a pixel).
      */
     static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha, float frontScale, float sharpBand) {
+        return bokeh(dp, focus, aperture, alpha, frontScale, sharpBand, false);
+    }
+
+    static Bokeh bokeh(Depth dp, float focus, float aperture, float[] alpha, float frontScale, float sharpBand,
+                       boolean refineEdges) {
         final int w = dp.w, h = dp.h, n = w * h;
         final float side = Math.max(w, h);
         final float[] raw = new float[n];
@@ -425,7 +431,8 @@ final class PortraitEngine {
                     int yy = Math.max(0, Math.min(h - 1, Math.round(y + uy[s] * r)));
                     int at = yy * w + xx;
                     // o sujeito nítido (recorte ou plano de foco) não se espalha no fundo: sem halo
-                    if (behind[idx] && r > 2f && ((alpha != null && alpha[at] > .5f) || coc[at] < r * .3f)) continue;
+                    if (behind[idx] && ((alpha != null && (refineEdges || r > 2f) && alpha[at] > .5f)
+                            || (r > 2f && coc[at] < r * .3f))) continue;
                     int c = src[at];
                     int cr = (c >> 16) & 255, cg = (c >> 8) & 255, cb = c & 255;
                     // luzes fortes pesam mais: um ponto de luz vira um disco luminoso, como na lente
@@ -445,6 +452,7 @@ final class PortraitEngine {
         });
         Bokeh b = new Bokeh(out, coc, w, h, focus, aperture);
         b.alpha = alpha;
+        if (refineEdges && alpha != null) b.edgeGuide = src;
         return b;
     }
 
@@ -512,19 +520,60 @@ final class PortraitEngine {
     }
 
     static void apply(int[] px, int w, int h, Bokeh b) {
+        apply(px, w, h, b, 0);
+    }
+
+    /** Lê as camadas na orientação de exibição sem rotacionar a foto de resolução cheia. */
+    static void apply(int[] px, int w, int h, Bokeh b, int rotation) {
         IntStream.range(0, h).parallel().forEach(y -> {
-            float ny = y / (float) Math.max(1, h - 1);
+            float fy = y / (float) Math.max(1, h - 1);
             for (int x = 0; x < w; x++) {
-                float nx = x / (float) Math.max(1, w - 1);
+                float fx = x / (float) Math.max(1, w - 1);
+                float nx = fx, ny = fy;
+                switch (rotation) {
+                    case 90: nx = 1f - fy; ny = fx; break;
+                    case 180: nx = 1f - fx; ny = 1f - fy; break;
+                    case 270: nx = fy; ny = 1f - fx; break;
+                }
                 float r = sample(b.coc, b.w, b.h, nx, ny);
                 // rampa larga: a borda do sujeito não mostra os degraus da guia ampliada
                 float f = smoothstep(.2f, 2.6f, r);
-                if (b.alpha != null) f *= 1 - sample(b.alpha, b.w, b.h, nx, ny);
-                if (f <= 0) continue;
                 int at = y * w + x;
+                if (f > 0 && b.alpha != null) {
+                    float alpha = sample(b.alpha, b.w, b.h, nx, ny);
+                    if (b.edgeGuide != null && alpha > .01f && alpha < .99f) {
+                        alpha = edgeAlpha(b, nx, ny, px[at], alpha);
+                    }
+                    f *= 1 - alpha;
+                }
+                if (f <= 0) continue;
                 px[at] = blend(px[at], sampleColor(b.img, b.w, b.h, nx, ny), f);
             }
         });
+    }
+
+    /** Reprojeta a máscara pela cor local apenas na transição entre sujeito e fundo. */
+    private static float edgeAlpha(Bokeh b, float nx, float ny, int pixel, float fallback) {
+        float x = nx * (b.w - 1), y = ny * (b.h - 1);
+        int ix = Math.min(b.w - 2, (int) x), iy = Math.min(b.h - 2, (int) y);
+        float fx = x - ix, fy = y - iy;
+        int index = iy * b.w + ix;
+        float value = 0f, total = 0f;
+        for (int dy = 0; dy < 2; dy++) {
+            for (int dx = 0; dx < 2; dx++) {
+                int i = index + dy * b.w + dx;
+                int sample = b.edgeGuide[i];
+                int dr = ((pixel >> 16) & 255) - ((sample >> 16) & 255);
+                int dg = ((pixel >> 8) & 255) - ((sample >> 8) & 255);
+                int db = (pixel & 255) - (sample & 255);
+                float distance = (dr * dr + dg * dg + db * db) / 625f;
+                float spatial = (dx == 0 ? 1 - fx : fx) * (dy == 0 ? 1 - fy : fy);
+                float weight = spatial / (1 + distance * distance);
+                value += weight * b.alpha[i];
+                total += weight;
+            }
+        }
+        return total > .01f ? clamp(value / total) : fallback;
     }
 
     static String label(float f) {

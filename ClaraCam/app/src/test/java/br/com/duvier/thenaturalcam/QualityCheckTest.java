@@ -74,6 +74,33 @@ public class QualityCheckTest {
     }
 
     @Test
+    public void sevenTimesRepairsBlurLocallyAndKeepsTheCleanShadow() {
+        YuvFrame ref = label(400, 320, 1, 0);
+        YuvFrame nativeFusion = blur(ref, 2);
+        Random random = new Random(25);
+        for (int y = 0; y < ref.height; y++) {
+            for (int x = 0; x < 144; x++) {
+                ref.y[y * ref.width + x] = (byte) (45 + Math.round(random.nextGaussian() * 5));
+                nativeFusion.y[y * ref.width + x] = (byte) 45;
+            }
+        }
+        for (int y = 0; y < ref.chromaHeight; y++) {
+            java.util.Arrays.fill(ref.u, y * ref.chromaWidth, (y + 1) * ref.chromaWidth, (byte) 120);
+            java.util.Arrays.fill(nativeFusion.u, y * ref.chromaWidth, (y + 1) * ref.chromaWidth, (byte) 124);
+        }
+        assertFalse(QualityCheck.compare(ref, nativeFusion, 3).passed);
+        assertTrue(QualityCheck.repairSevenTimes(ref, nativeFusion, BurstFusion.sevenTimesNoiseModel(ref)));
+        assertTrue(QualityCheck.compare(ref, nativeFusion, 3).passed);
+        for (int y = 0; y < ref.height; y++) {
+            for (int x = 0; x < 64; x++) {
+                assertTrue(nativeFusion.luma(x, y) == 45);
+            }
+        }
+        assertTrue((nativeFusion.u[5 * ref.chromaWidth + 5] & 255) == 124);
+        assertTrue((nativeFusion.u[65 * ref.chromaWidth + 160] & 255) == 120);
+    }
+
+    @Test
     public void fusaoDescartaQuadrosDesfocadosEPassaNoVerificador() {
         // foco "caçando": 2 de 6 quadros desfocados não podem borrar a foto
         java.util.List<YuvFrame> frames = new java.util.ArrayList<>();

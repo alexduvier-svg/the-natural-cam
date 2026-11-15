@@ -41,8 +41,11 @@ public final class BurstFusion {
         public long millis;
         public float scale = 1f;
         public long superResMs;
+        boolean localMotion;
         /** Quadro de referência (sobrevive à liberação da lista na super-resolução). */
         public YuvFrame referenceFrame;
+        /** Fusão alinhada na grade nativa, guardada quando o zoom pode precisar dela. */
+        YuvFrame nativeFusion;
     }
 
     static final int TILE = 128;
@@ -54,6 +57,12 @@ public final class BurstFusion {
     private final float sharpenAmount;
     private final boolean finish;
     private final float scale;
+    private final CaptureTuning tuning;
+    private final FocusArea focusArea;
+    private final boolean retainNativeFusion;
+    private final boolean preserveColor;
+    private final boolean protectMotion;
+    private final int minSuperResFrames;
 
     public BurstFusion() {
         this(0.30f, true, 1f);
@@ -66,9 +75,47 @@ public final class BurstFusion {
 
     /** scale > 1 liga a super-resolução de vários quadros (ex.: 1,5 → 6144×4608 a partir de 4096×3072). */
     public BurstFusion(float sharpenAmount, boolean finish, float scale) {
+        this(sharpenAmount, finish, scale, null, null, false, false, false, 4);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale) {
+        this(tuning, scale, null);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale, FocusArea focusArea) {
+        this(tuning, scale, focusArea, false);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale, FocusArea focusArea, boolean retainNativeFusion) {
+        this(tuning, scale, focusArea, retainNativeFusion, false);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale, FocusArea focusArea, boolean retainNativeFusion,
+                boolean preserveColor) {
+        this(tuning, scale, focusArea, retainNativeFusion, preserveColor, false);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale, FocusArea focusArea, boolean retainNativeFusion,
+                boolean preserveColor, boolean protectMotion) {
+        this(tuning, scale, focusArea, retainNativeFusion, preserveColor, protectMotion, 4);
+    }
+
+    BurstFusion(CaptureTuning tuning, float scale, FocusArea focusArea, boolean retainNativeFusion,
+                boolean preserveColor, boolean protectMotion, int minSuperResFrames) {
+        this(0f, false, scale, tuning, focusArea, retainNativeFusion, preserveColor, protectMotion, minSuperResFrames);
+    }
+
+    private BurstFusion(float sharpenAmount, boolean finish, float scale, CaptureTuning tuning, FocusArea focusArea,
+                       boolean retainNativeFusion, boolean preserveColor, boolean protectMotion, int minSuperResFrames) {
         this.sharpenAmount = sharpenAmount;
         this.finish = finish;
         this.scale = scale;
+        this.tuning = tuning;
+        this.focusArea = focusArea;
+        this.retainNativeFusion = retainNativeFusion;
+        this.preserveColor = preserveColor;
+        this.protectMotion = protectMotion;
+        this.minSuperResFrames = minSuperResFrames;
     }
 
     // =====================================================================================
@@ -86,8 +133,9 @@ public final class BurstFusion {
      *  px² (peso gaussiano ≥ 0,75 %). Medido: mesma imagem (diferença máx. ≤ 1 nível), bem mais rápido. */
     static int srCut = 123;
 
-    static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
-                                 int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale) {
+    private static YuvFrame superResolve(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
+                                 int tilesX, int tilesY, YuvFrame guide, float[] sigma, float scale,
+                                 CaptureTuning tuning, MotionWeights motion) {
         final int w = guide.width, h = guide.height, n = frames.size();
         final int W = Math.round(w * scale) & ~1, H = Math.round(h * scale) & ~1;
         final float sx = (float) w / W, sy = (float) h / H;
@@ -115,6 +163,10 @@ public final class BurstFusion {
             });
         }
 
+        // Sem diversidade de fase (por exemplo, rajada apoiada), a grade maior seria
+        // interpolação cara. Conte amostras em ambas as direções, com tolerância ao erro local.
+        if (tuning != null && !hasSubpixelDiversity(fx, fy)) return guide;
+
         // pesos: distância (gaussiana, σ ≈ 0,35 px do sensor) e robustez (mais tolerante que a fusão)
         final float[] gauss = new float[256];
         for (int k = 0; k < 256; k++) {
@@ -127,6 +179,7 @@ public final class BurstFusion {
         final byte[][] ys = new byte[n][];
         for (int i = 0; i < n; i++) ys[i] = frames.get(i).y;
         final byte[] gy = guide.y;
+        final float mergeWeight = tuning == null ? 1f : tuning.mergeWeight();
 
         YuvFrame hr = new YuvFrame(W, H);
         hr.iso = guide.iso;
@@ -150,8 +203,16 @@ public final class BurstFusion {
                             + ((gy[go + w] & 0xFF) * (1 - gfx) + (gy[go + w + 1] & 0xFF) * gfx) * gfy;
                     int gi = Math.round(g);
                     int[] rl = robust[Math.min(255, gi) >> 4];
-                    float acc = 0, ws = 0;
+                    int motionCell = motion == null ? 0 : motion.cell(gx0, gy0);
+                    if (motion != null && motion.rejected[motionCell] == n - 1) {
+                        hy[Y * W + X] = (byte) gi;
+                        continue;
+                    }
+                    float acc = 0, ws = 0, referenceWeight = 0;
                     for (int i = 0; i < n; i++) {
+                        int confidence = motion == null ? 256 : motion.at(i, motionCell);
+                        if (confidence == 0) continue;
+                        float frameWeight = i == ref ? 1f : mergeWeight * (confidence / 256f);
                         float ax = xr + (i == ref ? 0 : fx[i][tile]);
                         float ay = yr + (i == ref ? 0 : fy[i][tile]);
                         int x0 = (int) Math.floor(ax), y0 = (int) Math.floor(ay);
@@ -168,13 +229,20 @@ public final class BurstFusion {
                                 if (k > srCut) continue; // amostras distantes pesam < 1 %: puladas (mais rápido)
                                 int v = src[py * w + px] & 0xFF;
                                 int diff = v - gi;
-                                float wt = gauss[k] * rl[diff < 0 ? -diff : diff];
+                                float wt = gauss[k] * rl[diff < 0 ? -diff : diff] * frameWeight;
                                 acc += wt * v;
                                 ws += wt;
+                                if (i == ref) referenceWeight += wt;
                             }
                         }
                     }
-                    hy[Y * W + X] = (byte) clamp(Math.round(ws > 1e-3f ? acc / ws : g), 0, 255);
+                    float value = ws > 1e-3f ? acc / ws : g;
+                    if (motion != null) {
+                        // Se quase todo o peso veio de um quadro, conserve a fusão na grade nativa.
+                        float support = Math.min(1f, (ws - referenceWeight) / 192f);
+                        value = g + support * (value - g);
+                    }
+                    hy[Y * W + X] = (byte) clamp(Math.round(value), 0, 255);
                 }
             }
         });
@@ -231,10 +299,12 @@ public final class BurstFusion {
             l4[i] = down4(frames.get(i).y, w, h);
             l16[i] = down4(l4[i], w4, h4);
             sharp[i] = sharpness(l4[i], w4, h4);
-            fine[i] = fineSharpness(frames.get(i).y, w, h);
+            fine[i] = focusScore(frames.get(i));
         });
         int refIdx = 0;
-        for (int i = 1; i < n; i++) if (sharp[i] > sharp[refIdx]) refIdx = i;
+        for (int i = 1; i < n; i++) {
+            if (prefersFineDetail() ? fine[i] > fine[refIdx] : sharp[i] > sharp[refIdx]) refIdx = i;
+        }
         // Quadros bem menos nítidos que o melhor (foco "caçando" no limite da lente, tremor
         // forte) borram a média: ficam de fora. Só a fusão dos nítidos entra na foto.
         double bestFine = 0;
@@ -289,10 +359,12 @@ public final class BurstFusion {
         // ---- Modelo de ruído entre quadros ----------------------------------------------
         final float[] sigma = n > 1 ? noiseBetweenFrames(frames, ref, offX, offY, tilesX, tilesY) : noiseModel(r);
         final double noiseBefore = meanSigma(sigma);
+        final MotionWeights motion = protectMotion && n > 1
+                ? MotionWeights.measure(frames, ref, offX, offY, tilesX, sigma) : null;
 
         // ---- Mistura ------------------------------------------------------------------------
         p.step("Combinando quadros", 0.40f);
-        final int[][] lut = weightLut(sigma); // pesos 0..256
+        final int[][] lut = weightLut(sigma, tuning); // pesos 0..256
         final YuvFrame out = new YuvFrame(w, h);
         out.iso = r.iso;
         out.exposureNs = r.exposureNs;
@@ -318,6 +390,7 @@ public final class BurstFusion {
                 for (int xx = 0; xx < w; xx++) {
                     int tile = ty * tilesX + Math.min(xx / TILE, tilesX - 1);
                     int rv = ry[row + xx] & 0xFF;
+                    int cell = motion == null ? 0 : motion.cell(xx, yy);
                     int[] wl = lut[rv >> 4];
                     int acc = rv << 8, sw = 256;
                     for (int i = 0; i < n; i++) {
@@ -329,6 +402,7 @@ public final class BurstFusion {
                         int av = ys[i][ay * w + ax] & 0xFF;
                         int d = av - rv;
                         int wt = wl[d < 0 ? -d : d];
+                        if (motion != null) wt = (wt * motion.at(i, cell) + 128) >> 8;
                         acc += wt * av;
                         sw += wt;
                     }
@@ -355,8 +429,10 @@ public final class BurstFusion {
                     int tile = ty * tilesX + Math.min(xx / TILE, tilesX - 1);
                     int ci = cy * cw + cx;
                     int rAvg = avg2x2(ry, w, xx, yy);
+                    int cell = motion == null ? 0 : motion.cell(xx, yy);
                     int[] wl = lut[rAvg >> 4];
-                    int au = (r.u[ci] & 0xFF) << 8, av = (r.v[ci] & 0xFF) << 8, sw = 256;
+                    int ru = r.u[ci] & 0xFF, rv = r.v[ci] & 0xFF;
+                    int au = ru << 8, av = rv << 8, sw = 256;
                     for (int i = 0; i < n; i++) {
                         if (i == ref) continue;
                         int ax = Math.max(0, Math.min(w - 2, xx + offX[i][tile]));
@@ -367,8 +443,11 @@ public final class BurstFusion {
                         int wt = wl[dd];
                         if (wt == 0) continue;
                         int aci = Math.min(ch - 1, ay >> 1) * cw + Math.min(cw - 1, ax >> 1);
-                        au += wt * (us[i][aci] & 0xFF);
-                        av += wt * (vs[i][aci] & 0xFF);
+                        int u = us[i][aci] & 0xFF, v = vs[i][aci] & 0xFF;
+                        if (preserveColor) wt = chromaWeight(wt, rAvg, ru, rv, u, v);
+                        if (motion != null) wt = (wt * motion.at(i, cell) + 128) >> 8;
+                        au += wt * u;
+                        av += wt * v;
                         sw += wt;
                     }
                     out.u[ci] = (byte) ((au + (sw >> 1)) / sw);
@@ -391,10 +470,10 @@ public final class BurstFusion {
         YuvFrame fin = out;
         final YuvFrame refKeep = r;
         long tSr = 0;
-        if (scale > 1.01f && n >= 4) {
+        if (scale > 1.01f && n >= minSuperResFrames && (tuning == null || tuning.merge > 0)) {
             p.step("Super-resolução " + scale + "×", 0.64f);
             long ts = System.currentTimeMillis();
-            fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale);
+            fin = superResolve(frames, ref, offX, offY, tilesX, tilesY, out, sigma, scale, tuning, motion);
             // a lista é liberada, mas refKeep (= r) segura o quadro de referência para o verificador
             // só nas fotos gigantes: libera ~230 MB antes do acabamento em 28 MP; nas menores os quadros
             // ficam para a reserva poder refazer a fusão sem super-resolução
@@ -412,6 +491,8 @@ public final class BurstFusion {
         res.framesUsed = n;
         res.reference = ref;
         res.referenceFrame = refKeep;
+        res.localMotion = motion != null && motion.hasMotion();
+        if (retainNativeFusion && outF != out) res.nativeFusion = out;
         res.noiseBefore = noiseBefore;
         res.noiseAfter = noiseAfter;
         res.meanWeight = meanWeight;
@@ -423,6 +504,88 @@ public final class BurstFusion {
         res.finishMs = res.millis - (tMerge - t0);
         p.step("Pronto", 1f);
         return res;
+    }
+
+    private static int chromaWeight(int weight, int luma, int refU, int refV, int u, int v) {
+        // Preserva a redução de ruído na sombra. Com sinal forte, rejeita amostras
+        // de outra cor que passaram pela comparação de brilho (bordas, folhas em movimento).
+        int difference = Math.abs(u - refU) + Math.abs(v - refV);
+        if (difference <= 8 || luma <= 64) return weight;
+        int loss = Math.min(16, difference - 8) * Math.min(32, luma - 64);
+        return (weight * (512 - loss) + 256) >> 9;
+    }
+
+    /** Confiança local medida depois de alinhar. Subamostragem 2×2 separa ruído de movimento. */
+    private static final class MotionWeights {
+        private static final int SHIFT = 4;
+        private static final int SIZE = 1 << SHIFT;
+        private final int cols;
+        private final char[][] weights;
+        private final int[] rejected;
+
+        private MotionWeights(int width, int height, int frames) {
+            cols = (width + SIZE - 1) / SIZE;
+            int cells = cols * ((height + SIZE - 1) / SIZE);
+            weights = new char[frames][];
+            rejected = new int[cells];
+        }
+
+        int cell(int x, int y) {
+            return (y >> SHIFT) * cols + (x >> SHIFT);
+        }
+
+        int at(int frame, int cell) {
+            char[] map = weights[frame];
+            return map == null ? 256 : map[cell];
+        }
+
+        boolean hasMotion() {
+            int moving = 0;
+            for (int n : rejected) if (n > 0) moving++;
+            return moving >= Math.max(1, rejected.length / 100);
+        }
+
+        static MotionWeights measure(List<YuvFrame> frames, int ref, int[][] offX, int[][] offY,
+                                     int tilesX, float[] sigma) {
+            YuvFrame reference = frames.get(ref);
+            MotionWeights result = new MotionWeights(reference.width, reference.height, frames.size());
+            for (int i = 0; i < frames.size(); i++) {
+                if (i != ref) result.weights[i] = result.measurePair(reference, frames.get(i), offX[i], offY[i], tilesX, sigma);
+            }
+            return result;
+        }
+
+        private char[] measurePair(YuvFrame ref, YuvFrame other, int[] offX, int[] offY,
+                                   int tilesX, float[] sigma) {
+            int w = ref.width, h = ref.height;
+            char[] map = new char[rejected.length];
+            for (int y = 0; y < h; y += SIZE) {
+                for (int x = 0; x < w; x += SIZE) {
+                    int tile = (y / TILE) * tilesX + x / TILE;
+                    int bad = 0, count = 0;
+                    for (int yy = y; yy < Math.min(y + SIZE, h - 1); yy += 4) {
+                        for (int xx = x; xx < Math.min(x + SIZE, w - 1); xx += 4) {
+                            int ax = clamp(xx + offX[tile], 0, w - 2);
+                            int ay = clamp(yy + offY[tile], 0, h - 2);
+                            int luma = avg2x2(ref.y, w, xx, yy);
+                            int otherLuma = avg2x2(other.y, w, ax, ay);
+                            float threshold = 4f + Math.min(16f, sigma[luma >> 4]) * 1.6f;
+                            if (Math.abs(luma - otherLuma) > threshold) bad++;
+                            count++;
+                        }
+                    }
+                    int cell = cell(x, y);
+                    int weight = count < 4 ? 256 : clamp(384 - 768 * bad / count, 0, 256);
+                    map[cell] = (char) weight;
+                    if (weight == 0) rejected[cell]++;
+                }
+            }
+            return map;
+        }
+    }
+
+    private boolean prefersFineDetail() {
+        return focusArea != null || protectMotion;
     }
 
     /** Acabamento proporcional ao ruído restante (o mesmo para a fusão completa e a incremental). */
@@ -477,6 +640,7 @@ public final class BurstFusion {
         private int[] accY, accU, accV;
         private char[] swY, swC;
         private int received, used, maxShift, refIndex;
+        private boolean localMotion;
         private long wSumAll, wCntAll;
         private long t0, alignMs, mergeMs;
 
@@ -521,10 +685,12 @@ public final class BurstFusion {
                 l4[i] = down4(head.get(i).y, w, h);
                 l16[i] = down4(l4[i], w4, h4);
                 sharp[i] = sharpness(l4[i], w4, h4);
-                fine[i] = fineSharpness(head.get(i).y, w, h);
+                fine[i] = engine.focusScore(head.get(i));
             });
             int ref = 0;
-            for (int i = 1; i < n; i++) if (sharp[i] > sharp[ref]) ref = i;
+            for (int i = 1; i < n; i++) {
+                if (engine.prefersFineDetail() ? fine[i] > fine[ref] : sharp[i] > sharp[ref]) ref = i;
+            }
             r = head.get(ref);
             refIndex = ref;
             r4 = l4[ref];
@@ -540,7 +706,7 @@ public final class BurstFusion {
                 offY[i] = o[1];
             }
             sigma = n > 1 ? noiseBetweenFrames(head, ref, offX, offY, tilesX, tilesY) : noiseModel(r);
-            lut = weightLut(sigma);
+            lut = weightLut(sigma, engine.tuning);
             accY = new int[w * h];
             swY = new char[w * h];
             int cn = r.chromaWidth * r.chromaHeight;
@@ -557,7 +723,7 @@ public final class BurstFusion {
         }
 
         private void mergeOne(YuvFrame f) {
-            if (fineSharpness(f.y, w, h) < refFine * MIN_SHARP_RATIO) return; // borrado: fora
+            if (engine.focusScore(f) < refFine * MIN_SHARP_RATIO) return; // borrado: fora
             int[] a4 = down4(f.y, w, h);
             int[][] o = align(f, a4, down4(a4, w4, h4));
             merge(f, o[0], o[1]);
@@ -581,6 +747,11 @@ public final class BurstFusion {
         private void merge(YuvFrame a, int[] offX, int[] offY) {
             long tm = System.currentTimeMillis();
             used++;
+            final MotionWeights motion = engine.protectMotion ? new MotionWeights(w, h, 1) : null;
+            if (motion != null) {
+                motion.weights[0] = motion.measurePair(r, a, offX, offY, tilesX, sigma);
+                localMotion |= motion.hasMotion();
+            }
             final byte[] ry = r.y, ay = a.y;
             final int bands = (h + BAND - 1) / BAND;
             final long[] wSum = new long[bands];
@@ -601,6 +772,7 @@ public final class BurstFusion {
                         int av = ay[yA * w + ax] & 0xFF;
                         int d = av - rv;
                         int wt = lut[rv >> 4][d < 0 ? -d : d];
+                        if (motion != null) wt = (wt * motion.at(0, motion.cell(xx, yy)) + 128) >> 8;
                         accY[row + xx] += wt * av;
                         swY[row + xx] += (char) wt;
                         if ((xx & 7) == 0 && (yy & 7) == 0) {
@@ -634,8 +806,11 @@ public final class BurstFusion {
                         int wt = lut[rAvg >> 4][Math.min(255, (d < 0 ? -d : d) * 2)];
                         if (wt == 0) continue;
                         int aci = Math.min(ch - 1, yA >> 1) * cw + Math.min(cw - 1, ax >> 1);
-                        accU[ci] += wt * (a.u[aci] & 0xFF);
-                        accV[ci] += wt * (a.v[aci] & 0xFF);
+                        int u = a.u[aci] & 0xFF, v = a.v[aci] & 0xFF;
+                        if (engine.preserveColor) wt = chromaWeight(wt, rAvg, r.u[ci] & 255, r.v[ci] & 255, u, v);
+                        if (motion != null) wt = (wt * motion.at(0, motion.cell(xx, yy)) + 128) >> 8;
+                        accU[ci] += wt * u;
+                        accV[ci] += wt * v;
                         swC[ci] += (char) wt;
                     }
                 }
@@ -681,6 +856,7 @@ public final class BurstFusion {
             res.framesUsed = n;
             res.reference = refIndex;
             res.referenceFrame = r;
+            res.localMotion = localMotion;
             res.noiseBefore = noiseBefore;
             res.noiseAfter = noiseAfter;
             res.meanWeight = meanWeight;
@@ -737,6 +913,11 @@ public final class BurstFusion {
      * Nitidez em resolução cheia (laplaciano no miolo de 60 %): é a escala em que o desfoque de
      * foco "caçando" aparece; na pirâmide reduzida a diferença sumia.
      */
+    private double focusScore(YuvFrame frame) {
+        if (focusArea == null && protectMotion) return FocusArea.CENTER.detailScore(frame);
+        return focusArea == null ? fineSharpness(frame.y, frame.width, frame.height) : focusArea.detailScore(frame);
+    }
+
     static double fineSharpness(byte[] y, int w, int h) {
         double s = 0;
         for (int yy = h / 5; yy < h - h / 5; yy += 2) {
@@ -836,6 +1017,42 @@ public final class BurstFusion {
         return sigma;
     }
 
+    /** Resíduo diagonal 2×2: cancela rampas e evita contar uma borda reta como grão. */
+    static float[] sevenTimesNoiseModel(YuvFrame frame) {
+        int[][] hist = new int[BINS][256];
+        int[] count = new int[BINS];
+        int[] all = new int[256];
+        int total = 0, w = frame.width;
+        for (int y = 0; y < frame.height - 1; y += 3) {
+            for (int x = 0; x < w - 1; x += 3) {
+                int i = y * w + x;
+                int a = frame.y[i] & 255, b = frame.y[i + 1] & 255;
+                int c = frame.y[i + w] & 255, d = frame.y[i + w + 1] & 255;
+                int bin = (a + b + c + d) >> 6;
+                int diff = (Math.abs(a - b - c + d) + 1) >> 1;
+                hist[bin][diff]++;
+                all[diff]++;
+                count[bin]++;
+                total++;
+            }
+        }
+        float pooled = Math.max(0.8f, sigmaFromMedian(all, total) * 1.4142f);
+        float[] result = new float[BINS];
+        for (int bin = 0; bin < BINS; bin++) {
+            int from = Math.max(0, bin - 1), to = Math.min(BINS - 1, bin + 1);
+            float sum = 0f;
+            int samples = 0;
+            for (int k = from; k <= to; k++) {
+                if (count[k] < 32) continue;
+                int weight = Math.min(128, count[k]) * (k == bin ? 3 : 1);
+                samples += weight;
+                sum += weight * sigmaFromMedian(hist[k], count[k]) * 1.4142f;
+            }
+            result[bin] = samples == 0 ? pooled : Math.min(30f, sum / samples);
+        }
+        return result;
+    }
+
     private static double meanSigma(float[] sigma) {
         double s = 0;
         for (float v : sigma) s += v;
@@ -846,8 +1063,25 @@ public final class BurstFusion {
      * Peso (0..256) por diferença absoluta para cada faixa de brilho, na escala do desvio
      * da diferença entre quadros (σd = σ·√2): peso cheio até 2σd, zero a partir de 4,5σd.
      */
+    static boolean hasSubpixelDiversity(float[][] x, float[][] y) {
+        int xCount = 0, yCount = 0, total = 0;
+        for (int frame = 0; frame < x.length; frame++) {
+            for (int tile = 0; tile < x[frame].length; tile++) {
+                if (Math.abs(x[frame][tile] - Math.round(x[frame][tile])) > .14f) xCount++;
+                if (Math.abs(y[frame][tile] - Math.round(y[frame][tile])) > .14f) yCount++;
+                total++;
+            }
+        }
+        return total > 0 && Math.max(xCount, yCount) * 5 >= total;
+    }
+
     static int[][] weightLut(float[] sigma) {
+        return weightLut(sigma, null);
+    }
+
+    private static int[][] weightLut(float[] sigma, CaptureTuning tuning) {
         int[][] lut = new int[BINS][256];
+        float mergeWeight = tuning == null ? 256f : 256f * tuning.mergeWeight();
         for (int b = 0; b < BINS; b++) {
             float sd = sigma[b] * 1.4142f;
             float t1 = 2.0f * sd + 1f, t2 = 4.5f * sd + 3f;
@@ -859,7 +1093,7 @@ public final class BurstFusion {
                     float k = (t2 - d) / (t2 - t1);
                     wt = k * k;
                 }
-                lut[b][d] = Math.round(wt * 256);
+                lut[b][d] = Math.round(wt * mergeWeight);
             }
         }
         return lut;

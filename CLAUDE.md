@@ -1,3 +1,5 @@
+> Na branch `camera-x`, siga primeiro [AGENTS.md](AGENTS.md). O restante deste documento registra a origem no The Natural Cam.
+
 # CLAUDE.md — The Natural Cam
 
 ## O que é e para quem

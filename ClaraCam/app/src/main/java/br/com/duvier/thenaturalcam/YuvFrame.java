@@ -35,9 +35,8 @@ public final class YuvFrame {
 
     /** Recorte de 1/factor do quadro centrado em (cx, cy) normalizados (limitado às bordas). */
     public static YuvFrame cropAt(YuvFrame f, float factor, float cx, float cy) {
-        int cw = Math.max(64, Math.round(f.width / factor)) & ~1, ch = Math.max(64, Math.round(f.height / factor)) & ~1;
-        int x0 = Math.max(0, Math.min(f.width - cw, Math.round(cx * f.width - cw / 2f))) & ~1;
-        int y0 = Math.max(0, Math.min(f.height - ch, Math.round(cy * f.height - ch / 2f))) & ~1;
+        int cw = cropSize(f.width, factor), ch = cropSize(f.height, factor);
+        int x0 = cropOrigin(f.width, cw, cx), y0 = cropOrigin(f.height, ch, cy);
         YuvFrame c = new YuvFrame(cw, ch);
         for (int y = 0; y < ch; y++) System.arraycopy(f.y, (y0 + y) * f.width + x0, c.y, y * cw, cw);
         for (int y = 0; y < c.chromaHeight; y++) {
@@ -49,6 +48,14 @@ public final class YuvFrame {
         c.exposureNs = f.exposureNs;
         c.timestampNs = f.timestampNs;
         return c;
+    }
+
+    static int cropSize(int size, float factor) {
+        return Math.min(size, Math.max(64, Math.round(size / factor))) & ~1;
+    }
+
+    static int cropOrigin(int size, int crop, float center) {
+        return Math.max(0, Math.min(size - crop, Math.round(center * size - crop / 2f))) & ~1;
     }
 
     public int luma(int x, int yy) {

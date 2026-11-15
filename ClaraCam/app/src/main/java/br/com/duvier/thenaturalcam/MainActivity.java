@@ -48,7 +48,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private static final int REQ_CAMERA = 7;
     private static final Locale PT = new Locale("pt", "BR");
 
+    private static final String IMAGE_SETTINGS = "image_processing";
     private CameraController camera;
+    private CaptureTuning tuning;
+    private LongTeleTuning longTeleTuning;
     private CameraCaps caps;
 
     private FrameLayout root, stage;
@@ -74,6 +77,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private boolean lowLight;
     private int stackPolicy = CameraController.STACK_AUTO;
     private int nrPolicy = CameraController.NR_LIGHT;
+    private CameraController.TeleCapture teleCapture = CameraController.TeleCapture.FUSAO;
+    private boolean saveTeleStages;
     private boolean busy;
     private boolean resumed;
     private Uri lastUri;
@@ -91,6 +96,14 @@ public final class MainActivity extends Activity implements CameraController.Lis
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         camera = new CameraController(this, this);
+        android.content.SharedPreferences prefs = getSharedPreferences(IMAGE_SETTINGS, MODE_PRIVATE);
+        tuning = new CaptureTuning(prefs.getInt("detail", CaptureTuning.DEFAULT.detail),
+                prefs.getInt("noise", CaptureTuning.DEFAULT.noise),
+                prefs.getInt("merge", CaptureTuning.DEFAULT.merge));
+        camera.setCaptureTuning(tuning);
+        longTeleTuning = new LongTeleTuning(prefs.getInt("tele_highlights", LongTeleTuning.DEFAULT.highlights),
+                prefs.getInt("tele_definition", LongTeleTuning.DEFAULT.definition));
+        camera.setLongTeleTuning(longTeleTuning);
         buildUi();
         restoreLastPhoto();
         orientationListener = new OrientationEventListener(this) {
@@ -187,7 +200,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (!resumed || texture == null || !texture.isAvailable()) return;
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
         lastOrientation = -1;
-        status.setText("");
+        if (!busy) status.setText("");
         camera.start(texture.getSurfaceTexture());
     }
 
@@ -239,7 +252,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         FrameLayout.LayoutParams hb = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         hb.setMargins(dp(16), dp(16), dp(16), 0);
         stage.addView(hintBanner, hb);
-        // seletor de abertura simulada (só no modo Retrato), na base do visor
+        // Seletor de desfoque antes do disparo, na base do visor.
         apertureRow = Ui.row(this);
         apertureRow.setGravity(Gravity.CENTER);
         HorizontalScrollView apScroll = Ui.horizontal(this, apertureRow);
@@ -257,7 +270,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
             blurOpen = !blurOpen;
             refreshBlurUi();
         });
-        FrameLayout.LayoutParams bi = new FrameLayout.LayoutParams(dp(52), dp(52), Gravity.END | Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams bi = new FrameLayout.LayoutParams(dp(58), dp(52), Gravity.END | Gravity.CENTER_VERTICAL);
         bi.setMargins(0, 0, dp(10), 0);
         stage.addView(blurIcon, bi);
         longRow = Ui.row(this);
@@ -510,53 +523,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
     // Ações
     // =====================================================================================
 
-    /** Cópia de óptica esperando a sequência de fotos acabar. */
-    private Runnable pendingCopy;
-
-    /**
-     * A cópia de desfoque (6×–10×, tele de perto) é um extra: começa só depois de 8 s sem fotografar.
-     * Se o usuário fotografar antes, ela é descartada — a foto do momento vem primeiro (teste 13/11:
-     * a cópia levava até 80 s, ocupava a memória e a 2ª foto seguida não saía).
-     */
-    private void deferCopy(Runnable copy) {
-        if (pendingCopy != null) main.removeCallbacks(pendingCopy);
-        pendingCopy = () -> {
-            pendingCopy = null;
-            copy.run();
-        };
-        main.postDelayed(pendingCopy, 8000);
-    }
-
-    /** A foto anterior termina o acabamento em segundo plano; o botão já aceita a próxima. */
-    private boolean finishingInBackground;
-
-    @Override
-    public void onReadyForNext() {
-        finishingInBackground = true;
-        busy = false;
-        shutter.invalidate();
-    }
-
     private void shoot() {
         if (busy) return;
-        if (pendingCopy != null) { // sequência de fotos: a cópia de desfoque pendente sai
-            main.removeCallbacks(pendingCopy);
-            pendingCopy = null;
-        }
-        // memória: a cópia de desfoque da foto anterior (6×–10×) + uma rajada nova (até 15 quadros
-        // de 12 MP) não cabiam juntas — travou com OutOfMemoryError (teste 13/11 15h14). Com pouca
-        // memória livre, espera a cópia terminar.
-        Runtime rt = Runtime.getRuntime();
-        long free = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory());
-        // a Máxima (28 MP) precisa de ~450 MB: só começa sem cópia rodando (OutOfMemory às 15h20)
-        boolean maxOn = stackPolicy == CameraController.STACK_MAX;
-        if (portraitRunning > 0 && (maxOn || free < 330L * 1024 * 1024)) {
-            status.setText("Terminando a foto anterior…");
-            return;
-        }
-        finishingInBackground = false; // a nova captura volta a mostrar o andamento e travar o botão
         overlay.flash();
-        camera.capture();
+        camera.capture(blurDialVisible() ? blurLevel : 0f);
     }
 
     /**
@@ -612,7 +582,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_EDIT && resultCode == RESULT_OK && data != null && data.getData() != null) {
-            onSaved(data.getData(), "edição salva");
+            showSavedPhoto(data.getData(), "edição salva");
         }
     }
 
@@ -661,8 +631,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     android.graphics.Bitmap b = android.graphics.ImageDecoder.decodeBitmap(
                             android.graphics.ImageDecoder.createSource(getContentResolver(), uri), (dec, info, s) -> {
                                 Size sz = info.getSize();
-                                float k = Math.min(1f, 3000f / Math.max(sz.getWidth(), sz.getHeight()));
-                                dec.setTargetSize(Math.round(sz.getWidth() * k), Math.round(sz.getHeight() * k));
+                                // Conserve a resolução da captura padrão ao ampliar o JPEG na tela.
+                                // Limite só as fotos grandes, para não esgotar memória do visualizador.
+                                float k = (float) Math.min(1d, Math.sqrt(16_000_000d / ((long) sz.getWidth() * sz.getHeight())));
+                                if (k < 1f) dec.setTargetSize(Math.round(sz.getWidth() * k), Math.round(sz.getHeight() * k));
                             });
                     main.post(() -> {
                         img.setImageBitmap(b);
@@ -770,7 +742,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private void zoomTo(float z) {
-        if (caps == null) return;
+        if (caps == null || busy) return;
         // troca de lente física: só reabre a câmera no modo antigo (na lógica a troca é por dentro)
         // a imagem congelada aparece só quando a câmera troca de lente de verdade (onLensSwitching)
         zoom = Math.max(caps.zoomRange.getLower(), Math.min(caps.zoomRange.getUpper(), z));
@@ -785,12 +757,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private void buildZooms() {
         zooms.removeAllViews();
         float lo = caps.zoomRange.getLower(), hi = caps.zoomRange.getUpper();
-        // Sem 3×: era recorte da câmera principal (menos detalhe e outra cor que o 3,5× da
-        // teleobjetiva). 3,5× é a lente tele nativa; a pinça ainda chega a qualquer zoom.
-        // 1×, 3,5×, 7× e 10× (pedido do usuário 13/11): só os pontos em que cada lente entrega
-        // qualidade profissional — 1× principal, 3,5× tele nativa, 7× e 10× da tele. A pinça ainda
-        // chega a qualquer zoom.
-        float[] choices = {1, 3.5f, 7, 10};
+        float[] choices = {1, 3, 3.5f, 5, 7, 8, 10};
         for (float c : choices) {
             float z = c == 0.6f && lo < 1f ? lo : c;
             if (z < lo - 0.04f || z > hi + 0.01f) continue;
@@ -1055,6 +1022,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     }
 
     private void showSettings() {
+        if (busy) return;
         LinearLayout root = Ui.column(this);
         String[] flashNames = {"Desligado", "Automático", "Ligado"};
         String[] stackNames = {"Automático", "Desligado", "Máximo"};
@@ -1075,10 +1043,42 @@ public final class MainActivity extends Activity implements CameraController.Lis
             camera.setStackPolicy(stackPolicy);
             refreshModes();
         }));
-        captura.add(new SettingCard("◐", "Sombras", () -> "limpeza automática", null));
         settingsGrid(root, "Captura", captura);
-        root.addView(note("Empilhamento automático junta 3 a 10 quadros conforme a luz; Máximo usa 10–12 e super-resolução. "
-                + "A limpeza de ruído é forte só nas sombras e áreas lisas, leve no resto e respeita a pele."));
+        LinearLayout image = settingsSection(root, "Detalhe e ruído");
+        addCaptureSlider(image, "Detalhe", tuning.detail, value ->
+                applyTuning(new CaptureTuning(value, tuning.noise, tuning.merge)));
+        addCaptureSlider(image, "Redução de ruído", tuning.noise, value ->
+                applyTuning(new CaptureTuning(tuning.detail, value, tuning.merge)));
+        addCaptureSlider(image, "Força da fusão", tuning.merge, value ->
+                applyTuning(new CaptureTuning(tuning.detail, tuning.noise, value)));
+        image.addView(note("Aplicado em Foto, Retrato, Rua, Noite própria e RAW+ quando o app processa a imagem. A força da fusão atua em rajadas."));
+        LinearLayout tele = settingsSection(root, "Teleobjetiva · acima de 7× até 10×");
+        addCaptureSlider(tele, "Proteção de realces", longTeleTuning.highlights, value ->
+                applyLongTeleTuning(new LongTeleTuning(value, longTeleTuning.definition)));
+        addCaptureSlider(tele, "Definição da tele", longTeleTuning.definition, value ->
+                applyLongTeleTuning(new LongTeleTuning(longTeleTuning.highlights, value)));
+        tele.addView(note("No processamento próprio da tele. Realces controla o brilho da foto salva. Definição ajusta o detalhe antes da ampliação."));
+        LinearLayout compare = settingsSection(root, "Teste da tele · 5× e acima");
+        TextView route = Ui.action(this, teleCapture.label);
+        route.setOnClickListener(v -> {
+            if (busy) return;
+            switch (teleCapture) {
+                case FUSAO: teleCapture = CameraController.TeleCapture.JPEG; break;
+                case JPEG: teleCapture = CameraController.TeleCapture.ALTA; break;
+                default: teleCapture = CameraController.TeleCapture.FUSAO; break;
+            }
+            camera.setTeleCapture(teleCapture);
+            refreshBlurUi();
+            route.setText(teleCapture.label);
+        });
+        compare.addView(route);
+        compare.addView(note(camera.teleHighResolutionLabel()));
+        compare.addView(note("Toque para trocar a captura em Foto, Rua e Retrato com a tele física. Confira a rota ativa no visor. O JPEG direto preserva o arquivo da câmera."));
+        compare.addView(toggle("Salvar etapas da fusão", saveTeleStages, on -> {
+            saveTeleStages = on;
+            camera.setSaveTeleStages(on);
+        }));
+        compare.addView(note("Salva o quadro de referência e a imagem antes do acabamento junto à foto final. Desative para medir o tempo habitual."));
         List<SettingCard> visor = new ArrayList<>();
         visor.add(new SettingCard("◎", "Focus peaking", () -> peaking ? "Ligado" : "Desligado", () -> {
             peaking = !peaking;
@@ -1107,6 +1107,37 @@ public final class MainActivity extends Activity implements CameraController.Lis
         settingsGrid(root, "Sobre o Aparelho", sobre);
         root.addView(note("Fotos em " + MediaSaver.PHOTO_DIR + " · ficha técnica de cada foto em " + MediaSaver.SHEET_DIR + "."));
         Ui.sheet(this, "Ajustes", root).show();
+    }
+
+    private void addCaptureSlider(LinearLayout group, String name, int value, java.util.function.IntConsumer change) {
+        TextView label = settingsLabel(name + "  " + value);
+        group.addView(label);
+        SeekBar slider = new SeekBar(this);
+        slider.setContentDescription(name);
+        slider.setMax(100);
+        slider.setProgress(value);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+        group.addView(slider, new LinearLayout.LayoutParams(-1, dp(45)));
+        slider.setOnSeekBarChangeListener(onChange(() -> {
+            int progress = slider.getProgress();
+            label.setText(name + "  " + progress);
+            change.accept(progress);
+        }));
+    }
+
+    private void applyTuning(CaptureTuning next) {
+        tuning = next;
+        camera.setCaptureTuning(next);
+        getSharedPreferences(IMAGE_SETTINGS, MODE_PRIVATE).edit()
+                .putInt("detail", next.detail).putInt("noise", next.noise).putInt("merge", next.merge).apply();
+    }
+
+    private void applyLongTeleTuning(LongTeleTuning next) {
+        longTeleTuning = next;
+        camera.setLongTeleTuning(next);
+        getSharedPreferences(IMAGE_SETTINGS, MODE_PRIVATE).edit()
+                .putInt("tele_highlights", next.highlights).putInt("tele_definition", next.definition).apply();
     }
 
     private interface OnToggle {
@@ -1158,6 +1189,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
     // =====================================================================================
 
     @Override
+    public void onFocusTargetCleared(long at) {
+        if (locked || overlay == null || overlay.focusMarkerAt >= at) return;
+        overlay.x = overlay.y = -1f;
+        overlay.invalidate();
+    }
+
+    @Override
     public void onOpened(CameraCaps c) {
         caps = c;
         buildModes(c.raw, c.extHdr);
@@ -1178,13 +1216,19 @@ public final class MainActivity extends Activity implements CameraController.Lis
         if (!busy) status.setText(statusHint());
     }
 
+    @Override
+    public void onTeleComparisonStatus(String text) {
+        if (text != null) details.setText(text);
+        details.setVisibility(text == null ? View.GONE : View.VISIBLE);
+    }
+
     /** Rodapé limpo: sem dicas de uso (só andamento da captura, "Salva" e erros aparecem ali). */
     private String statusHint() {
         if (true) return "";
         switch (mode) {
             case NOITE: return "Noite: apoie o celular e segure firme até terminar.";
             case RAW: return "RAW+: revelação própria do sensor (teste) — compare com Foto.";
-            case RETRATO: return "Retrato: toque no rosto para focar · " + PortraitEngine.label(aperture) + " (simulação).";
+            case RETRATO: return "Retrato · desfoque " + blurValue(blurLevel);
             case RUA: return "Rua: disparo imediato, obturador rápido para congelar o movimento.";
             case LONGA: return (longTrails ? "Luzes: faróis e luzes viram rastros" : "Água: efeito sedoso, como filtro ND") + " · " + longSeconds + " s · apoie o celular.";
             case PRO: return "Pro: toque em Pro de novo para os controles.";
@@ -1206,30 +1250,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     @Override
     public void onBusy(String text, float p) {
-        // acabamento da foto anterior em segundo plano: o botão continua livre
-        if (!finishingInBackground) busy = true;
+        busy = true;
         shutter.invalidate();
         status.setText(p >= 0 ? String.format(PT, "%s  %d%%", text, Math.round(p * 100)) : text);
     }
 
     @Override
     public void onSaved(Uri uri, String summary) {
-        if (mode == CameraController.Mode.RETRATO && !summary.startsWith("retrato")) {
-            makePortrait(uri, aperture, "_RETRATO", "retrato");
-        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotWasCrop()) {
-            // de perto no zoom da tele a foto vem da principal (profundidade de campo de grande-
-            // angular, fundo nítido demais): gera também a versão com o fundo levemente desfocado
-            // de uma tele de verdade — gradual, sem contorno
-            deferCopy(() -> makePortrait(uri, 8f, "_OPTICA_TELE", "óptica de tele", 0.15f));
-        } else if (mode == CameraController.Mode.FOTO && !summary.startsWith("óptica") && camera != null && camera.lastShotZoom() >= 5.5f) {
-            // 6×–8× são recortes da tele de 80 mm: a profundidade de campo é a de 80 mm, maior que a de
-            // uma lente longa de verdade (ex.: periscópica ~131–184 mm). Gera também a versão com o
-            // desfoque gradual que essa focal daria (fundo atrás do sujeito tocado), sem halo; a
-            // original fica. Regra do usuário: bokeh sem exagero, sempre ACIMA de f/5,6 —
-            // a abertura vem do dial de desfoque no visor (f/16…f/8).
-            float ap = longLensAperture(); // dial de desfoque (f/16…f/8; desligado = sem cópia)
-            if (ap > 0) deferCopy(() -> makePortrait(uri, ap, "_OPTICA_LONGA", "óptica de lente longa", 0.15f));
-        }
+        showSavedPhoto(uri, summary);
+    }
+
+    private void showSavedPhoto(Uri uri, String summary) {
         lastUri = uri;
         busy = false;
         shutter.invalidate();
@@ -1555,28 +1586,13 @@ public final class MainActivity extends Activity implements CameraController.Lis
 
     // ---- Retrato --------------------------------------------------------------------------
 
-    private float aperture = apertureOf(0.5f); // ≈ f/11, mesmo ponto inicial do dial
     private LinearLayout apertureRow;
     private View apertureScroll;
-    private final java.util.concurrent.ExecutorService portraitWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
-    private static final java.util.concurrent.ForkJoinPool OPT_POOL = new java.util.concurrent.ForkJoinPool(2);
-    /** Cópias de retrato/óptica na fila ou rodando (a próxima foto espera se faltar memória). */
-    private int portraitRunning;
+    private float blurLevel;
 
-    /**
-     * Dial de desfoque (como o de EV): 0 = desligado (lente longa) / f/16 (Retrato), 1 = f/8.
-     * Regra do usuário: nunca mais aberto que f/8 — sem bokeh exagerado (sempre acima de f/5,6).
-     */
-    private float blurLevel = 0.5f;
-
-    /** Abertura simulada do nível (f/16 → f/8, contínuo). */
-    private static float apertureOf(float level) {
-        return (float) (16.0 * Math.pow(8.0 / 16.0, Math.max(0, Math.min(1, level))));
-    }
-
-    /** Abertura da versão de lente longa (6×–8×), ou 0 se o dial estiver desligado. */
-    private float longLensAperture() {
-        return blurLevel < 0.02f ? 0f : apertureOf(blurLevel);
+    private String blurValue(float level) {
+        float aperture = CaptureBlur.aperture(level, mode == CameraController.Mode.RETRATO, zoom);
+        return aperture > 0f ? PortraitEngine.label(aperture) : "Desligado";
     }
 
     private TextView blurIcon;
@@ -1584,8 +1600,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private boolean blurOpen;
 
     private String blurLabel() {
-        if (mode != CameraController.Mode.RETRATO && blurLevel < 0.02f) return "◎\noff";
-        return "◎\n" + PortraitEngine.label(Math.round(apertureOf(blurLevel) * 10) / 10f);
+        return "◎\n" + blurValue(blurLevel);
     }
 
     private void refreshBlurUi() {
@@ -1593,115 +1608,29 @@ public final class MainActivity extends Activity implements CameraController.Lis
         boolean vis = blurDialVisible();
         blurIcon.setVisibility(vis ? View.VISIBLE : View.GONE);
         blurIcon.setText(blurLabel());
+        blurIcon.setContentDescription("Desfoque " + blurValue(blurLevel));
         blurIcon.setTextColor(blurOpen ? Ui.ACCENT : Ui.TEXT);
         apertureScroll.setVisibility(vis && blurOpen ? View.VISIBLE : View.GONE);
     }
 
     private boolean blurDialVisible() {
-        return mode == CameraController.Mode.RETRATO || (mode == CameraController.Mode.FOTO && zoom >= 5.5f);
+        boolean comparingJpeg = teleCapture != CameraController.TeleCapture.FUSAO
+                && LongTeleTuning.protectsDetail(zoom, true);
+        return !comparingJpeg && (mode == CameraController.Mode.FOTO || mode == CameraController.Mode.RETRATO);
     }
 
     private void buildApertureRow() {
         apertureRow.removeAllViews();
         PillSlider s = new PillSlider(this, "Desfoque", blurLevel, 0f, 1f);
-        s.setFormat(v -> {
-            if (mode != CameraController.Mode.RETRATO && v < 0.02f) return "desligado";
-            return PortraitEngine.label(Math.round(apertureOf(v) * 10) / 10f);
-        });
+        s.setFormat(this::blurValue);
         s.setListener((v, drag) -> {
             blurLevel = v;
-            aperture = apertureOf(v);
-            if (blurIcon != null) blurIcon.setText(blurLabel());
-            if (!busy && !drag) status.setText(statusHint());
+            refreshBlurUi();
         });
         int width = getResources().getDisplayMetrics().widthPixels - dp(32);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(width, dp(40));
         lp.setMargins(dp(16), dp(4), dp(16), dp(4));
         apertureRow.addView(s, lp);
-    }
-
-    /**
-     * Cria a versão com desfoque a partir da foto recém-gravada (que fica preservada).
-     * Plano em foco = último toque no visor (ou o centro, um pouco acima, onde costuma estar o rosto).
-     */
-    private void makePortrait(Uri original, float apIn, String suffix, String kind) {
-        makePortrait(original, apIn, suffix, kind, 1f);
-    }
-
-    /** frontScale abaixo de 1: desfoque inteligente — atrás do sujeito suave, a frente quase intacta. */
-    private void makePortrait(Uri original, float apIn, String suffix, String kind, float frontScale) {
-        final float fx = overlay.x >= 0 ? overlay.x / Math.max(1, overlay.getWidth()) : 0.5f;
-        final float fy = overlay.y >= 0 ? overlay.y / Math.max(1, overlay.getHeight()) : 0.42f;
-        final float ap = apIn;
-        // cópias de óptica (6×–10×, tele de perto) rodam em segundo plano com o botão livre (teste
-        // 13/11: travavam o botão 20–40 s); o Retrato espera, a cópia é a própria foto
-        if (frontScale >= 1f) busy = true;
-        shutter.invalidate();
-        thumbBusy.setVisibility(View.VISIBLE);
-        status.setText("Criando " + kind + " " + PortraitEngine.label(ap) + "…");
-        // cópias de óptica num grupo de 2 núcleos: as contas paralelas do recorte/desfoque usavam
-        // todos os núcleos e atrasavam a fusão da foto seguinte (6×–10× seguidos, teste 13/11)
-        final java.util.concurrent.ForkJoinPool pool = frontScale < 1f ? OPT_POOL : java.util.concurrent.ForkJoinPool.commonPool();
-        portraitRunning++;
-        portraitWorker.execute(() -> { pool.submit(() -> {
-            // cópias de óptica/retrato em prioridade baixa: não atrasam a fusão da próxima foto
-            // (teste 13/11: 6×–8× seguidos demoravam porque as cópias disputavam o processador)
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-            try {
-                long t0 = System.currentTimeMillis();
-                android.graphics.Bitmap full = android.graphics.ImageDecoder.decodeBitmap(
-                        android.graphics.ImageDecoder.createSource(getContentResolver(), original), (dec, info, s) -> {
-                            dec.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
-                            dec.setMutableRequired(true);
-                        });
-                long tDecode = System.currentTimeMillis();
-                android.graphics.Bitmap guide = PortraitEngine.guideOf(full);
-                PortraitEngine.Depth depth = PortraitEngine.estimate(this, guide);
-                guide.recycle();
-                float focus = depth.focusAt(fx, fy);
-                long tDepth = System.currentTimeMillis();
-                // recorte do sujeito tocado + profundidade (objetivo: recorte perfeito em qualquer zoom)
-                float[] alpha = PortraitEngine.subjectAlpha(this, depth, fx, fy);
-                // cópias de óptica: faixa nítida atrás do sujeito (≈ 5 % da profundidade relativa)
-                PortraitEngine.Bokeh layers = PortraitEngine.bokeh(depth, focus, ap, alpha, frontScale, frontScale < 1f ? 0.08f : 0f);
-                long tLayers = System.currentTimeMillis();
-                int w = full.getWidth(), h = full.getHeight();
-                int[] px = new int[w * h];
-                full.getPixels(px, 0, w, 0, 0, w, h);
-                PortraitEngine.apply(px, w, h, layers);
-                full.setPixels(px, 0, w, 0, 0, w, h);
-                px = null;
-                layers = null;
-                long tApply = System.currentTimeMillis();
-                org.json.JSONObject sheet = new org.json.JSONObject();
-                sheet.put("app", "The Natural Cam " + BuildConfigInfo.VERSION);
-                sheet.put("origem", original.toString());
-                sheet.put("retrato_abertura_simulada", PortraitEngine.label(ap));
-                sheet.put("retrato_foco", fx + "," + fy);
-                sheet.put("retrato_modelo", "Depth Anything V2 Small (Apache-2.0)");
-                sheet.put("retrato_recorte", alpha != null ? "MagicTouch (Apache-2.0) + profundidade" : "só profundidade");
-                sheet.put("retrato_tempo_profundidade_ms", depth.millis);
-                sheet.put("retrato_tempo_inferencia_ms", depth.inferMs);
-                sheet.put("retrato_tempo_decodificar_ms", tDecode - t0);
-                sheet.put("retrato_tempo_camadas_ms", tLayers - tDepth);
-                sheet.put("retrato_tempo_aplicar_ms", tApply - tLayers);
-                sheet.put("retrato_resolucao", w + "x" + h);
-                sheet.put("tipo", kind);
-                Uri out = new MediaSaver(this).saveBitmap(MediaSaver.newName() + suffix, full, 0, 0, 0, sheet, original);
-                android.util.Log.i("TNC", "retrato: decodificar " + (tDecode - t0) + " ms, profundidade " + depth.millis
-                        + " ms (rede " + depth.inferMs + "), camadas " + (tLayers - tDepth) + " ms, aplicar " + (tApply - tLayers)
-                        + " ms, salvar " + (System.currentTimeMillis() - tApply) + " ms, " + w + "x" + h);
-                full.recycle();
-                main.post(() -> onSaved(out, kind + " " + PortraitEngine.label(ap) + " · original mantido"));
-            } catch (Throwable e) {
-                main.post(() -> {
-                    busy = false;
-                    shutter.invalidate();
-                    thumbBusy.setVisibility(View.GONE);
-                    status.setText("Retrato indisponível: " + e.getMessage() + " (foto original salva)");
-                });
-            }
-        }).join(); main.post(() -> portraitRunning--); });
     }
 
     @Override
@@ -1764,6 +1693,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         float x = -1, y = -1;
         long flashAt;
+        long focusMarkerAt;
         final GestureDetector gestures;
         final ScaleGestureDetector pinch;
 
@@ -1788,13 +1718,10 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 public boolean onSingleTapUp(MotionEvent e) {
                     x = e.getX();
                     y = e.getY();
+                    focusMarkerAt = SystemClock.elapsedRealtime();
                     locked = false;
                     lock.selected(false);
                     camera.focusAt(x / getWidth(), y / getHeight());
-                    // O foco do toque é o da CÂMERA: o rastreador que travava a lente no "pico de
-                    // nitidez" medido na prévia errava (frasco a 40 cm travado em 19 cm ou 140 cm —
-                    // "não foca no toque", teste 13/11) e foi desligado. Com o AF AUTO a lente já
-                    // fica parada onde a câmera confirmou o foco, até novo toque.
                     invalidate();
                     return true;
                 }
@@ -1808,6 +1735,7 @@ public final class MainActivity extends Activity implements CameraController.Lis
                     }
                     x = e.getX();
                     y = e.getY();
+                    focusMarkerAt = SystemClock.elapsedRealtime();
                     camera.focusAt(x / getWidth(), y / getHeight());
                     setLocked(true);
                     invalidate();

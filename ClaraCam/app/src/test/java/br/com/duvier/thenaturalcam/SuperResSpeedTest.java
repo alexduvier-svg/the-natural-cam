@@ -39,6 +39,19 @@ public class SuperResSpeedTest {
     }
 
     @Test
+    public void referenceSizeFusionCanBeReusedIfThreeTimesReconstructionIsTooSoft() {
+        List<YuvFrame> frames = burst(256, 192, 8);
+        BurstFusion.Result nativeOnly = new BurstFusion(CaptureTuning.DEFAULT, 1f, null)
+                .fuse(new ArrayList<>(frames), null);
+        BurstFusion.Result reconstructed = new BurstFusion(CaptureTuning.DEFAULT, 2.5f, null, true)
+                .fuse(new ArrayList<>(frames), null);
+        assertTrue(reconstructed.scale > 1f);
+        org.junit.Assert.assertNotNull(reconstructed.nativeFusion);
+        org.junit.Assert.assertArrayEquals(nativeOnly.frame.y, reconstructed.nativeFusion.y);
+        org.junit.Assert.assertArrayEquals(nativeOnly.frame.u, reconstructed.nativeFusion.u);
+    }
+
+    @Test
     public void rapidaIgualACompleta() {
         int w = 960, h = 720, n = 10;
         BurstFusion.srCut = 255;

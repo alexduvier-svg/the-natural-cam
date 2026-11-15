@@ -11,7 +11,6 @@ import android.provider.MediaStore;
 
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -22,11 +21,11 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/** Grava fotos em DCIM/TheNaturalCam e a ficha técnica em Documents/TheNaturalCam. */
+/** Grava fotos em DCIM/CameraX e a ficha técnica em Documents/CameraX. */
 final class MediaSaver {
 
-    static final String PHOTO_DIR = "DCIM/TheNaturalCam";
-    static final String SHEET_DIR = "Documents/TheNaturalCam";
+    static final String PHOTO_DIR = "DCIM/CameraX";
+    static final String SHEET_DIR = "Documents/CameraX";
 
     private final Context context;
 
@@ -35,7 +34,7 @@ final class MediaSaver {
     }
 
     static String newName() {
-        return "NATURAL_" + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(new Date());
+        return "CAMERAX_" + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(new Date());
     }
 
     /** JPEG pronto (vindo da câmera): já traz EXIF e orientação. */
@@ -71,7 +70,7 @@ final class MediaSaver {
         return saveBitmap(name, bmp, exifDegrees, iso, exposureNs, sheet, null);
     }
 
-    /** Tags EXIF copiadas da foto original numa edição (a imagem já sai em pé: orientação normal). */
+    /** Tags EXIF copiadas da foto de origem. A orientação é escrita para a saída. */
     private static final String[] COPY_TAGS = {
             ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL, ExifInterface.TAG_DATETIME_ORIGINAL,
             ExifInterface.TAG_DATETIME_DIGITIZED, ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
@@ -80,7 +79,7 @@ final class MediaSaver {
             ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, ExifInterface.TAG_WHITE_BALANCE,
             ExifInterface.TAG_EXPOSURE_BIAS_VALUE, ExifInterface.TAG_EXPOSURE_PROGRAM, ExifInterface.TAG_EXPOSURE_MODE,
             ExifInterface.TAG_METERING_MODE, ExifInterface.TAG_FLASH, "LensMake",
-            "LensModel", ExifInterface.TAG_DIGITAL_ZOOM_RATIO, ExifInterface.TAG_COLOR_SPACE,
+            "LensModel", ExifInterface.TAG_LENS_SPECIFICATION, ExifInterface.TAG_DIGITAL_ZOOM_RATIO, ExifInterface.TAG_COLOR_SPACE,
             ExifInterface.TAG_GPS_LATITUDE, ExifInterface.TAG_GPS_LATITUDE_REF, ExifInterface.TAG_GPS_LONGITUDE,
             ExifInterface.TAG_GPS_LONGITUDE_REF, ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
             ExifInterface.TAG_GPS_TIMESTAMP, ExifInterface.TAG_GPS_DATESTAMP,
@@ -89,13 +88,17 @@ final class MediaSaver {
     private void copyExif(Uri from, ExifInterface to) {
         try (java.io.InputStream in = context.getContentResolver().openInputStream(from)) {
             if (in == null) return;
-            ExifInterface src = new ExifInterface(in);
-            for (String t : COPY_TAGS) {
-                String v = src.getAttribute(t);
-                if (v != null) to.setAttribute(t, v);
-            }
+            copyExif(new ExifInterface(in), to);
         } catch (Exception ignored) {
             // foto sem EXIF legível: segue só com os dados do app
+        }
+    }
+
+    private static void copyExif(ExifInterface source, ExifInterface target) {
+        if (source == null) return;
+        for (String tag : COPY_TAGS) {
+            String value = source.getAttribute(tag);
+            if (value != null) target.setAttribute(tag, value);
         }
     }
 
@@ -111,25 +114,34 @@ final class MediaSaver {
     }
 
     Uri saveBitmap(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs, JSONObject sheet, Uri exifFrom) throws IOException {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream(8 * 1024 * 1024);
-        if (!bmp.compress(Bitmap.CompressFormat.JPEG, 97, bos)) throw new IOException("Falha ao codificar JPEG.");
+        return saveBitmap(name, bmp, exifDegrees, iso, exposureNs, sheet, exifFrom, null, null);
+    }
+
+    Uri saveBlurredCapture(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs,
+                           java.util.Map<String, String> tags, ExifInterface source) throws IOException {
+        return saveBitmap(name, bmp, exifDegrees, iso, exposureNs, null, null, tags, source);
+    }
+
+    private Uri saveBitmap(String name, Bitmap bmp, int exifDegrees, int iso, long exposureNs, JSONObject sheet,
+                           Uri exifFrom, java.util.Map<String, String> tags, ExifInterface source) throws IOException {
         File tmp = new File(context.getCacheDir(), name + ".jpg");
         try {
             try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                bos.writeTo(fos);
+                if (!bmp.compress(Bitmap.CompressFormat.JPEG, 97, fos)) throw new IOException("Falha ao codificar JPEG.");
             }
-            bos = null;
             ExifInterface exif = new ExifInterface(tmp.getAbsolutePath());
             exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER);
             exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL);
             exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL,
                     new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.ROOT).format(new Date()));
             if (exifFrom != null) copyExif(exifFrom, exif);
+            copyExif(source, exif);
             exif.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(exifOrientation(exifDegrees)));
-            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "The Natural Cam " + BuildConfigInfo.VERSION);
+            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Câmera X " + BuildConfigInfo.VERSION);
             exif.setAttribute(ExifInterface.TAG_DATETIME, new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.ROOT).format(new Date()));
             if (iso > 0) exif.setAttribute(ExifInterface.TAG_ISO_SPEED_RATINGS, String.valueOf(iso));
             if (exposureNs > 0) exif.setAttribute(ExifInterface.TAG_EXPOSURE_TIME, String.valueOf(exposureNs / 1e9));
+            putAll(exif, tags);
             exif.saveAttributes();
             return saveJpeg(name, Files.readAllBytes(tmp.toPath()), sheet);
         } finally {
@@ -200,7 +212,7 @@ final class MediaSaver {
             exif.setAttribute(ExifInterface.TAG_ORIENTATION, String.valueOf(exifOrientation(exifDegrees)));
             exif.setAttribute(ExifInterface.TAG_MAKE, Build.MANUFACTURER);
             exif.setAttribute(ExifInterface.TAG_MODEL, Build.MODEL);
-            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "The Natural Cam " + BuildConfigInfo.VERSION);
+            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "Câmera X " + BuildConfigInfo.VERSION);
             exif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL,
                     new SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.ROOT).format(new Date()));
             if (f.iso > 0) exif.setAttribute(ExifInterface.TAG_ISO_SPEED_RATINGS, String.valueOf(f.iso));

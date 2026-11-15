@@ -1706,7 +1706,7 @@ public final class EditorActivity extends Activity {
                 px = null;
                 org.json.JSONObject sheet = new org.json.JSONObject();
                 StyleCatalog.Style st = StyleCatalog.get(r.style);
-                sheet.put("app", "The Natural Cam " + BuildConfigInfo.VERSION);
+                sheet.put("app", "Câmera X " + BuildConfigInfo.VERSION);
                 sheet.put("origem", source.toString());
                 sheet.put("estilo", st.name);
                 sheet.put("intensidade", r.intensity);

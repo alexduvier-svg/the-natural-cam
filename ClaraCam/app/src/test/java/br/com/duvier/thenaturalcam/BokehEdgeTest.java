@@ -10,6 +10,21 @@ import org.junit.Test;
  * fundo longe continua desfocado e a transição é gradual.
  */
 public class BokehEdgeTest {
+    @Test
+    public void fullResolutionColorKeepsTheEdgeOnTheSubjectSide() {
+        int leaf = 0xff9b534a, background = 0xff37704a, blurred = 0xff444444;
+        PortraitEngine.Bokeh layers = new PortraitEngine.Bokeh(
+                new int[]{blurred, blurred, blurred, blurred}, new float[]{4f, 4f, 4f, 4f}, 2, 2, .6f, 14f);
+        layers.alpha = new float[]{1f, 0f, 1f, 0f};
+        layers.edgeGuide = new int[]{leaf, background, leaf, background};
+        int[] original = {leaf, leaf, leaf, background, background, leaf, leaf, leaf, background, background};
+
+        PortraitEngine.apply(original, 5, 2, layers);
+
+        org.junit.Assert.assertEquals(leaf, original[2]);
+        org.junit.Assert.assertEquals(blurred, original[3]);
+    }
+
 
     @Test
     public void bordaEFioNaoSaoComidos() {

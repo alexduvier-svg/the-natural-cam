@@ -2,6 +2,7 @@ package br.com.duvier.thenaturalcam;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertArrayEquals;
 
 import org.junit.Test;
 
@@ -14,6 +15,65 @@ import java.util.Random;
  * tremor (deslocamento) entre quadros e um objeto que se move.
  */
 public class BurstFusionTest {
+    @Test
+    public void teleReferenceFollowsAFineSubjectEvenWhenTheBackgroundHasMoreEdges() {
+        List<YuvFrame> frames = new ArrayList<>();
+        int size = 192;
+        for (int shot = 0; shot < 2; shot++) {
+            YuvFrame frame = new YuvFrame(size, size);
+            java.util.Arrays.fill(frame.u, (byte) 128);
+            java.util.Arrays.fill(frame.v, (byte) 128);
+            for (int y = 0; y < size; y++) {
+                for (int x = 0; x < size; x++) {
+                    boolean center = x >= 75 && x < 117 && y >= 75 && y < 117;
+                    int luma = shot == 0 && !center ? ((x / 4) % 2 == 0 ? 50 : 195) : 120;
+                    if (shot == 1 && center && x % 7 == 0) luma = 72;
+                    frame.y[y * size + x] = (byte) luma;
+                }
+            }
+            frames.add(frame);
+        }
+        BurstFusion.Result result = new BurstFusion(CaptureTuning.DEFAULT, 1f, null,
+                false, true, true).fuse(frames, null);
+        assertEquals(1, result.reference);
+        assertEquals(1, result.framesUsed);
+    }
+
+    @Test
+    public void motionProtectsTheReferenceAndKeepsAveragingStillAreas() {
+        int w = 256, h = 256;
+        List<YuvFrame> frames = new ArrayList<>();
+        for (int k = 0; k < 4; k++) {
+            YuvFrame f = new YuvFrame(w, h);
+            Random noise = new Random(77 + k);
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int base = (x / 9 + y / 13) % 2 == 0 ? 95 : 150;
+                    if (x >= 96 && x < 144 && y >= 96 && y < 144) base += (k % 2 == 0 ? 46 : -46);
+                    f.y[y * w + x] = (byte) (base + noise.nextInt(9) - 4);
+                }
+            }
+            java.util.Arrays.fill(f.u, (byte) 128);
+            java.util.Arrays.fill(f.v, (byte) 128);
+            frames.add(f);
+        }
+        BurstFusion engine = new BurstFusion(CaptureTuning.DEFAULT, 1f, null, false, true, true);
+        BurstFusion.Result full = engine.fuse(frames, null);
+        BurstFusion.Stream stream = new BurstFusion.Stream(engine);
+        for (YuvFrame f : frames) stream.add(f);
+        for (BurstFusion.Result result : new BurstFusion.Result[]{full, stream.finish(null)}) {
+            assertTrue(result.localMotion);
+            assertEquals(4, result.framesUsed);
+            assertTrue(Math.abs(result.referenceFrame.luma(110, 110) - result.frame.luma(110, 110)) <= 4);
+            int changed = 0;
+            for (int y = 25; y < 75; y++) {
+                for (int x = 25; x < 75; x++) {
+                    if (result.referenceFrame.luma(x, y) != result.frame.luma(x, y)) changed++;
+                }
+            }
+            assertTrue(changed > 750);
+        }
+    }
 
     private static final int W = 1024, H = 768;
 
@@ -68,6 +128,40 @@ public class BurstFusionTest {
             s += du * du + dv * dv;
         }
         return Math.sqrt(s / (2.0 * f.u.length));
+    }
+
+    @Test
+    public void daylightFusionKeepsReferenceColorWhereBrightnessCannotDistinguishLeaves() {
+        List<YuvFrame> frames = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            YuvFrame f = new YuvFrame(128, 128);
+            for (int y = 0; y < 128; y++) {
+                for (int x = 0; x < 128; x++) {
+                    int base = (y < 64 ? 145 : 36) + (x % 9) - (y % 7);
+                    f.y[y * 128 + x] = (byte) base;
+                }
+            }
+            java.util.Arrays.fill(f.u, (byte) (i == 0 ? 100 : 135));
+            java.util.Arrays.fill(f.v, (byte) (i == 0 ? 155 : 117));
+            frames.add(f);
+        }
+        BurstFusion baseline = new BurstFusion(CaptureTuning.DEFAULT, 1f, null, false, false);
+        BurstFusion natural = new BurstFusion(CaptureTuning.DEFAULT, 1f, null, false, true);
+        BurstFusion.Result old = baseline.fuse(frames, null);
+        BurstFusion.Result updated = natural.fuse(frames, null);
+        BurstFusion.Stream stream = new BurstFusion.Stream(natural);
+        for (YuvFrame f : frames) stream.add(f);
+        BurstFusion.Result streamed = stream.finish(null);
+        int lit = 15 * 64 + 20, shadow = 45 * 64 + 20;
+        assertEquals(old.framesUsed, updated.framesUsed);
+        assertArrayEquals(old.frame.y, updated.frame.y);
+        assertTrue((old.frame.u[lit] & 255) > 110);
+        assertEquals(100, updated.frame.u[lit] & 255);
+        assertEquals(155, updated.frame.v[lit] & 255);
+        assertEquals(old.frame.u[shadow], updated.frame.u[shadow]);
+        assertEquals(old.frame.v[shadow], updated.frame.v[shadow]);
+        assertEquals(updated.frame.u[lit], streamed.frame.u[lit]);
+        assertEquals(updated.frame.v[lit], streamed.frame.v[lit]);
     }
 
     @Test
@@ -155,6 +249,32 @@ public class BurstFusionTest {
         double v = 120 + 60 * Math.sin(x * 1.3 + y * 0.4) + 35 * Math.sin(Math.hypot(x - 700, y - 500) * 1.1);
         if (((int) (x / 40) + (int) (y / 40)) % 2 == 0) v += 15;
         return Math.max(0, Math.min(255, v));
+    }
+
+    @Test
+    public void shortBurstReconstructsWithThreeUsefulFramesAndSkipsIdenticalSamples() {
+        int w = 256, h = 192;
+        List<YuvFrame> frames = new ArrayList<>();
+        for (int k = 0; k < 3; k++) {
+            YuvFrame f = new YuvFrame(w, h);
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    double sample = fine((x + k * .37) * 1.5, (y - k * .32) * 1.5);
+                    f.y[y * w + x] = (byte) Math.round(sample);
+                }
+            }
+            java.util.Arrays.fill(f.u, (byte) 128);
+            java.util.Arrays.fill(f.v, (byte) 128);
+            frames.add(f);
+        }
+        BurstFusion street = new BurstFusion(CaptureTuning.DEFAULT, 1.5f, null, true, true, true, 3);
+        BurstFusion.Result reconstructed = street.fuse(frames, null);
+        assertEquals(3, reconstructed.framesUsed);
+        assertEquals(1.5f, reconstructed.scale, 0f);
+        assertEquals(w * 3 / 2, reconstructed.frame.width);
+        assertEquals(w, reconstructed.nativeFusion.width);
+        BurstFusion.Result still = street.fuse(List.of(frames.get(0), frames.get(0), frames.get(0)), null);
+        assertEquals(1f, still.scale, 0f);
     }
 
     @Test

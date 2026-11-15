@@ -38,6 +38,7 @@ final class CameraCaps {
     final int sensorOrientation;
     final boolean logicalMultiCamera;
     final List<ResOption> resolutions = new ArrayList<>();
+    final ResOption highResolutionJpeg;
     final Size previewSize;
     final Size nightYuvSize;
     final Range<Float> zoomRange;
@@ -47,6 +48,7 @@ final class CameraCaps {
     final Rational evStep;
     final boolean manualSensor;
     final boolean flash;
+    final boolean opticalStabilization;
     final int[] nrModes;
     final int[] edgeModes;
     final int[] afModes;
@@ -87,6 +89,8 @@ final class CameraCaps {
         int[] caps = orEmpty(ch.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES));
         logicalMultiCamera = contains(caps, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA);
         manualSensor = contains(caps, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR);
+        opticalStabilization = contains(ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION),
+                CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON);
         boolean ultraHigh = contains(caps, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR);
 
         StreamConfigurationMap map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
@@ -117,6 +121,18 @@ final class CameraCaps {
                 resolutions.add(new ResOption(mp(max), max, true));
             }
         }
+        // A rota de comparação pode usar saídas JPEG de captura lenta, sem comandar
+        // o modo de pixels máximos quando o tamanho pertence ao mapa padrão.
+        Size highJpeg = largest43(sorted(concat(jpeg.toArray(new Size[0]),
+                map != null && contains(caps, CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_BURST_CAPTURE)
+                        ? map.getHighResolutionOutputSizes(ImageFormat.JPEG) : null)), 52_000_000L);
+        ResOption high = binned != null && highJpeg != null && area(highJpeg) > area(binned) * 1.5
+                ? new ResOption(mp(highJpeg), highJpeg, false) : null;
+        for (ResOption option : resolutions) {
+            if (option.maximumResolution && area(option.size) <= 52_000_000L
+                    && (high == null || area(option.size) >= area(high.size))) high = option;
+        }
+        highResolutionJpeg = high;
 
         Size pv = largest43(tex, 1920L * 1440L);
         previewSize = pv != null ? pv : (tex.isEmpty() ? new Size(1440, 1080) : tex.get(tex.size() - 1));
