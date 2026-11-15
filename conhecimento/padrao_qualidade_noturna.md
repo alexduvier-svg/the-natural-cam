@@ -54,6 +54,16 @@ Para cada modo e lente, arquive o **APK assinado**, commit, SHA-256 do APK, mode
 
 Quando houver regressão, reproduza com a configuração aprovada. Volte primeiro aos níveis registrados para aquele perfil na tela Ajustes. Se a regressão for do código, reverta o commit da mudança em uma branch de teste e repita as cenas. Para reinstalação por cima no Android, gere nova versão de teste assinada pela mesma chave, com o mesmo pacote e `versionCode` superior. A regressão só está corrigida quando a nova medição recupera os limites no aparelho. Guarde fotos pessoais, fichas e chaves fora do Git público.
 
+### Ensaio de redução de ruído v1
+
+Em **Ajustes → Detalhe e ruído**, o **Teste de ruído em baixa luz** começa desligado. Ao ligar, o perfil de ensaio atua no YUV escolhido para o JPEG em Foto, Máxima e Noite, incluindo a saída de um único quadro quando a fusão é rejeitada. Também vale para Máxima no Retrato. Use as mesmas regulagens para os dois disparos. Desligue para restaurar o tratamento da 0.1.15. O JPEG direto, RAW e Rua seguem as rotas próprias.
+
+Ativação inicial com redução de ruído acima de zero. Use ISO equivalente (ISO × ganho pós-RAW ÷ 100) de pelo menos **1.600**, ou equivalente de pelo menos **800** com exposição de **25 ms** ou mais. O perfil usa o ruído de brilho por faixa da imagem, protege estruturas com apoio nos vizinhos e reduz croma nas sombras com uma janela contígua de 5 × 5 na grade de cor. O teste compara o acabamento com a mesma captura e mantém a política de exposição e número de quadros da base. A ficha registra `perfil_ruido`, ISO, ganho e tempos.
+
+Em uma cena sintética replicável em PC com sombra neutra, pele e traços finos, o perfil reduziu o indicador local de grão de Y′ em **18%** e de Cb em **45%** na comparação com o acabamento anterior. O traço reteve **98%** do contraste medido. Esses resultados unitários aguardam validação de textura, cor e tempo no Reno16 Pro.
+
+Para localizar a etapa da perda, use **Salvar etapas da fusão** no mesmo painel. Esse diagnóstico é opcional e guarda duas cópias auxiliares junto à foto final. Faça as séries de tempo com o diagnóstico desligado.
+
 ## Fontes técnicas
 
 - [DXOMARK · protocolo de câmeras de smartphone](https://corp.dxomark.com/smartphone-camera/) e [teste Find X8 Ultra](https://www.dxomark.com/oppo-find-x8-ultra-camera-test/). Atributos separados e comparação de fotos em condições de luz e movimento.

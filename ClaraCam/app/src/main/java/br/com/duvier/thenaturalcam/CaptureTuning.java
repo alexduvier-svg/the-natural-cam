@@ -17,14 +17,24 @@ final class CaptureTuning {
         return Math.min(1.25f, merge / 70f);
     }
 
+    static boolean needsLowLightNoise(int iso, int postRawBoost, long exposureNs) {
+        long effectiveIso = (long) Math.max(100, postRawBoost) * iso / 100;
+        return effectiveIso >= 1600 || (effectiveIso >= 800 && exposureNs >= 25_000_000L);
+    }
+
     void reduceNoise(YuvFrame frame, float[] sigma) {
         reduceNoise(frame, sigma, false);
     }
 
     void reduceNoise(YuvFrame frame, float[] sigma, boolean sevenTimes) {
+        reduceNoise(frame, sigma, sevenTimes, false);
+    }
+
+    void reduceNoise(YuvFrame frame, float[] sigma, boolean fineTexture, boolean lowLight) {
         if (noise == 0) return;
-        adjustLuma(frame, sigma, true, 1f, detail, false, sevenTimes);
-        ShadowChroma.apply(frame, noise / 100f);
+        adjustLuma(frame, sigma, true, 1f, detail, false, fineTexture || lowLight, lowLight);
+        if (lowLight) ShadowChroma.applyLowLight(frame, noise / 100f);
+        else ShadowChroma.apply(frame, noise / 100f);
     }
 
     void enhanceDetail(YuvFrame frame, float[] sigma, float scale) {
@@ -53,12 +63,21 @@ final class CaptureTuning {
 
     private void adjustLuma(YuvFrame frame, float[] sigma, boolean clean, float scale, int detailLevel,
                             boolean tele, boolean fineTexture) {
+        adjustLuma(frame, sigma, clean, scale, detailLevel, tele, fineTexture, false);
+    }
+
+    private void adjustLuma(YuvFrame frame, float[] sigma, boolean clean, float scale, int detailLevel,
+                            boolean tele, boolean fineTexture, boolean lowLight) {
         int w = frame.width, h = frame.height;
         int radius = clean ? 1 : Math.min(4, Math.max(1, Math.round(scale * 0.65f)));
         if (w <= 2 * radius || h <= 2 * radius) return;
         byte[] input = frame.y.clone();
         int rowStep = radius * w;
-        float strength = Math.min(100, clean ? noise : detailLevel) / 100f;
+        float level = Math.min(100, clean ? noise : detailLevel) / 100f;
+        float strength = lowLight ? Math.min(.95f, level * 1.45f) : level;
+        int ceiling = lowLight ? 152 : 140;
+        float shadowWidth = lowLight ? 91f : 76f;
+        float skinProtection = lowLight ? .66f : 1f;
         float[] limits = new float[16];
         for (int bin = 0; bin < limits.length; bin++) {
             limits[bin] = clean ? Math.max(2.5f, sigma[bin] * 2.6f)
@@ -69,7 +88,7 @@ final class CaptureTuning {
             for (int x = radius; x < w - radius; x++) {
                 int i = y * w + x;
                 int c = input[i] & 255;
-                if (clean && c >= 140) continue;
+                if (clean && c >= ceiling) continue;
                 int l = input[i - radius] & 255, r = input[i + radius] & 255;
                 int u = input[i - rowStep] & 255, d = input[i + rowStep] & 255;
                 int ul = input[i - rowStep - radius] & 255, ur = input[i - rowStep + radius] & 255;
@@ -103,12 +122,15 @@ final class CaptureTuning {
                 if (clean) {
                     float sigmaHere = sigma[((4 * c + l + r + u + d) >> 3) >> 4];
                     float structure = Math.max(edge, 1.7f * stroke);
-                    float flat = 1f - clamp01((structure - 0.7f * sigmaHere) / (1.65f * sigmaHere));
-                    float dark = clamp01((128f - c) / 76f);
+                    float flat = 1f - clamp01((structure - (lowLight ? 1.45f : .7f) * sigmaHere)
+                            / ((lowLight ? 1.35f : 1.65f) * sigmaHere));
+                    float dark = clamp01(((lowLight ? 152f : 128f) - c) / shadowWidth);
                     float correction = (l + r + u + d + ul + ur + dl + dr) * 0.125f - c;
-                    float limit = 1.8f * sigmaHere;
+                    float limit = (lowLight ? 2.4f : 1.8f) * sigmaHere;
                     correction = Math.max(-limit, Math.min(limit, correction));
-                    frame.y[i] = (byte) Math.round(c + correction * strength * flat * dark * (1f - skin));
+                    float noiseWeight = lowLight ? clamp01((sigmaHere - 1.5f) / 3.5f) : 1f;
+                    frame.y[i] = (byte) Math.round(c + correction * strength * flat * dark * noiseWeight
+                            * (1f - skin * skinProtection));
                 } else {
                     float residual = c - (4f * c + 2f * (l + r + u + d) + ul + ur + dl + dr) / 16f;
                     float gain = strength * (0.7f - skin * 0.45f)

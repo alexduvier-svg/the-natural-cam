@@ -307,7 +307,7 @@ final class CameraController {
     private int nrPolicy = NR_LIGHT;
     private TeleCapture teleCapture = TeleCapture.FUSAO;
     private TeleCapture teleCaptureConfigured = TeleCapture.FUSAO;
-    private boolean teleHighRejected, teleJpegRejected, saveTeleStages;
+    private boolean teleHighRejected, teleJpegRejected, saveFusionStages;
     private CameraCaps.ResOption teleJpegOutput;
     private int jpegOrientation = 90;
     private MeteringRectangle[] regions;
@@ -350,6 +350,7 @@ final class CameraController {
     private Job job;
     private volatile CaptureTuning captureTuning = CaptureTuning.DEFAULT;
     private volatile LongTeleTuning longTeleTuning = LongTeleTuning.DEFAULT;
+    private volatile boolean tryLowLightNoise;
 
     void setLongTeleTuning(LongTeleTuning tuning) {
         longTeleTuning = tuning;
@@ -357,6 +358,10 @@ final class CameraController {
 
     void setCaptureTuning(CaptureTuning tuning) {
         captureTuning = tuning;
+    }
+
+    void setLowLightNoiseTrial(boolean enabled) {
+        tryLowLightNoise = enabled;
     }
     private final List<YuvFrame> burstFrames = new ArrayList<>();
     private final Map<Long, TotalCaptureResult> burstResults = new HashMap<>();
@@ -384,7 +389,8 @@ final class CameraController {
         boolean maxMotionTele;
         boolean teleSeven;
         boolean protectTeleDetail;
-        boolean saveTeleStages;
+        boolean saveFusionStages;
+        boolean lowLightNoiseTrial;
         TeleCapture teleJpeg = TeleCapture.FUSAO;
         float teleLowLight;
         float midTeleColor;
@@ -673,8 +679,8 @@ final class CameraController {
         });
     }
 
-    void setSaveTeleStages(boolean save) {
-        handler.post(() -> saveTeleStages = save);
+    void setSaveFusionStages(boolean save) {
+        handler.post(() -> saveFusionStages = save);
     }
 
     private boolean inTeleComparisonRange() {
@@ -2122,6 +2128,8 @@ final class CameraController {
             Job j = newJob(mode == Mode.NOITE ? "fusao_noite" : mode == Mode.RETRATO ? "fusao_retrato"
                     : mode == Mode.RUA ? "rua_rapida" : mode == Mode.LONGA ? "longa_exposicao" : "fusao_foto");
             j.sheet.put("ganho_pos_raw_previa", lastBoost);
+            j.lowLightNoiseTrial = tryLowLightNoise && (mode == Mode.FOTO || mode == Mode.NOITE
+                    || (mode == Mode.RETRATO && stackPolicy == STACK_MAX));
             // tele na foto: aberta direto (antigo) ou pela lógica no zoom nativo dela (o sistema está
             // mesmo na tele agora — se trocou sozinho para a principal, é recorte da principal)
             final boolean teleShot = onTele || (LOGICA_SEMPRE && teleNative() && !teleFallback());
@@ -2134,12 +2142,13 @@ final class CameraController {
             j.portraitTele = j.protectTeleDetail && mode == Mode.RETRATO;
             j.maxMotionTele = j.protectTeleDetail && (mode == Mode.FOTO || mode == Mode.RETRATO)
                     && stackPolicy == STACK_MAX && !isManual();
-            j.saveTeleStages = saveTeleStages && j.protectTeleDetail;
+            j.saveFusionStages = saveFusionStages && (mode == Mode.FOTO || mode == Mode.RETRATO
+                    || mode == Mode.NOITE || j.protectTeleDetail);
             if (j.protectTeleDetail) {
                 j.sheet.put("rota_tele_ativa", TeleCapture.FUSAO.label);
                 j.sheet.put("jpeg_alta_resolucao_disponivel", caps.highResolutionJpeg != null);
             }
-            if (j.saveTeleStages) j.name += "_TELE_FUSAO";
+            if (j.saveFusionStages) j.name += j.protectTeleDetail ? "_TELE_FUSAO" : "_TESTE_FUSAO";
             j.teleDaylightColor = MidTeleTuning.preserveDaylightColor(zoom, teleShot,
                     mode == Mode.FOTO || mode == Mode.RETRATO, lastIso, lastExposure);
             if (!j.teleDaylightColor) {
@@ -2593,7 +2602,7 @@ final class CameraController {
     }
 
     private void finishBurst(Job j) {
-        if (j.protectTeleDetail) putDiagnostic(j, "tempo_ate_ultimo_quadro_ms", SystemClock.elapsedRealtime() - j.captureStartedAt);
+        putDiagnostic(j, "tempo_ate_ultimo_quadro_ms", SystemClock.elapsedRealtime() - j.captureStartedAt);
         j.done = true;
         job = null;
         processingBlur = j.blur != null;
@@ -2602,7 +2611,8 @@ final class CameraController {
         afRelease();
         final List<YuvFrame> frames = new ArrayList<>(burstFrames);
         burstFrames.clear();
-        Map<Long, TotalCaptureResult> teleResults = j.protectTeleDetail ? new HashMap<>(burstResults) : Collections.emptyMap();
+        Map<Long, TotalCaptureResult> referenceResults = j.protectTeleDetail || j.lowLightNoiseTrial
+                ? new HashMap<>(burstResults) : Collections.emptyMap();
         for (YuvFrame f : frames) {
             TotalCaptureResult r = burstResults.get(f.timestampNs);
             if (r != null) {
@@ -2681,9 +2691,9 @@ final class CameraController {
                 final long[] tt = {System.currentTimeMillis()};
                 busy("Verificando qualidade…", 0.92f);
                 YuvFrame refFrame = fr.referenceFrame != null ? fr.referenceFrame : frames.get(Math.max(0, Math.min(frames.size() - 1, fr.reference)));
-                if (j.protectTeleDetail) {
+                if (j.protectTeleDetail || j.lowLightNoiseTrial) {
                     j.sheet.put("grade_referencia_recortada", refFrame.width + "x" + refFrame.height);
-                    TotalCaptureResult referenceResult = teleResults.get(refFrame.timestampNs);
+                    TotalCaptureResult referenceResult = referenceResults.get(refFrame.timestampNs);
                     if (referenceResult != null) {
                         j.result = referenceResult;
                         fillResult(j.sheet, referenceResult);
@@ -2782,11 +2792,11 @@ final class CameraController {
                 }
                 fr.nativeFusion = null;
                 safe[0] = finalFrame;
-                if (j.saveTeleStages) {
+                if (j.saveFusionStages) {
                     long stageStarted = SystemClock.elapsedRealtime();
                     frames.clear();
-                    saveTeleStage(j, refFrame, "_REFERENCIA");
-                    saveTeleStage(j, finalFrame, "_ANTES_ACABAMENTO");
+                    saveFusionStage(j, refFrame, "_REFERENCIA");
+                    saveFusionStage(j, finalFrame, "_ANTES_ACABAMENTO");
                     j.sheet.put("tempo_exportacao_etapas_ms", SystemClock.elapsedRealtime() - stageStarted);
                     tt[0] = System.currentTimeMillis();
                 }
@@ -2814,10 +2824,17 @@ final class CameraController {
                 j.sheet.put("nucleos", Runtime.getRuntime().availableProcessors());
                 stamp(j, "tempo_etapa_verificador_ms", tt);
                 busy("Gravando…", 0.95f);
-                float[] noiseModel = protectMotion ? BurstFusion.sevenTimesNoiseModel(finalFrame) : BurstFusion.noiseModel(finalFrame);
+                boolean lowLightNoise = j.lowLightNoiseTrial && j.tuning.noise > 0
+                        && (CaptureTuning.needsLowLightNoise(j.sheet.optInt("iso_previa"), j.sheet.optInt("ganho_pos_raw_previa"),
+                                j.sheet.optLong("exposicao_previa_ns"))
+                        || CaptureTuning.needsLowLightNoise(j.sheet.optInt("iso"), j.sheet.optInt("ganho_pos_raw"),
+                                j.sheet.optLong("exposicao_ns")));
+                j.sheet.put("perfil_ruido", lowLightNoise ? "baixa_luz_v1" : "anterior");
+                float[] noiseModel = protectMotion || lowLightNoise
+                        ? BurstFusion.sevenTimesNoiseModel(finalFrame) : BurstFusion.noiseModel(finalFrame);
                 if (j.tuning.noise > 0) {
                     busy("Limpando sombras…", 0.93f);
-                    j.tuning.reduceNoise(finalFrame, noiseModel, protectMotion);
+                    j.tuning.reduceNoise(finalFrame, noiseModel, protectMotion, lowLightNoise);
                     stamp(j, "tempo_etapa_ruido_ms", tt);
                 }
                 if (detailBeforeUpscale) {
@@ -3062,7 +3079,7 @@ final class CameraController {
         if (uri == null) uri = saver.saveYuv(j.name, f, j.orientation, null, tags);
         saveTimingSheet(j);
         Log.i(TAG, "JPEG " + (SystemClock.elapsedRealtime() - j.captureStartedAt) + " ms (do disparo à galeria)");
-        String details = j.saveTeleStages ? "Fusão da tele · " + captureSummary(j) : captureSummary(j);
+        String details = j.saveFusionStages ? "Teste da fusão · " + captureSummary(j) : captureSummary(j);
         idle();
         publishSaved(uri, details);
     }
@@ -3137,14 +3154,14 @@ final class CameraController {
         }
     }
 
-    private void saveTeleStage(Job j, YuvFrame frame, String suffix) {
+    private void saveFusionStage(Job j, YuvFrame frame, String suffix) {
         String key = suffix.substring(1).toLowerCase(java.util.Locale.ROOT);
         try {
             saver.saveYuv(j.name + suffix, frame, j.orientation, null);
             putDiagnostic(j, key, frame.width + "x" + frame.height);
         } catch (Exception e) {
             putDiagnostic(j, key, "exportação indisponível");
-            Log.w(TAG, "Etapa de comparação da tele", e);
+            Log.w(TAG, "Etapa de comparação da fusão", e);
         }
     }
 
@@ -3308,6 +3325,8 @@ final class CameraController {
             Integer iso = r.get(CaptureResult.SENSOR_SENSITIVITY);
             Long exp = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
             if (iso != null) sheet.put("iso", iso);
+            Integer postRawBoost = r.get(CaptureResult.CONTROL_POST_RAW_SENSITIVITY_BOOST);
+            if (postRawBoost != null) sheet.put("ganho_pos_raw", postRawBoost);
             if (exp != null) sheet.put("exposicao_ns", exp);
             if (exp != null) sheet.put("exposicao", shutterLabel(exp));
             sheet.put("reducao_ruido_observada", nrName(r.get(CaptureResult.NOISE_REDUCTION_MODE)));

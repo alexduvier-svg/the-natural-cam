@@ -78,7 +78,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
     private int stackPolicy = CameraController.STACK_AUTO;
     private int nrPolicy = CameraController.NR_LIGHT;
     private CameraController.TeleCapture teleCapture = CameraController.TeleCapture.FUSAO;
-    private boolean saveTeleStages;
+    private boolean saveFusionStages;
+    private boolean tryLowLightNoise;
     private boolean busy;
     private boolean resumed;
     private Uri lastUri;
@@ -101,6 +102,8 @@ public final class MainActivity extends Activity implements CameraController.Lis
                 prefs.getInt("noise", CaptureTuning.DEFAULT.noise),
                 prefs.getInt("merge", CaptureTuning.DEFAULT.merge));
         camera.setCaptureTuning(tuning);
+        tryLowLightNoise = prefs.getBoolean("low_light_noise_trial", false);
+        camera.setLowLightNoiseTrial(tryLowLightNoise);
         longTeleTuning = new LongTeleTuning(prefs.getInt("tele_highlights", LongTeleTuning.DEFAULT.highlights),
                 prefs.getInt("tele_definition", LongTeleTuning.DEFAULT.definition));
         camera.setLongTeleTuning(longTeleTuning);
@@ -1052,6 +1055,17 @@ public final class MainActivity extends Activity implements CameraController.Lis
         addCaptureSlider(image, "Força da fusão", tuning.merge, value ->
                 applyTuning(new CaptureTuning(tuning.detail, tuning.noise, value)));
         image.addView(note("Aplicado em Foto, Retrato, Rua, Noite própria e RAW+ quando o app processa a imagem. A força da fusão atua em rajadas."));
+        image.addView(toggle("Teste de ruído em baixa luz", tryLowLightNoise, on -> {
+            tryLowLightNoise = on;
+            camera.setLowLightNoiseTrial(on);
+            getSharedPreferences(IMAGE_SETTINGS, MODE_PRIVATE).edit().putBoolean("low_light_noise_trial", on).apply();
+        }));
+        image.addView(note("Compare a fusão em Foto, Máxima e Noite. Desligue para voltar ao perfil anterior com os mesmos ajustes."));
+        image.addView(toggle("Salvar etapas da fusão", saveFusionStages, on -> {
+            saveFusionStages = on;
+            camera.setSaveFusionStages(on);
+        }));
+        image.addView(note("Ao ligar, a galeria recebe também a referência e a fusão antes do acabamento. Desative para medir o tempo habitual."));
         LinearLayout tele = settingsSection(root, "Teleobjetiva · acima de 7× até 10×");
         addCaptureSlider(tele, "Proteção de realces", longTeleTuning.highlights, value ->
                 applyLongTeleTuning(new LongTeleTuning(value, longTeleTuning.definition)));
@@ -1074,11 +1088,6 @@ public final class MainActivity extends Activity implements CameraController.Lis
         compare.addView(route);
         compare.addView(note(camera.teleHighResolutionLabel()));
         compare.addView(note("Toque para trocar a captura em Foto, Rua e Retrato com a tele física. Confira a rota ativa no visor. O JPEG direto preserva o arquivo da câmera."));
-        compare.addView(toggle("Salvar etapas da fusão", saveTeleStages, on -> {
-            saveTeleStages = on;
-            camera.setSaveTeleStages(on);
-        }));
-        compare.addView(note("Salva o quadro de referência e a imagem antes do acabamento junto à foto final. Desative para medir o tempo habitual."));
         List<SettingCard> visor = new ArrayList<>();
         visor.add(new SettingCard("◎", "Focus peaking", () -> peaking ? "Ligado" : "Desligado", () -> {
             peaking = !peaking;

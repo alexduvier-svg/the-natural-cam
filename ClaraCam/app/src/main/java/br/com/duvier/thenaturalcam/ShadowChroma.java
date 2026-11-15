@@ -14,14 +14,18 @@ final class ShadowChroma {
     }
 
     static void apply(YuvFrame f) {
-        apply(f, 1f, false);
+        apply(f, 1f, false, false);
     }
 
     static void apply(YuvFrame f, float strength) {
-        apply(f, strength, true);
+        apply(f, strength, true, false);
     }
 
-    private static void apply(YuvFrame f, float strength, boolean tuned) {
+    static void applyLowLight(YuvFrame f, float strength) {
+        apply(f, Math.min(1f, strength * 1.45f), true, true);
+    }
+
+    private static void apply(YuvFrame f, float strength, boolean tuned, boolean lowLight) {
         // janela de 19×19 na grade de cor amostrada a cada 2 (mesmo resultado, ~3,6× mais rápido)
         final int cw = f.chromaWidth, ch = f.chromaHeight, w = f.width, h = f.height;
         // brilho na grade da cor: calculado UMA vez (o brilho não muda entre as passadas)
@@ -37,21 +41,23 @@ final class ShadowChroma {
         // 28 MP (Máxima): vizinhança amostrada a cada 3 e 2 passadas — o mesmo alcance em pixels da
         // foto, ~4× menos contas (levava 6 s); 12 MP: a cada 2, 3 passadas (medido 0,73 → 0,43)
         boolean big = (long) f.width * f.height > 16_000_000L;
-        int passes = tuned ? (strength >= 0.75f && !big ? 2 : 1) : (big ? 2 : 3);
-        int radius = tuned ? 4 : 9;
-        int step = tuned || !big ? 2 : 3;
-        for (int k = 0; k < passes; k++) pass(f, gy, radius, strength, step);
+        int passes = lowLight ? 1 : tuned ? (strength >= 0.75f && !big ? 2 : 1) : (big ? 2 : 3);
+        int radius = lowLight ? 2 : tuned ? 4 : 9;
+        int step = lowLight ? 1 : tuned || !big ? 2 : 3;
+        // A janela contígua cobre todas as fases da grade de croma com 25 amostras.
+        int dark = lowLight ? 80 : 50, limit = lowLight ? 152 : 100;
+        for (int k = 0; k < passes; k++) pass(f, gy, radius, strength, step, dark, limit);
     }
 
-    private static void pass(YuvFrame f, int[] gy, int r, float strength, int step) {
+    private static void pass(YuvFrame f, int[] gy, int r, float strength, int step, int dark, int limit) {
         final int cw = f.chromaWidth, ch = f.chromaHeight;
         final byte[] u = f.u.clone(), v = f.v.clone();
         IntStream.range(0, ch).parallel().forEach(cy -> {
             for (int cx = 0; cx < cw; cx++) {
                 int c = cy * cw + cx;
                 int yc = gy[c];
-                if (yc >= 100) continue;
-                float wgt = yc <= 50 ? 1f : 1f - (yc - 50) / 50f;
+                if (yc >= limit) continue;
+                float wgt = yc <= dark ? 1f : 1f - (yc - dark) / (float) (limit - dark);
                 wgt = wgt * wgt * (3 - 2 * wgt) * strength;
                 int uc = u[c] & 0xFF, vc = v[c] & 0xFF;
                 // limite de brilho proporcional ao nível (sombra profunda tem menos sinal)
