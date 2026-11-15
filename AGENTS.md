@@ -10,6 +10,8 @@ A versão **0.1.5-teste.1** é a referência aprovada para a identificação do 
 
 A versão **0.1.11-teste.1** é a referência aprovada para contraste e luminância em **7×** nos modos Rua, Foto e Foto com Máxima. Nitidez, textura e controle de ruído nessa versão foram reprovados. Confira esses atributos separadamente do acabamento tonal.
 
+Use o [padrão de qualidade noturna](conhecimento/padrao_qualidade_noturna.md) em mudanças de Foto, Máxima e Noite: mantenha as referências do Find X8 Ultra para textura e ruído e do Câmera X para cor e pele. Registre os valores por versão e aplique os limites de aprovação antes de promover mudanças de captura ou acabamento.
+
 ## Meta visual da tele de 5× a 10×
 
 As referências do jardim **67950.jpg** e **67951.jpg**, enviadas em 14/11/2026, são prints ampliados de fotos feitas em **7×**, conforme informado por Duvier. São a régua visual para toda a faixa de **5× a 10×**, inclusive os pontos intermediários, em Foto, Máxima, Rua e Retrato. Os anexos recebidos têm 698 × 1536 px e não registram lente ou exposição no EXIF. Use os JPEGs originais para medir resolução, ruído e qualidade óptica.
