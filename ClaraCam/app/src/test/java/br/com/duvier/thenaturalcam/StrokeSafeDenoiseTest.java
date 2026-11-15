@@ -53,4 +53,14 @@ public class StrokeSafeDenoiseTest {
         assertTrue("letras preservadas: " + strokeContrast(a), strokeContrast(a) > c0 * 0.85);
         assertTrue("fundo mais limpo: " + flatNoise(a), flatNoise(a) < n0 * 0.9);
     }
+
+    @Test
+    public void nitidezNaoInventaLetraNoGrao() {
+        YuvFrame a = label(2, 4);
+        double n0 = flatNoise(a), c0 = strokeContrast(a);
+        float[] sigma = BurstFusion.noiseModel(a);
+        StrokeSafeDenoise.detail(a, sigma, 1f);
+        System.out.printf("nitidez: fundo σ %.2f → %.2f · letras %.1f → %.1f%n", n0, flatNoise(a), c0, strokeContrast(a));
+        assertTrue("grão não realçado: " + flatNoise(a), flatNoise(a) < n0 * 1.08);
+    }
 }

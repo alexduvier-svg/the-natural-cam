@@ -2595,8 +2595,7 @@ final class CameraController {
                 // Agora: a limpeza do Câmera X, que só alisa áreas lisas e preserva traços.
                 NightDenoise.Report nd = new NightDenoise.Report();
                 if (lowLight) {
-                    float[] sig = NightDenoise.noiseModel(finalFrame);
-                    for (int b = 0; b < sig.length; b++) sig[b] = Math.max(sig[b], (float) fr.noiseAfter);
+                    float[] sig = BurstFusion.noiseModel(finalFrame); // o mesmo medidor do Câmera X
                     nd.sigmaBefore = NightDenoise.typicalSigma(finalFrame, sig);
                     long t0 = System.currentTimeMillis();
                     StrokeSafeDenoise.apply(finalFrame, sig);
@@ -2640,7 +2639,17 @@ final class CameraController {
                 boolean fusionSharpened = !singleFrame;
                 // portão de ruído da nitidez pelo grão que SOBROU na foto final (antes: o ruído da fusão, medido
                 // antes do clarear — nas fotos escuras a nitidez realçava o grão)
-                PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, nd.applied ? Math.max(fr.noiseAfter, nd.sigmaAfter) : fr.noiseAfter), fusionSharpened);
+                if (lowLight) {
+                    // 1.47.1: em pouca luz, cor do PhotonLook + nitidez do Câmera X (só realça bordas e traços
+                    // acima do ruído). A nitidez do PhotonLook sobre o grão que a limpeza deixa criava letras falsas
+                    // no rótulo (usuário 14/11 22h16: "inventando no rótulo").
+                    PhotonLook.color(finalFrame);
+                    float[] sigD = BurstFusion.noiseModel(finalFrame);
+                    StrokeSafeDenoise.detail(finalFrame, sigD, Math.max(1f, lookScale));
+                    j.sheet.put("nitidez_pouca_luz", "Câmera X (detalhe 55, só bordas e traços acima do ruído)");
+                } else {
+                    PhotonLook.apply(finalFrame, lookScale, (float) Math.max(1.0, nd.applied ? Math.max(fr.noiseAfter, nd.sigmaAfter) : fr.noiseAfter), fusionSharpened);
+                }
                 stamp(j, "tempo_etapa_cor_nitidez_ms", tt);
                 j.sheet.put("padrao_cor_nitidez", String.format(java.util.Locale.ROOT,
                         "PhotonLook (técnica do PhotonCamera, código próprio) · escala %.2f · captura σ %.2f força %.2f · detalhe %.2f",

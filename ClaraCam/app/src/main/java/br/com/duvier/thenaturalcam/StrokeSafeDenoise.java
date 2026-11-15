@@ -53,6 +53,54 @@ final class StrokeSafeDenoise {
         });
     }
 
+    /** Detalhe 55: o nível aprovado do Câmera X. */
+    static final float DETAIL = 0.55f;
+
+    /**
+     * Nitidez do Câmera X 0.1.15 ({@code CaptureTuning.enhanceDetail}) para a foto de pouca luz: só realça
+     * onde há borda ou traço acima de ~2,2σ do ruído (o grão fica como está, nada de "letra inventada"), com
+     * ganho menor na pele e limite de halo de 8 × 0,55 níveis.
+     */
+    static void detail(YuvFrame frame, float[] sigma, float scale) {
+        final int w = frame.width, h = frame.height;
+        final int radius = Math.min(4, Math.max(1, Math.round(scale * 0.65f)));
+        if (w <= 2 * radius || h <= 2 * radius) return;
+        final byte[] input = frame.y.clone();
+        final int rowStep = radius * w;
+        final float strength = DETAIL;
+        final float[] limits = new float[16];
+        for (int bin = 0; bin < 16; bin++) limits[bin] = Math.max(2f, sigma[bin] * 2.2f);
+        IntStream.range(radius, h - radius).parallel().forEach(y -> {
+            int ci = (y >> 1) * frame.chromaWidth;
+            for (int x = radius; x < w - radius; x++) {
+                int i = y * w + x;
+                int c = input[i] & 255;
+                int l = input[i - radius] & 255, r = input[i + radius] & 255;
+                int u = input[i - rowStep] & 255, d = input[i + rowStep] & 255;
+                int ul = input[i - rowStep - radius] & 255, ur = input[i - rowStep + radius] & 255;
+                int dl = input[i + rowStep - radius] & 255, dr = input[i + rowStep + radius] & 255;
+                float threshold = limits[c >> 4];
+                float edge = Math.max(Math.abs((r + ur + dr) - (l + ul + dl)),
+                        Math.abs((d + dl + dr) - (u + ul + ur))) / 3f;
+                float vs = Math.min(line(c, l, r), Math.max(line(u, ul, ur), line(d, dl, dr)));
+                float hs = Math.min(line(c, u, d), Math.max(line(l, ul, dl), line(r, ur, dr)));
+                float stroke = Math.max(vs, hs);
+                if (Math.max(edge, stroke) < threshold) continue;
+                float skin = BurstFusion.skinCbCr(c, frame.u[ci + (x >> 1)] & 255, frame.v[ci + (x >> 1)] & 255);
+                float residual = c - (4f * c + 2f * (l + r + u + d) + ul + ur + dl + dr) / 16f;
+                float gain = strength * (0.7f - skin * 0.45f)
+                        * clamp01((Math.max(edge, stroke) - threshold) / (2f * threshold));
+                float halo = 8f * strength;
+                int v = Math.round(c + Math.max(-halo, Math.min(halo, residual * gain)));
+                frame.y[i] = (byte) Math.max(0, Math.min(255, v));
+            }
+        });
+    }
+
+    private static float line(int center, int a, int b) {
+        return Math.max(0, Math.max(center - Math.max(a, b), Math.min(a, b) - center));
+    }
+
     private static float clamp01(float v) {
         return Math.max(0f, Math.min(1f, v));
     }

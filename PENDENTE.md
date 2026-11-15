@@ -1,6 +1,6 @@
 # The Natural Cam — o que falta (atualizado 2026-11-14 ~17h30)
 
-Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.47.0** (versionCode 133, compilada e 95 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
+Projeto: `ClaraCam/` (pacote br.com.duvier.thenaturalcam), versão atual **1.47.1** (versionCode 133, compilada e 95 testes no PC ok, NÃO TESTADA no aparelho; X Cam 1.40.0 testada pelo usuário: "está funcionando"),
 APK: `entrega/APK_1.39.1.apk` (testada: 1.38.4) (instalado no Reno 16 Pro). Partida congelada: `entrega/APK_PARTIDA.apk` (1.30.3).
 
 
@@ -614,6 +614,14 @@ interativa) + refino pela cor em alta resolução (filtro guiado), testada em 1�
   principal" funcionou). Regra nova: escuro sem medida de LONGE → 3,5× fica na principal
   (nearReason 1: volta à tele sozinha se a principal medir > ~55 cm). mainFarNow().
   NÃO testado no aparelho (usuário usando o app); APK na pasta do PC.
+
+## Feito na 1.47.1 (X Cam, 14/11 22h)
+- Usuário: na 1.47.0 a qualidade caiu e o rótulo ganhou "letras inventadas". Causa provável: a nitidez do PhotonLook
+  realçava o grão que a limpeza nova deixa. Em pouca luz agora vale o par inteiro do Câmera X 0.1.15: limpeza
+  que preserva traço + nitidez que só age em borda/traço acima de ~2,2σ (detalhe 55, halo ≤ 4,4 níveis), com o
+  mesmo medidor de ruído (`BurstFusion.noiseModel`). A cor do PhotonLook continua. Boa luz: sem mudança.
+- Teste no PC: a nitidez nova deixa o grão do fundo igual (σ 4,00 → 4,00) e não enfraquece as letras.
+- NÃO TESTADO no aparelho.
 
 ## Feito na 1.47.0 (X Cam, 14/11 noite)
 - Texto miúdo do rótulo à noite: a limpeza Wiener 8×8 (NightDenoise) foi trocada pela limpeza do Câmera X 0.1.15
